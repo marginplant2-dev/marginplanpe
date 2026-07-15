@@ -12,7 +12,11 @@ from fastapi.responses import RedirectResponse
 from app.core.config import settings as app_settings
 from app.core.dependencies import CurrentAdmin
 from app.models.user import UserRole
-from app.services.zerodha_service import zerodha
+from app.services.zerodha_service import (
+    FAILOVER_CMD_CHANNEL,
+    FAILOVER_STATUS_KEY,
+    zerodha,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/zerodha", tags=["admin-zerodha"])
@@ -71,7 +75,14 @@ async def get_routing(admin: CurrentAdmin):
             await cfg.insert()
         except Exception:
             logger.debug("routing_seed_failed", exc_info=True)
-    return {"success": True, "config": _routing_dict(cfg), "live": zerodha.get_failover_status()}
+    # Live status lives in the FEED process; it publishes to Redis. Read it
+    # here (backend worker) so the panel shows real health across processes.
+    from app.core.redis_client import cache_get
+
+    live = await cache_get(FAILOVER_STATUS_KEY)
+    if not live:
+        live = zerodha.get_failover_status()  # fallback if feed hasn't published
+    return {"success": True, "config": _routing_dict(cfg), "live": live}
 
 
 @router.put("/routing")
@@ -116,8 +127,15 @@ async def routing_test_disconnect(
     then re-routes and self-heal reconnects the account. Super-admin only."""
     if getattr(admin, "role", None) != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super-admin only")
-    await zerodha.disconnect_account_ws(account)
-    return {"success": True, "live": zerodha.get_failover_status()}
+    # The WS pool lives in the FEED process; publish the command for its
+    # listener to execute (backend workers have no pool to disconnect).
+    from app.core.redis_client import publish
+
+    await publish(FAILOVER_CMD_CHANNEL, {"action": "disconnect", "account": account})
+    return {
+        "success": True,
+        "message": f"Drop Account {'A' if account == 0 else 'B'} sent to feed",
+    }
 
 
 @router.get("/status")

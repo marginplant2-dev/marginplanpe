@@ -552,6 +552,18 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                     name="zerodha_feed_failover",
                 )
             )
+            # Listener for admin failover commands (off-market test disconnect) —
+            # the admin API runs in backend workers and publishes here; only the
+            # feed leader (which owns the WS pool) can execute them.
+            subtasks.append(
+                _asyncio.create_task(
+                    _supervise(
+                        "zerodha_failover_cmd",
+                        _zerodha_heal.feed_failover_cmd_listener,
+                    ),
+                    name="zerodha_failover_cmd",
+                )
+            )
             # Per-minute bid/ask aggregator flush — co-located under the
             # leader:feed gate because tick_loop (above) folds live quotes into
             # this worker's IN-PROCESS bucket memory; the flush loop persists

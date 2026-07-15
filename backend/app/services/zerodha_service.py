@@ -65,6 +65,15 @@ def _ensure_aware_utc(dt: datetime | None) -> datetime | None:
     return dt
 
 
+# Cross-process failover bridge: the failover engine + WS pool live in the
+# FEED process, but the admin API is served by BACKEND workers (different
+# process, no shared memory). The feed publishes its live status to this Redis
+# key and listens for admin commands on this channel, so the admin panel can
+# view live health + trigger off-market tests across processes.
+FAILOVER_STATUS_KEY = "zerodha:failover:status"
+FAILOVER_CMD_CHANNEL = "zerodha:failover:cmd"
+
+
 class ZerodhaService:
     """Kite Connect REST + WebSocket wrapper.
 
@@ -2809,12 +2818,80 @@ class ZerodhaService:
                     self._effective_route = new_route
                     if self._failover_enabled_cache:
                         self._apply_routing_moves()
+                    # Publish live status to Redis so the admin API (served by
+                    # BACKEND workers, a separate process) can display it.
+                    try:
+                        from app.core.redis_client import cache_set
+
+                        await cache_set(
+                            FAILOVER_STATUS_KEY, self.get_failover_status(), ttl_sec=15
+                        )
+                    except Exception:
+                        pass
                 except Exception:
                     logger.exception("zerodha_feed_failover_tick_failed")
                 await asyncio.sleep(interval_sec)
         finally:
             self._failover_running = False
             logger.info("zerodha_feed_failover_loop_stopped")
+
+    async def feed_failover_cmd_listener(self) -> None:
+        """LEADER-ONLY: consume admin failover commands (off-market test
+        disconnect) from Redis and execute them on the FEED process, which
+        owns the WS pool. The admin API (backend workers) can't touch the
+        pool directly, so it publishes here."""
+        from app.core.redis_client import pubsub
+
+        backoff = 1.0
+        ps: Any = None
+        try:
+            while True:
+                try:
+                    if ps is None:
+                        ps = pubsub()
+                        await ps.subscribe(FAILOVER_CMD_CHANNEL)
+                        logger.info("zerodha_failover_cmd_listener_started")
+                    async for msg in ps.listen():
+                        if msg.get("type") != "message":
+                            continue
+                        raw = msg.get("data")
+                        if isinstance(raw, bytes):
+                            raw = raw.decode("utf-8", "ignore")
+                        if not raw:
+                            continue
+                        try:
+                            data = json.loads(raw)
+                        except Exception:
+                            continue
+                        if data.get("action") == "disconnect":
+                            try:
+                                acct = int(data.get("account"))
+                                if acct in (0, 1):
+                                    await self.disconnect_account_ws(acct)
+                            except Exception:
+                                logger.warning(
+                                    "zerodha_failover_cmd_disconnect_failed",
+                                    exc_info=True,
+                                )
+                    backoff = 1.0
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.warning("zerodha_failover_cmd_listener_error", exc_info=True)
+                    if ps is not None:
+                        try:
+                            await ps.close()
+                        except Exception:
+                            pass
+                        ps = None
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, 30.0)
+        finally:
+            if ps is not None:
+                try:
+                    await ps.unsubscribe(FAILOVER_CMD_CHANNEL)
+                except Exception:
+                    pass
 
     def stop_feed_failover(self) -> None:
         self._failover_running = False
