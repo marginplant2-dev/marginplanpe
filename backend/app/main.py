@@ -538,6 +538,20 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                     name="zerodha_ws_self_heal",
                 )
             )
+            # Dual-account HA failover controller — routes each exchange's
+            # tokens to its desired account (A=NSE/BSE, B=MCX) and fails over
+            # to the survivor when the desired account goes unhealthy. Reads
+            # the leader's IN-PROCESS WS pool + tick heartbeats, so it MUST
+            # ride the same leader:feed gate as the pool it steers.
+            subtasks.append(
+                _asyncio.create_task(
+                    _supervise(
+                        "zerodha_feed_failover",
+                        _partial(_zerodha_heal.feed_failover_loop, interval_sec=3.0),
+                    ),
+                    name="zerodha_feed_failover",
+                )
+            )
             # Per-minute bid/ask aggregator flush — co-located under the
             # leader:feed gate because tick_loop (above) folds live quotes into
             # this worker's IN-PROCESS bucket memory; the flush loop persists

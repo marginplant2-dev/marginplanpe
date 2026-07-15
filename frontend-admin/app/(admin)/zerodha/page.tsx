@@ -30,6 +30,7 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { DataTable, type Column } from "@/components/common/DataTable";
 import { StatusPill } from "@/components/common/StatusPill";
 import { AutoLoginPanel } from "@/components/zerodha/AutoLoginPanel";
+import { FeedRoutingCard } from "@/components/zerodha/FeedRoutingCard";
 
 type Settings = {
   apiKey: string;
@@ -461,8 +462,8 @@ export default function ZerodhaConnectPage() {
       {/* ── Account A / Account B tab switcher ──────────────────── */}
       <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/30 p-1 w-fit">
         {[
-          { idx: 0, label: "Account A", desc: "Primary (up to 3000 tokens)" },
-          { idx: 1, label: "Account B", desc: "Secondary (+3000 tokens)" },
+          { idx: 0, label: "Account A", desc: "NSE / BSE feed" },
+          { idx: 1, label: "Account B", desc: "MCX feed" },
         ].map(({ idx, label, desc }) => (
           <button
             key={idx}
@@ -493,6 +494,8 @@ export default function ZerodhaConnectPage() {
       )}
 
       <AutoLoginPanel account={activeAccount} />
+
+      <FeedRoutingCard />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
