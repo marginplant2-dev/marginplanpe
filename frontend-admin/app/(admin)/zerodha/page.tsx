@@ -460,23 +460,55 @@ export default function ZerodhaConnectPage() {
       />
 
       {/* ── Account A / Account B tab switcher ──────────────────── */}
-      <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/30 p-1 w-fit">
+      <div className="flex w-full flex-col gap-2 rounded-xl border border-border bg-muted/30 p-1.5 sm:w-fit sm:flex-row sm:items-stretch">
         {[
-          { idx: 0, label: "Account A", desc: "NSE / BSE feed" },
-          { idx: 1, label: "Account B", desc: "MCX feed" },
-        ].map(({ idx, label, desc }) => (
+          {
+            idx: 0,
+            label: "Account A",
+            title: "NSE + BSE",
+            desc: "Equity + F&O feed",
+            tag: "Equity",
+          },
+          {
+            idx: 1,
+            label: "Account B",
+            title: "MCX",
+            desc: "Commodities feed",
+            tag: "Commodity",
+          },
+        ].map(({ idx, label, title, desc, tag }) => (
           <button
             key={idx}
             onClick={() => setActiveAccount(idx)}
             className={cn(
-              "flex flex-col items-start rounded-md px-4 py-2 text-left transition-all",
+              "flex flex-1 flex-col items-start rounded-lg px-4 py-3 text-left transition-all",
               activeAccount === idx
-                ? "bg-background shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground"
+                ? "bg-background shadow-sm ring-1 ring-emerald-500/40"
+                : "text-muted-foreground hover:bg-background/50 hover:text-foreground"
             )}
           >
-            <span className="text-sm font-semibold">{label}</span>
-            <span className="text-[10px] text-muted-foreground">{desc}</span>
+            <div className="flex w-full items-center justify-between gap-3">
+              <span
+                className={cn(
+                  "text-base font-bold",
+                  activeAccount === idx ? "text-foreground" : "",
+                )}
+              >
+                {label}
+              </span>
+              <span
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                  idx === 0
+                    ? "bg-emerald-500/15 text-emerald-400"
+                    : "bg-amber-500/15 text-amber-400",
+                )}
+              >
+                {tag}
+              </span>
+            </div>
+            <span className="mt-0.5 text-sm font-semibold text-foreground/90">{title}</span>
+            <span className="text-xs text-muted-foreground">{desc}</span>
           </button>
         ))}
       </div>
