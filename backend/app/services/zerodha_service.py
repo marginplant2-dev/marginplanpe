@@ -72,6 +72,9 @@ def _ensure_aware_utc(dt: datetime | None) -> datetime | None:
 # view live health + trigger off-market tests across processes.
 FAILOVER_STATUS_KEY = "zerodha:failover:status"
 FAILOVER_CMD_CHANNEL = "zerodha:failover:cmd"
+# WS pool snapshot the feed publishes so the admin Status panel (backend
+# workers) shows the real per-account ticker state + subscribed count.
+WS_POOL_KEY = "zerodha:ws_pool"
 
 
 class ZerodhaService:
@@ -257,35 +260,53 @@ class ZerodhaService:
             await s.insert()
         return s
 
+    async def _pool_info_xproc(self) -> dict[str, Any]:
+        """WS pool info that works across processes. Use the in-process pool if
+        this worker owns one (the feed leader); otherwise read the snapshot the
+        feed publishes to Redis — backend workers have no pool of their own, so
+        without this the admin Status panel always showed DISCONNECTED / 0."""
+        pool = self.get_ws_pool_info()
+        if pool.get("total_connections", 0) > 0:
+            return pool
+        try:
+            from app.core.redis_client import cache_get
+
+            rp = await cache_get(WS_POOL_KEY)
+            if isinstance(rp, dict) and rp.get("connections") is not None:
+                return rp
+        except Exception:
+            pass
+        return pool
+
+    def _pool_entry_for(self, pool: dict[str, Any], api_key: str) -> dict[str, Any] | None:
+        if not api_key:
+            return None
+        return next(
+            (c for c in pool.get("connections", []) if c.get("api_key") == api_key),
+            None,
+        )
+
     async def get_status(self, account_index: int = 0) -> dict[str, Any]:
         s = await self._get_settings(account_index)
-        pool = self.get_ws_pool_info()
-
-        # _async_set_status() always writes to Account A's DB document, so
-        # s.wsStatus is stale for Account B. Derive it from the live pool instead.
-        b_last_close_reason = ""
-        if account_index != 0 and s.apiKey:
-            with self._ticker_lock:
-                b_entry = next(
-                    (e for e in self._tickers if e.get("api_key") == s.apiKey),
-                    None,
-                )
-                b_connected = bool(b_entry and b_entry.get("connected"))
-                b_last_close_reason = (b_entry or {}).get("last_close_reason", "")
-            ws_status_str = WsStatus.CONNECTED.value if b_connected else WsStatus.DISCONNECTED.value
-        else:
-            ws_status_str = s.wsStatus.value if hasattr(s.wsStatus, "value") else str(s.wsStatus)
-
+        pool = await self._pool_info_xproc()
+        # Derive THIS account's live ticker state from the pool by api_key. The
+        # pool comes from the FEED process (via Redis), so the admin panel
+        # (backend workers) reflects the real socket + this account's own
+        # subscribed count (e.g. MCX on Account B) — not a stale/empty pool.
+        entry = self._pool_entry_for(pool, s.apiKey)
+        connected = bool(entry and entry.get("connected"))
+        acct_tokens = int(entry.get("tokens_count", 0)) if entry else 0
+        ws_status_str = WsStatus.CONNECTED.value if connected else WsStatus.DISCONNECTED.value
         return {
             "isConfigured": bool(s.apiKey and s.apiSecret),
-            "isConnected": s.isConnected,
+            "isConnected": connected or s.isConnected,
             "wsStatus": ws_status_str,
-            "wsLastError": b_last_close_reason or s.wsLastError,
+            "wsLastError": (entry or {}).get("last_close_reason", "") or s.wsLastError,
             "lastConnected": s.lastConnected,
             "tokenExpiry": s.tokenExpiry,
-            "subscribedCount": pool["total_tokens_subscribed"],
+            "subscribedCount": acct_tokens,
             "dbSubscribedCount": len(s.subscribedInstruments),
-            "wsConnections": pool["total_connections"],
+            "wsConnections": pool.get("total_connections", 0),
             "wsPool": pool,
             "enabledSegments": s.enabledSegments.model_dump(),
             "redirectUrl": s.redirectUrl,
@@ -298,21 +319,14 @@ class ZerodhaService:
         token_expiry = _ensure_aware_utc(s.tokenExpiry)
         is_token_expired = bool(token_expiry and now_utc() >= token_expiry)
         default_redirect = app_settings.zerodha_redirect_url
-        # For Account B, wsStatus in DB is never updated (only Account A's doc
-        # is written by _async_set_status). Derive live status from the pool.
-        if account_index != 0 and s.apiKey:
-            with self._ticker_lock:
-                b_entry = next(
-                    (e for e in self._tickers if e.get("api_key") == s.apiKey),
-                    None,
-                )
-                b_live = bool(b_entry and b_entry.get("connected"))
-                b_err = (b_entry or {}).get("last_close_reason", "") or s.wsLastError
-            ws_status_str = WsStatus.CONNECTED.value if b_live else WsStatus.DISCONNECTED.value
-            ws_last_error = b_err
-        else:
-            ws_status_str = str(s.wsStatus)
-            ws_last_error = s.wsLastError
+        # Derive live ticker state from the cross-process pool (feed → Redis),
+        # by this account's api_key — so BOTH accounts show the real socket
+        # state on the admin panel served by backend workers.
+        pool = await self._pool_info_xproc()
+        entry = self._pool_entry_for(pool, s.apiKey)
+        live = bool(entry and entry.get("connected"))
+        ws_status_str = WsStatus.CONNECTED.value if live else WsStatus.DISCONNECTED.value
+        ws_last_error = (entry or {}).get("last_close_reason", "") or s.wsLastError
 
         return {
             "apiKey": s.apiKey,
@@ -2825,6 +2839,9 @@ class ZerodhaService:
 
                         await cache_set(
                             FAILOVER_STATUS_KEY, self.get_failover_status(), ttl_sec=15
+                        )
+                        await cache_set(
+                            WS_POOL_KEY, self.get_ws_pool_info(), ttl_sec=15
                         )
                     except Exception:
                         pass
