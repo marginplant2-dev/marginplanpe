@@ -11,6 +11,7 @@ from fastapi.responses import RedirectResponse
 
 from app.core.config import settings as app_settings
 from app.core.dependencies import CurrentAdmin
+from app.models.user import UserRole
 from app.services.zerodha_service import zerodha
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,80 @@ async def update_settings(
 ):
     await zerodha.update_settings(payload, account)
     return {"success": True, "settings": await zerodha.get_settings_full(account)}
+
+
+# ─────────────────── Feed routing & HA failover ──────────────────────
+
+
+def _routing_dict(cfg) -> dict[str, Any]:
+    return {
+        "exchange_account_map": cfg.exchange_account_map,
+        "failover_enabled": cfg.failover_enabled,
+        "failover_confirm_down_sec": cfg.failover_confirm_down_sec,
+        "failback_confirm_up_sec": cfg.failback_confirm_up_sec,
+        "health_stale_sec": cfg.health_stale_sec,
+    }
+
+
+@router.get("/routing")
+async def get_routing(admin: CurrentAdmin):
+    """Exchange→account map + failover knobs + LIVE health/route snapshot."""
+    from app.models.zerodha_feed_routing import ZerodhaFeedRouting
+
+    cfg = await ZerodhaFeedRouting.find_one()
+    if cfg is None:
+        cfg = ZerodhaFeedRouting()
+        try:
+            await cfg.insert()
+        except Exception:
+            logger.debug("routing_seed_failed", exc_info=True)
+    return {"success": True, "config": _routing_dict(cfg), "live": zerodha.get_failover_status()}
+
+
+@router.put("/routing")
+async def update_routing(payload: dict[str, Any], admin: CurrentAdmin):
+    """Update routing map / failover knobs. Super-admin only."""
+    if getattr(admin, "role", None) != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super-admin only")
+    from app.models.zerodha_feed_routing import ZerodhaFeedRouting
+
+    cfg = await ZerodhaFeedRouting.find_one() or ZerodhaFeedRouting()
+    m = payload.get("exchange_account_map")
+    if isinstance(m, dict):
+        clean: dict[str, int] = {}
+        for k, v in m.items():
+            try:
+                iv = int(v)
+            except (TypeError, ValueError):
+                continue
+            if iv in (0, 1):
+                clean[str(k).upper()] = iv
+        if clean:
+            cfg.exchange_account_map = clean
+    if "failover_enabled" in payload:
+        cfg.failover_enabled = bool(payload["failover_enabled"])
+    for f in ("failover_confirm_down_sec", "failback_confirm_up_sec", "health_stale_sec"):
+        if f in payload:
+            try:
+                setattr(cfg, f, max(1, int(payload[f])))
+            except (TypeError, ValueError):
+                pass
+    await cfg.save()
+    return {"success": True, "config": _routing_dict(cfg)}
+
+
+@router.post("/routing/test-disconnect")
+async def routing_test_disconnect(
+    admin: CurrentAdmin,
+    account: int = Query(ge=0, le=1),
+):
+    """OFF-MARKET TEST ONLY — tear down one account's WS (account-scoped) to
+    exercise failover. Its tokens re-home onto the survivor; the failover loop
+    then re-routes and self-heal reconnects the account. Super-admin only."""
+    if getattr(admin, "role", None) != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super-admin only")
+    await zerodha.disconnect_account_ws(account)
+    return {"success": True, "live": zerodha.get_failover_status()}
 
 
 @router.get("/status")
