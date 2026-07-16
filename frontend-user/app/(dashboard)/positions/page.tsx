@@ -1534,6 +1534,9 @@ export default function PositionsPage() {
         open={!!editing}
         kind={editing?.kind ?? "TP"}
         row={editing?.row}
+        currentLtp={
+          editing?.row ? liveLtpFor(editing.row, resolveSide(editing.row)) : 0
+        }
         source={editing?.source ?? "active"}
         onClose={() => setEditing(null)}
         onSaved={() => {
@@ -1812,6 +1815,7 @@ function EditSlTpDialog({
   kind,
   row,
   source,
+  currentLtp,
   onClose,
   onSaved,
 }: {
@@ -1819,9 +1823,11 @@ function EditSlTpDialog({
   kind: "TP" | "SL";
   row: any;
   source: "position" | "active";
+  currentLtp: number;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const ltpDir = usePriceFlash(currentLtp);
   const initial =
     kind === "TP"
       ? row?.target != null
@@ -1876,6 +1882,30 @@ function EditSlTpDialog({
             {kind === "TP" ? "Take Profit" : "Stop Loss"} — {row?.symbol ?? ""}
           </DialogTitle>
         </DialogHeader>
+        {currentLtp > 0 && (
+          <div className="flex items-center justify-between rounded-lg border border-border bg-muted/40 px-3 py-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Current price
+            </span>
+            <span
+              className={cn(
+                "text-xl font-bold tabular-nums transition-colors",
+                ltpDir === "up"
+                  ? "text-emerald-500"
+                  : ltpDir === "down"
+                    ? "text-red-500"
+                    : "text-foreground",
+              )}
+            >
+              {fmtFeedPrice(
+                currentLtp,
+                row?.currency_quote,
+                row?.segment_type,
+                row?.exchange,
+              )}
+            </span>
+          </div>
+        )}
         <div className="space-y-3">
           <Input
             type="number"

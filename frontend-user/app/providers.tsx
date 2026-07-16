@@ -47,10 +47,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
             // Keep cached data for 5 min after last use so back/forward
             // navigation is snappy.
             gcTime: 5 * 60_000,
-            // Focus + reconnect refetches DO catch stale data after a
-            // pause, but they only refetch what's currently mounted —
-            // not the whole cache. That's the right balance for prod.
-            refetchOnWindowFocus: true,
+            // APK-like feel: do NOT refetch every time the app regains focus
+            // (switching back to the tab / reopening the PWA). That was firing
+            // a refetch storm on every open → visible "loading". Cached data
+            // paints instantly; live prices keep flowing over the WebSocket and
+            // each query still background-refreshes on its own refetchInterval,
+            // so nothing goes stale. Reconnect refetch stays on (network drop
+            // → come back → refresh once).
+            refetchOnWindowFocus: false,
             refetchOnReconnect: true,
             // First mount of a query renders cached data immediately and
             // refetches in the background if stale — no "Loading…" flash.
