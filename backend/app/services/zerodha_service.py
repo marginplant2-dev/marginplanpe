@@ -2593,6 +2593,14 @@ class ZerodhaService:
             connected = bool(entry and entry.get("connected"))
         if not connected:
             return False
+        # Off market hours a connected socket is SILENT BY DESIGN (no ticks) —
+        # don't false-flag it UNHEALTHY. This is the pre-open / overnight /
+        # single-market-closed case (e.g. Account B = MCX before 09:00, or any
+        # account after 23:30) that was wrongly showing UNHEALTHY and triggering
+        # a needless failover. During the trading window a connected-but-silent
+        # socket IS suspect (half-open), so the tick check below still applies.
+        if not self._feed_expected_now():
+            return True
         now = time.monotonic()
         ages = [now - t for t in self._last_tick_at_by_api_key.values()]
         feed_live = any(a <= self._health_stale_sec for a in ages) if ages else False
@@ -2600,6 +2608,25 @@ class ZerodhaService:
             return True  # quiet everywhere → connected == healthy
         last = self._last_tick_at_by_api_key.get(api_key)
         return last is not None and (now - last) <= self._health_stale_sec
+
+    @staticmethod
+    def _feed_expected_now() -> bool:
+        """True during the broad Indian trading window (weekday ~09:00–23:30
+        IST) when SOME exchange is live (NSE 09:15–15:30, MCX 09:00–23:30), so a
+        connected-but-silent socket is genuinely suspect. Outside it, quiet is
+        normal (pre-open / overnight / weekend) → a connected socket is healthy.
+        """
+        from datetime import time as _dtime
+
+        from app.utils.time_utils import is_weekend, now_ist
+
+        try:
+            n = now_ist()
+            if is_weekend(n.date()):
+                return False
+            return _dtime(9, 0) <= n.time() <= _dtime(23, 30)
+        except Exception:
+            return True  # fail-safe: keep the tick check active
 
     def _find_account_entry_idx_locked(self, account_index: int) -> int:
         """Index of the target account's CONNECTED pool entry with room.
