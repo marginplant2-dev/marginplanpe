@@ -18,6 +18,7 @@ from app.core.exceptions import (
     AccountInactiveError,
     AppError,
     InvalidCredentialsError,
+    TenantLoginNotAllowedError,
     TokenInvalidError,
     TwoFAInvalidError,
     TwoFARequiredError,
@@ -38,7 +39,7 @@ from app.core.security import (
 )
 from app.models.user import User, UserRole, UserStatus
 from app.schemas.auth import AuthUserOut, TokenPair
-from app.services import user_service
+from app.services import branding_service, user_service
 from app.utils.time_utils import now_utc
 
 logger = logging.getLogger(__name__)
@@ -69,6 +70,40 @@ def _is_locked(_user: User) -> bool:
     return False
 
 
+# ── Multi-tenant login isolation (pure predicate) ────────────────────
+def user_in_tenant(
+    *,
+    user_id,
+    user_role: UserRole,
+    user_assigned_admin_id,
+    tenant_admin_id,
+) -> bool:
+    """May a user authenticate on the branded domain owned by
+    ``tenant_admin_id``?  Pure function — no DB / IO, so it's fully
+    unit-testable (see tests/test_login_tenant_isolation.py).
+
+    Allowed when ANY of:
+      * the user is a SUPER_ADMIN (platform owner — every domain),
+      * the user IS the admin who owns this domain (own site login),
+      * the user's ``assigned_admin_id`` is that admin (the admin's
+        whole downstream pool — clients / dealers / masters / brokers).
+
+    Everyone else (users of a DIFFERENT admin, or super-admin-pool
+    users whose ``assigned_admin_id`` is None) is rejected on this
+    branded domain — they must use their own login link / the main
+    platform domain. All ids are compared as strings so ObjectId and
+    str callers agree.
+    """
+    if user_role == UserRole.SUPER_ADMIN:
+        return True
+    tid = str(tenant_admin_id)
+    if str(user_id) == tid:
+        return True
+    if user_assigned_admin_id is not None and str(user_assigned_admin_id) == tid:
+        return True
+    return False
+
+
 # ── Login ────────────────────────────────────────────────────────────
 async def authenticate(
     *,
@@ -78,6 +113,7 @@ async def authenticate(
     audience: LoginAudience,
     ip: str,
     user_agent: str | None,
+    login_host: str | None = None,
 ) -> TokenPair:
     user = await user_service.find_by_identifier(identifier)
     if user is None:
@@ -114,6 +150,34 @@ async def authenticate(
         if not user.two_fa_secret or not verify_totp(user.two_fa_secret, two_fa_code):
             await _register_failed_attempt(user)
             raise TwoFAInvalidError()
+
+    # ── Multi-tenant login isolation ─────────────────────────────────
+    # Gate the login by the branded domain it arrived on. Deliberately
+    # placed AFTER the password + 2FA verify, so only the account's real
+    # owner ever learns of a domain mismatch — no cross-tenant account
+    # enumeration. A host that resolves to NO admin custom_domain is the
+    # platform's own main domain (or the shared API host) → unrestricted,
+    # exactly like today; only a real branded tenant domain gates.
+    if settings.LOGIN_TENANT_ISOLATION and settings.BRANDING_ENABLED and login_host:
+        tenant_admin = await branding_service.find_admin_by_domain(login_host)
+        if tenant_admin is not None and not user_in_tenant(
+            user_id=user.id,
+            user_role=user.role,
+            user_assigned_admin_id=user.assigned_admin_id,
+            tenant_admin_id=tenant_admin.id,
+        ):
+            logger.warning(
+                "login_tenant_mismatch user=%s role=%s assigned_admin=%s "
+                "domain=%s tenant_admin=%s enforce=%s",
+                user.id,
+                user.role.value,
+                user.assigned_admin_id,
+                login_host,
+                tenant_admin.id,
+                settings.LOGIN_TENANT_ISOLATION_ENFORCE,
+            )
+            if settings.LOGIN_TENANT_ISOLATION_ENFORCE:
+                raise TenantLoginNotAllowedError()
 
     # Mint tokens — stamp the user's current session epoch into the access
     # token so an admin block / password reset (which bumps token_version)

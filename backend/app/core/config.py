@@ -270,6 +270,31 @@ class Settings(BaseSettings):
     # default keeps the verify endpoint a no-op when unset.
     PLATFORM_PUBLIC_IP: str = ""
 
+    # ── Multi-tenant login isolation ─────────────────────────────────
+    # When a login lands on a branded admin's custom domain, gate it so
+    # ONLY accounts that belong to that admin can authenticate there:
+    #   * the admin who owns the domain (logging into their own site),
+    #   * any user whose `assigned_admin_id` is that admin (the admin's
+    #     whole downstream pool — clients/dealers/masters/brokers),
+    #   * any SUPER_ADMIN (platform owner, allowed on every domain).
+    # A user of admin X can no longer log in via admin Y's domain.
+    #
+    # The platform's OWN main domain (anything that does NOT resolve to
+    # an admin's custom_domain) stays unrestricted — the super-admin
+    # main login accepts every account, exactly as today. Transferring
+    # a user to another admin (which rewrites `assigned_admin_id`) moves
+    # their login scope automatically.
+    #
+    # Requires BRANDING_ENABLED (needs domain→admin resolution). Master
+    # OFF by default so this ships dark; prod behaviour is byte-identical
+    # until deliberately enabled.
+    LOGIN_TENANT_ISOLATION: bool = False
+    # Rollout safety valve. With isolation ON but ENFORCE OFF, a
+    # cross-tenant login is ALLOWED but logged at WARNING so operators
+    # can see who WOULD be blocked (and catch any mis-assigned user)
+    # before turning on hard rejection. Flip True to actually reject.
+    LOGIN_TENANT_ISOLATION_ENFORCE: bool = False
+
     # ── Outage-proof boolean parsing ─────────────────────────────────
     # A mistyped boolean env var (the real incident: `METAAPI_FEED=fasle`)
     # made pydantic's strict bool_parsing raise at Settings() construction,
@@ -291,6 +316,8 @@ class Settings(BaseSettings):
         "LOG_JSON",
         "RUN_SEED_ON_STARTUP",
         "BRANDING_ENABLED",
+        "LOGIN_TENANT_ISOLATION",
+        "LOGIN_TENANT_ISOLATION_ENFORCE",
         mode="before",
     )
     @classmethod

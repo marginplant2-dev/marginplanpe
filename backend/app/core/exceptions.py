@@ -89,6 +89,20 @@ class AccountInactiveError(AuthError):
     message = "Your account is not active"
 
 
+class TenantLoginNotAllowedError(AuthError):
+    # Multi-tenant login isolation: the credentials are valid, but the
+    # branded domain the login arrived on belongs to a DIFFERENT admin
+    # than the one this user is registered under. Raised only after the
+    # password/2FA verify, so only the account's real owner ever sees it
+    # (no cross-tenant account enumeration).
+    code = "TENANT_LOGIN_NOT_ALLOWED"
+    status_code = status.HTTP_403_FORBIDDEN
+    message = (
+        "This account isn't registered on this site. "
+        "Please use your own login link."
+    )
+
+
 class InsufficientPermissionsError(AppError):
     code = "FORBIDDEN"
     status_code = status.HTTP_403_FORBIDDEN

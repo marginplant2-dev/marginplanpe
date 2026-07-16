@@ -145,6 +145,10 @@ async def login(payload: LoginRequest, request: Request):
         audience="user",
         ip=_client_ip(request),
         user_agent=request.headers.get("user-agent"),
+        # Branded domain the login arrived on (Origin/Referer preferred
+        # over the shared API Host — same signal register/CORS use). Lets
+        # auth_service enforce multi-tenant login isolation when enabled.
+        login_host=_signup_host(request),
     )
     await log_event(
         action=AuditAction.LOGIN,
