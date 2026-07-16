@@ -292,9 +292,9 @@ async def run_boot_migrations() -> None:
 # `leader:risk:shard:k` Redis lock, so ONE worker could win several shard locks
 # and run multiple sweeps on a single event loop — exactly the 3-shards-on-one-
 # worker case that starved the loop (3s+ `ltp_ms`, 14s `risk_enforcer_tick_overrun`).
-# This per-PROCESS gate caps a worker at one risk shard and prefers to keep
-# shards off the feed leader (already saturated by the 0.1s tick fanout), so the
-# N shards fan out across N distinct workers.
+# This per-PROCESS gate caps a worker at one risk shard and HARD-EXCLUDES the
+# feed leader (already saturated by the 0.1s tick fanout — never run risk there),
+# so the N shards fan out across N distinct HTTP backend workers.
 #
 # SAFETY (correctness > balance): if a shard stays denied for a few poll cycles
 # — fewer live workers than shards, e.g. after a crash — the gate relaxes so the
@@ -313,15 +313,29 @@ def _risk_shard_admit(shard_id: int) -> bool:
 
     if shard_id in _local_risk_shards_held:
         return True
-    capped = len(_local_risk_shards_held) >= _MAX_RISK_SHARDS_PER_WORKER
     is_leader = market_data_service.is_feed_leader()
-    if not capped and not is_leader:
+    # HARD EXCLUSION: the feed-leader process NEVER runs a risk shard.
+    # It is the WS-pool + 0.1s tick-fanout hot path on a single event loop
+    # (routinely CPU-pegged). A co-located risk sweep there both stalls tick
+    # publishing AND overruns 3-7s under load (observed 1800×/day when a
+    # recycling single HTTP worker kept dropping its shard lock and this
+    # ever-alive leader grabbed all four). Risk sharding lives EXCLUSIVELY on
+    # the HTTP backend workers, which read prices from the leader's `mdlive`
+    # Redis snapshot; their own relax path below guarantees every shard stays
+    # covered even while individual workers recycle. (RISK_SHARDS<=1 single-
+    # process dev is unaffected — that path co-locates risk in the feed
+    # factory and never reaches this gate.)
+    if is_leader:
+        return False
+    capped = len(_local_risk_shards_held) >= _MAX_RISK_SHARDS_PER_WORKER
+    if not capped:
         _local_risk_shards_held.add(shard_id)
         _risk_shard_admit_denials.pop(shard_id, None)
         return True
-    # Denied by the balance preference (capped or feed leader). Count denials
-    # and relax after a grace period so an otherwise-unclaimable shard still
-    # gets enforced somewhere (try_acquire then only wins it if truly free).
+    # Non-leader worker already at its shard cap. Count denials and relax after
+    # a grace period so a shard with no other taker (fewer live workers than
+    # shards, e.g. after a crash/recycle) is NEVER left un-enforced — the
+    # per-shard Redis lock still guarantees exactly one runner cluster-wide.
     n = _risk_shard_admit_denials.get(shard_id, 0) + 1
     _risk_shard_admit_denials[shard_id] = n
     if n >= _RISK_SHARD_RELAX_CYCLES:
