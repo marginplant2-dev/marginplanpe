@@ -49,7 +49,7 @@ export default function AdminLoginPage() {
             <ShieldCheck className="size-3" />
             Restricted access · Admin only
           </div>
-          <CardTitle className="text-2xl">Super Admin Login</CardTitle>
+          <CardTitle className="text-2xl">Admin Login</CardTitle>
           <CardDescription>
             MarginPlant Broker control panel — sign in with your admin credentials.
           </CardDescription>

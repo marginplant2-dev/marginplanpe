@@ -1,9 +1,10 @@
 1- sudo systemctl restart marginplant-backend
 
+repo - cd /opt/marginplant
 
 2 -sudo systemctl is-active marginplant-backend
 
-3. check_user CL30720788
+3. check_user CL49966876
 4. check_user CL65758646 2026-06-18
 
 5. sudo systemctl restart marginplant-backend
