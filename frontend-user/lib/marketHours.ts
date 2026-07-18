@@ -59,11 +59,21 @@ export function isInstrumentMarketOpen(
   // engine accepts orders at any time.
   if (seg.includes("CRYPTO") || exch === "CRYPTO" || exch === "BINANCE") return true;
 
-  // International equities / indices / metals / energy / forex — all
-  // Infoway-mirrored, 24/5. Closed only on Sat the whole day and Sun
-  // until ~17:00 EST (≈03:30 IST Mon). Approximate as Mon-Fri all hours
-  // + Sun 21:00 IST onwards (typical FX market open) — matches what
-  // traders see on TradingView for these symbols.
+  // International FX / spot metals (XAUUSD, XAGUSD…) / energy / global
+  // equities / indices — all Infoway-mirrored and trade on the OTC forex
+  // clock, which is anchored to New York time and DST-aware: the market
+  // runs Sun 17:00 ET → Fri 17:00 ET with a daily 17:00–18:00 ET
+  // maintenance break. We compute ET DIRECTLY (not a hard-coded IST
+  // offset) so summer/winter DST never drifts. In IST this lands as
+  // ~Mon 03:30 → Sat 02:30 with a ~02:30–03:30 daily break in summer,
+  // shifting +1h in winter — handled automatically.
+  //
+  // Prior bug this replaces: the WHOLE of Saturday (IST) was treated as
+  // closed from midnight, but Friday's session actually runs until
+  // ~02:30 IST Saturday — so a trader holding XAUUSD at ~01:00 IST
+  // Saturday could NOT close a live, in-profit position (the market was
+  // still open). The ET clock fixes that exactly, and also stops the old
+  // wrong "open" it showed on Sunday evenings IST.
   if (
     seg === "FOREX" ||
     seg === "STOCKS" ||
@@ -73,9 +83,26 @@ export function isInstrumentMarketOpen(
     seg.includes("FX") ||
     exch === "CDS"
   ) {
-    if (day === 6) return false; // Saturday closed
-    if (day === 0 && min < 21 * 60) return false; // Sun before 21:00 IST
-    return true;
+    const etParts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(now);
+    const etDay = etParts.find((p) => p.type === "weekday")?.value ?? "";
+    // en-GB can render midnight as "24" — normalise to 0 so 00:00–00:59 ET
+    // isn't mis-bucketed.
+    const etH = Number(etParts.find((p) => p.type === "hour")?.value ?? "0") % 24;
+    const etM = Number(etParts.find((p) => p.type === "minute")?.value ?? "0");
+    const etMin = etH * 60 + etM;
+    const CLOSE = 17 * 60; // 17:00 ET — daily close + Friday weekly close
+    const REOPEN = 18 * 60; // 18:00 ET — daily reopen (also Sunday open)
+    if (etDay === "Sat") return false; // weekend — fully closed
+    if (etDay === "Sun") return etMin >= CLOSE; // reopens Sun 17:00 ET
+    if (etDay === "Fri") return etMin < CLOSE; // weekly close Fri 17:00 ET
+    // Mon–Thu: open except the 17:00–18:00 ET daily maintenance break.
+    return !(etMin >= CLOSE && etMin < REOPEN);
   }
 
   // MCX commodities: Mon-Fri 09:00-23:30 IST (evening session merged).
