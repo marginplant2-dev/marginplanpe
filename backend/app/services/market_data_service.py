@@ -64,6 +64,42 @@ def is_feed_leader() -> bool:
     return _is_feed_leader
 
 
+# ── Feed process split (FEED_GROUP) ──────────────────────────────────
+# "all" (default) = one process feeds everything. "main" = Zerodha only
+# (numeric instrument tokens). "global" = crypto/forex/metals only (symbol
+# tokens). Set once at boot by main.py. Used to keep the global feed process
+# from ever touching Zerodha (and vice-versa) when the feed is split across
+# two cores — every subscription entry point filters to the process's group.
+_feed_group: str = "all"
+
+
+def set_feed_group(group: str) -> None:
+    global _feed_group
+    _feed_group = (group or "all").strip().lower()
+
+
+def _token_is_numeric(token: Any) -> bool:
+    """Zerodha instrument tokens are pure integers (e.g. 256265); Infoway /
+    Binance / MetaAPI tokens are symbol strings (BTCUSDT, EURUSD, XAUUSD)."""
+    return str(token).lstrip("-").isdigit()
+
+
+def _in_feed_group(token: Any) -> bool:
+    """True when a token belongs to THIS process's feed group."""
+    if _feed_group == "all":
+        return True
+    numeric = _token_is_numeric(token)
+    return numeric if _feed_group == "main" else (not numeric)
+
+
+def _group_filter(tokens: list) -> list:
+    """Drop tokens that belong to the OTHER feed group — so e.g. the global
+    process never forwards a numeric token to Zerodha (which it doesn't run)."""
+    if _feed_group == "all":
+        return list(tokens)
+    return [t for t in tokens if _in_feed_group(t)]
+
+
 # In-memory token → symbol cache (avoids MongoDB lookup on every tick)
 _token_symbol_cache: dict[str, str | None] = {}
 _TOKEN_CACHE_WARM = False
@@ -942,6 +978,9 @@ async def _forward_feed_subscription(tokens: list[str]) -> None:
     """Leader-side: subscribe cross-worker-requested tokens on the real feeds.
     Numeric tokens → Zerodha ticker; symbol-style tokens → Infoway. Adds them
     to `_subscribed` so the tick_loop mirrors them into `mdlive` + pub/sub."""
+    # Feed-split: forward only this process's group (global never talks to
+    # Zerodha; main never talks to Infoway). No-op when FEED_GROUP="all".
+    tokens = _group_filter(tokens)
     if not tokens:
         return
     _subscribed.update(tokens)
@@ -1161,6 +1200,9 @@ async def get_quotes(tokens: list[str]) -> list[dict[str, Any]]:
 
 
 def subscribe(tokens: list[str]) -> None:
+    # Feed-split: keep only tokens for THIS process's group so the global feed
+    # never seeds/forwards a Zerodha token (and vice-versa). No-op when "all".
+    tokens = _group_filter(tokens)
     _subscribed.update(tokens)
 
     # Seed an empty `_state` slot for every subscribed token so the leader's
@@ -1302,7 +1344,8 @@ async def ensure_open_position_subscriptions() -> dict[str, int]:
         return {"positions": 0, "kite": 0, "newly_subscribed": 0}
 
     # 1) Kite WS — warm `_state` for numeric tokens (no-op if already subbed).
-    if numeric:
+    #    Feed-split: skip on the global process — it doesn't run Zerodha.
+    if numeric and _feed_group in ("all", "main"):
         try:
             from app.services.zerodha_service import zerodha
 

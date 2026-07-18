@@ -84,6 +84,25 @@ class Settings(BaseSettings):
     # ceiling — no redeploy needed.
     MARKET_TICK_SEC: float = 0.07
 
+    # ── Feed process split (multi-core) ──────────────────────────────
+    # The feed leader is ONE asyncio event loop = ONE CPU core (Python GIL).
+    # To use a second core, run TWO feed processes split by upstream:
+    #   FEED_GROUP=main   → Zerodha WS pool (NSE/BSE/NFO/MCX) + poller + failover
+    #                       + all Zerodha helpers. Holds `leader:feed`.
+    #   FEED_GROUP=global → Binance + Infoway + MetaAPI (crypto/forex/metals)
+    #                       only. Holds a SEPARATE `leader:feed:global` lock.
+    #   FEED_GROUP=all    → single process runs everything (DEFAULT — today's
+    #                       behaviour, byte-identical; keeps single-box/dev
+    #                       deploys unchanged).
+    # The split is self-scoping: each process's in-process `_state` only holds
+    # its own upstream's ticks, so tick_loop / poller naturally act on just
+    # their group; `mdlive` + `market:tick` writes never overlap (numeric vs
+    # symbol tokens); the pending-order dedup lock prevents any double-fire.
+    # Risk enforcement is unaffected (RISK_SHARDS>1 runs on the HTTP backend
+    # workers reading `mdlive`, which carries BOTH groups). Revert to a single
+    # feed by setting FEED_GROUP=all and stopping the global service.
+    FEED_GROUP: str = "all"
+
     # ── Redis ────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
     # Bumped from 50 → 300 after the market_tick_loop started raising

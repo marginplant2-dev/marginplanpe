@@ -435,10 +435,24 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # leader → behaviour identical to the previous always-on tick loop.
     async def _feed_leader_main() -> None:
         market_data_service.set_feed_leader(True)
+        # Feed process split. "all" (default) runs everything on one core;
+        # "main" runs Zerodha + its helpers; "global" runs crypto/forex/metals
+        # only. Shared loops (tick_loop, poller, subscribe listener, open-pos,
+        # aggregator) run in BOTH and self-scope by which upstream populates
+        # `_state`; the market_data_service token filter keeps each side off
+        # the other's feed.
+        _grp = (settings.FEED_GROUP or "all").strip().lower()
+        market_data_service.set_feed_group(_grp)
+        _run_global = _grp in ("all", "global")  # Infoway / Binance / MetaAPI
+        _run_main = _grp in ("all", "main")       # Zerodha WS pool + helpers
+        logger.info(
+            "feed_leader_starting group=%s run_main=%s run_global=%s",
+            _grp, _run_main, _run_global,
+        )
         subtasks: list[_asyncio.Task] = []
         try:
             # Infoway (forex / crypto / metals / energy) — leader-only.
-            if settings.INFOWAY_AUTO_CONNECT and settings.INFOWAY_API_KEY.get_secret_value():
+            if _run_global and settings.INFOWAY_AUTO_CONNECT and settings.INFOWAY_API_KEY.get_secret_value():
                 try:
                     from app.services.infoway_service import (
                         default_symbols,
@@ -466,7 +480,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             try:
                 from app.services.binance_service import binance as _binance
 
-                if _binance.is_enabled():
+                if _run_global and _binance.is_enabled():
                     await _binance.start()
                     logger.info("binance_feed_auto_started")
             except Exception:
@@ -478,7 +492,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             try:
                 from app.services.metaapi_service import metaapi as _metaapi
 
-                if _metaapi.is_enabled():
+                if _run_global and _metaapi.is_enabled():
                     await _metaapi.start()
                     logger.info("metaapi_feed_auto_started")
             except Exception:
@@ -495,7 +509,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                 except RuntimeError:
                     pass
                 z_status = await _zerodha.get_status()
-                if z_status.get("isConnected"):
+                if _run_main and z_status.get("isConnected"):
                     try:
                         await _zerodha.connect_ws()
                         logger.info("zerodha_ws_pool_started_on_boot")
@@ -543,41 +557,36 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                     name="open_position_subscriptions",
                 )
             )
-            subtasks.append(
-                _asyncio.create_task(
-                    _supervise(
-                        "zerodha_ws_self_heal",
-                        _partial(_zerodha_heal.ws_self_heal_loop, interval_sec=30.0),
+            # Zerodha-only helpers — self-heal, dual-account HA failover
+            # controller, and the admin failover-command listener. All three
+            # read/steer the leader's IN-PROCESS Zerodha WS pool, so they run
+            # ONLY on the process that owns it (main / all). On the global feed
+            # process they'd have no pool AND the failover loop would overwrite
+            # the real status in Redis — so gate them off entirely.
+            if _run_main:
+                subtasks += [
+                    _asyncio.create_task(
+                        _supervise(
+                            "zerodha_ws_self_heal",
+                            _partial(_zerodha_heal.ws_self_heal_loop, interval_sec=30.0),
+                        ),
+                        name="zerodha_ws_self_heal",
                     ),
-                    name="zerodha_ws_self_heal",
-                )
-            )
-            # Dual-account HA failover controller — routes each exchange's
-            # tokens to its desired account (A=NSE/BSE, B=MCX) and fails over
-            # to the survivor when the desired account goes unhealthy. Reads
-            # the leader's IN-PROCESS WS pool + tick heartbeats, so it MUST
-            # ride the same leader:feed gate as the pool it steers.
-            subtasks.append(
-                _asyncio.create_task(
-                    _supervise(
-                        "zerodha_feed_failover",
-                        _partial(_zerodha_heal.feed_failover_loop, interval_sec=3.0),
+                    _asyncio.create_task(
+                        _supervise(
+                            "zerodha_feed_failover",
+                            _partial(_zerodha_heal.feed_failover_loop, interval_sec=3.0),
+                        ),
+                        name="zerodha_feed_failover",
                     ),
-                    name="zerodha_feed_failover",
-                )
-            )
-            # Listener for admin failover commands (off-market test disconnect) —
-            # the admin API runs in backend workers and publishes here; only the
-            # feed leader (which owns the WS pool) can execute them.
-            subtasks.append(
-                _asyncio.create_task(
-                    _supervise(
-                        "zerodha_failover_cmd",
-                        _zerodha_heal.feed_failover_cmd_listener,
+                    _asyncio.create_task(
+                        _supervise(
+                            "zerodha_failover_cmd",
+                            _zerodha_heal.feed_failover_cmd_listener,
+                        ),
+                        name="zerodha_failover_cmd",
                     ),
-                    name="zerodha_failover_cmd",
-                )
-            )
+                ]
             # Per-minute bid/ask aggregator flush — co-located under the
             # leader:feed gate because tick_loop (above) folds live quotes into
             # this worker's IN-PROCESS bucket memory; the flush loop persists
@@ -622,7 +631,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             # RISK_SHARDS > 1: the risk loop is NOT started here; instead N
             # independently-gated shard loops are registered below (each on its
             # own `leader:risk:shard:k`), reading prices from `mdlive`.
-            if settings.RISK_SHARDS <= 1:
+            # On a split, co-located risk stays with the main (Zerodha) process.
+            if _run_main and settings.RISK_SHARDS <= 1:
                 subtasks.append(
                     _asyncio.create_task(
                         _supervise(
@@ -632,52 +642,33 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                         name="risk_enforcer",
                     )
                 )
-            # Daily Zerodha auto-login: its 3-layer recovery calls
-            # connect_ws()/disconnect_ws() and verifies the ticker pool, all
-            # of which act on THIS worker's in-process ticker. It must run on
-            # the feed leader so the post-08:00-IST-rotation WS reconnect
-            # lands on the worker that owns the pool (otherwise the feed
-            # silently moves off the leader). Its own internal 30-min lock
-            # still guards against any duplicate fire.
-            from app.services.zerodha_auto_login_scheduler import (
-                zerodha_auto_login_loop,
-            )
-            subtasks.append(
-                _asyncio.create_task(
-                    _supervise("zerodha_auto_login_scheduler", zerodha_auto_login_loop),
-                    name="zerodha_auto_login_scheduler",
+            # Daily Zerodha auto-login (3-layer WS reconnect after the 08:00 IST
+            # token rotation) + subscription LRU-trim (evict stale option strikes
+            # so tick parsing + Kite's per-WS cap never overrun). BOTH act on
+            # THIS worker's in-process Zerodha ticker, so they run ONLY on the
+            # process that owns the pool (main / all) — never the global feed.
+            # trim always preserves open positions / watchlists / pinned tokens.
+            if _run_main:
+                from app.services.zerodha_auto_login_scheduler import (
+                    zerodha_auto_login_loop,
                 )
-            )
-
-            # Subscription LRU-trim: keep the live WS token set bounded so the
-            # leader's tick parsing + Kite's 3000-token-per-WS cap are never
-            # overrun (the list had grown to 3800, forcing the operator to
-            # manually "clear all subscriptions" — which cold-started the
-            # morning feed). Co-located on the feed leader because the trim
-            # drives `_ws_unsubscribe`, effective only on the worker holding
-            # the live WS. Open positions / watchlists / pinned tokens are
-            # always preserved by trim_subscriptions_lru.
-            subtasks.append(
-                _asyncio.create_task(
-                    _supervise(
-                        "zerodha_subscription_trim",
-                        _partial(
-                            _zerodha_heal.subscription_trim_loop,
-                            # Feed-leader was pegged at ~99% CPU parsing ~2341
-                            # tokens on one core, so the tick_loop fell behind
-                            # its 100ms cadence and prices lagged ~2s. Tightened
-                            # the LRU cap 1500→1200 and the sweep 30min→10min so
-                            # abandoned option-chain strikes are evicted sooner.
-                            # trim_subscriptions_lru ALWAYS preserves open
-                            # positions + watchlists + protected + most-recently
-                            # -used tokens, so only stale/unviewed strikes drop.
-                            interval_sec=600.0,
-                            keep_count=1200,
-                        ),
+                subtasks += [
+                    _asyncio.create_task(
+                        _supervise("zerodha_auto_login_scheduler", zerodha_auto_login_loop),
+                        name="zerodha_auto_login_scheduler",
                     ),
-                    name="zerodha_subscription_trim",
-                )
-            )
+                    _asyncio.create_task(
+                        _supervise(
+                            "zerodha_subscription_trim",
+                            _partial(
+                                _zerodha_heal.subscription_trim_loop,
+                                interval_sec=600.0,
+                                keep_count=1200,
+                            ),
+                        ),
+                        name="zerodha_subscription_trim",
+                    ),
+                ]
 
             # Drive the tick fanout in the foreground until cancelled
             # (leadership lost / shutdown) or its own _running flag clears.
@@ -702,8 +693,18 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # price incident where the feed-leader worker sat pegged at ~100% CPU).
     # Default True ⇒ single-process / dev behaviour is unchanged.
     if settings.RUN_FEED_LOOP:
+        # Feed-split: the global feed process elects on its OWN lock
+        # (`leader:feed:global`) so it can run CONCURRENTLY with the main
+        # (Zerodha) process which keeps `leader:feed`. FEED_GROUP=all/main
+        # both use `leader:feed` (mutually exclusive — only one wins), so a
+        # stray "all" process can never double-run the global feeds.
+        _feed_lock = (
+            "feed:global"
+            if (settings.FEED_GROUP or "all").strip().lower() == "global"
+            else "feed"
+        )
         feed_leader_task: _asyncio.Task = _asyncio.create_task(
-            _supervise("feed", _leader_only("feed", _feed_leader_main)),
+            _supervise("feed", _leader_only(_feed_lock, _feed_leader_main)),
             name="feed_leader",
         )
         # Keep reference on the app so it isn't GC'd and can be cancelled cleanly on shutdown
