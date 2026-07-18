@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDownLeft, ArrowUpRight, BarChart3, Receipt, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, BarChart3, Info, Receipt, TrendingDown, TrendingUp } from "lucide-react";
 import { ReportsAPI } from "@/lib/api";
 import { PageHeader } from "@/components/common/PageHeader";
 import { DataTable, type Column } from "@/components/common/DataTable";
@@ -44,24 +44,47 @@ export default function PnlReportPage() {
   const charges = Number(data?.total_charges ?? 0);
 
   const cols: Column<any>[] = [
-    { key: "symbol", header: "Symbol", render: (r) => <span className="font-medium">{r.symbol}</span> },
-    { key: "buy_qty", header: "Buy qty", align: "right" },
-    { key: "sell_qty", header: "Sell qty", align: "right" },
-    { key: "buy_value", header: "Buy value", align: "right", render: (r) => formatINR(r.buy_value) },
-    { key: "sell_value", header: "Sell value", align: "right", render: (r) => formatINR(r.sell_value) },
-    { key: "charges", header: "Charges", align: "right", render: (r) => <span className="text-muted-foreground">{formatINR(r.charges)}</span> },
+    { key: "symbol", header: "Symbol", render: (r) => <span className="font-semibold">{r.symbol}</span> },
+    { key: "buy_qty", header: "Buy qty", align: "right", render: (r) => <span className="tabular-nums">{r.buy_qty ?? 0}</span> },
+    { key: "sell_qty", header: "Sell qty", align: "right", render: (r) => <span className="tabular-nums">{r.sell_qty ?? 0}</span> },
+    // "Open" = net unmatched qty (buy − sell). Non-zero means a position is
+    // still running (or opened before this period), which is exactly why the
+    // Buy/Sell VALUE columns won't tie out to Net P&L. Amber = "still open",
+    // deliberately NOT green/red so it never reads as profit/loss.
+    {
+      key: "open_qty",
+      header: "Open",
+      align: "right",
+      render: (r) => {
+        const oq = Number(r.open_qty ?? 0);
+        if (!oq) return <span className="text-muted-foreground">—</span>;
+        return (
+          <span className="font-semibold tabular-nums text-amber-600 dark:text-amber-400">
+            {oq > 0 ? "+" : ""}
+            {oq}
+          </span>
+        );
+      },
+    },
+    { key: "buy_value", header: "Buy value", align: "right", render: (r) => <span className="tabular-nums">{formatINR(r.buy_value)}</span> },
+    { key: "sell_value", header: "Sell value", align: "right", render: (r) => <span className="tabular-nums">{formatINR(r.sell_value)}</span> },
+    { key: "charges", header: "Charges", align: "right", render: (r) => <span className="tabular-nums text-muted-foreground">{formatINR(r.charges)}</span> },
     {
       key: "pnl",
       header: "Net P&L",
       align: "right",
       render: (r) => (
-        <span className={cn("font-semibold tabular-nums", pnlColor(r.pnl))}>
+        <span className={cn("font-bold tabular-nums", pnlColor(r.pnl))}>
           {Number(r.pnl) > 0 ? "+" : ""}
           {formatINR(r.pnl)}
         </span>
       ),
     },
   ];
+
+  // Any symbol with a running (unmatched) position in the current view — used
+  // to show the reconciliation hint only when it's actually relevant.
+  const hasOpen = rows.some((r) => Number(r.open_qty ?? 0) !== 0);
 
   return (
     <div className="space-y-4">
@@ -99,6 +122,25 @@ export default function PnlReportPage() {
           emphasis
         />
       </div>
+
+      {/* Reconciliation hint — shown only when a symbol still has an open
+          (unmatched) qty in the period. Explains why Buy/Sell VALUE won't
+          equal Net P&L, so the client never reads the gap as "missing money".
+          Amber tone matches the "Open" column. */}
+      {hasOpen && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/25 bg-amber-500/[0.07] p-3 text-xs sm:text-sm">
+          <Info className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <p className="text-muted-foreground">
+            <span className="font-semibold text-amber-700 dark:text-amber-300">Open</span>{" "}
+            qty means a position is still running (or was opened before this
+            period). <span className="font-semibold text-foreground">Net P&amp;L</span> is
+            realised on closed quantity only — so for those symbols{" "}
+            <span className="font-medium text-foreground">Sell − Buy value won&apos;t equal Net P&amp;L</span>.
+            Live positions show in{" "}
+            <span className="font-semibold text-foreground">Positions</span>.
+          </p>
+        </div>
+      )}
 
       {/* Desktop: standard table. Mobile: stacked cards because a 7-column
           table on a 360-wide screen forces horizontal scrolling — the
@@ -196,6 +238,7 @@ function MobileSymbolList({ rows, loading }: { rows: any[]; loading: boolean }) 
     <div className="space-y-2.5">
       {rows.map((r) => {
         const pnl = Number(r.pnl ?? 0);
+        const openQty = Number(r.open_qty ?? 0);
         const accent =
           pnl > 0 ? "border-l-emerald-500" : pnl < 0 ? "border-l-red-500" : "border-l-border";
         const pnlBadge =
@@ -206,9 +249,17 @@ function MobileSymbolList({ rows, loading }: { rows: any[]; loading: boolean }) 
             : "bg-muted text-muted-foreground";
         return (
           <Card key={r.symbol} className={cn("border-l-4 p-3", accent)}>
-            {/* Header: symbol + P&L badge */}
+            {/* Header: symbol (+ open pill) + P&L badge */}
             <div className="flex items-center justify-between gap-2">
-              <span className="truncate text-sm font-semibold">{r.symbol}</span>
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-sm font-bold">{r.symbol}</span>
+                {openQty !== 0 && (
+                  <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-amber-700 dark:text-amber-300">
+                    {openQty > 0 ? "+" : ""}
+                    {openQty} open
+                  </span>
+                )}
+              </div>
               <span
                 className={cn(
                   "shrink-0 rounded-full px-2 py-0.5 text-xs font-bold tabular-nums",
@@ -222,26 +273,26 @@ function MobileSymbolList({ rows, loading }: { rows: any[]; loading: boolean }) 
 
             {/* Buy / Sell two-column block */}
             <div className="mt-3 grid grid-cols-2 gap-3">
-              <div className="rounded-lg bg-muted/40 p-2">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600/80 dark:text-emerald-400/80">
+              <div className="rounded-lg border border-emerald-500/15 bg-emerald-500/[0.05] p-2">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
                   Buy
                 </div>
-                <div className="mt-0.5 text-xs tabular-nums">{r.buy_qty ?? 0} qty</div>
-                <div className="text-xs font-medium tabular-nums">{formatINR(r.buy_value)}</div>
+                <div className="mt-0.5 text-xs font-semibold tabular-nums">{r.buy_qty ?? 0} qty</div>
+                <div className="text-xs font-bold tabular-nums">{formatINR(r.buy_value)}</div>
               </div>
-              <div className="rounded-lg bg-muted/40 p-2">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-red-600/80 dark:text-red-400/80">
+              <div className="rounded-lg border border-red-500/15 bg-red-500/[0.05] p-2">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">
                   Sell
                 </div>
-                <div className="mt-0.5 text-xs tabular-nums">{r.sell_qty ?? 0} qty</div>
-                <div className="text-xs font-medium tabular-nums">{formatINR(r.sell_value)}</div>
+                <div className="mt-0.5 text-xs font-semibold tabular-nums">{r.sell_qty ?? 0} qty</div>
+                <div className="text-xs font-bold tabular-nums">{formatINR(r.sell_value)}</div>
               </div>
             </div>
 
             {/* Charges footer */}
             <div className="mt-2.5 flex items-center justify-between border-t border-border/50 pt-2 text-xs">
-              <span className="text-muted-foreground">Charges</span>
-              <span className="tabular-nums text-muted-foreground">{formatINR(r.charges)}</span>
+              <span className="font-medium text-muted-foreground">Charges</span>
+              <span className="font-semibold tabular-nums text-muted-foreground">{formatINR(r.charges)}</span>
             </div>
           </Card>
         );

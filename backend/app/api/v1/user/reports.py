@@ -43,6 +43,10 @@ async def _pnl_payload(user, from_date: datetime | None, to_date: datetime | Non
     # with the admin Position-mgmt + Accounts cards (which use the same field),
     # so every page finally shows the same number.
     total_realized_net = 0.0
+    # Count only the fills we actually aggregate (post the superseded skip),
+    # so the "Trades" tile agrees with the money below instead of including
+    # reopen-undone fills that contribute ₹0 to P&L / charges.
+    matched_trades = 0
     by_symbol: dict[str, dict[str, Any]] = {}
     for tr in trades:
         # Skip closes an admin REOPEN/DELETE later undid — the admin cards net
@@ -50,6 +54,7 @@ async def _pnl_payload(user, from_date: datetime | None, to_date: datetime | Non
         # the user report in lockstep with Position-mgmt / Accounts.
         if getattr(tr, "superseded_by_reopen", False):
             continue
+        matched_trades += 1
         sym = tr.instrument.symbol
         v = float(str(tr.value))
         c = float(str(tr.total_charges))
@@ -64,8 +69,10 @@ async def _pnl_payload(user, from_date: datetime | None, to_date: datetime | Non
                 "sell_value": 0.0,
                 "charges": 0.0,
                 "realized_net": 0.0,
+                "trades": 0,
             },
         )
+        agg["trades"] += 1
         if tr.action.value == "BUY":
             agg["buy_qty"] += tr.quantity
             agg["buy_value"] += v
@@ -82,6 +89,16 @@ async def _pnl_payload(user, from_date: datetime | None, to_date: datetime | Non
         # Per-symbol NET P&L = canonical realised (net of brokerage).
         agg["pnl"] = round(agg["realized_net"], 2)
 
+    # Net OPEN (unmatched) qty per symbol = buy_qty − sell_qty. A non-zero
+    # value is exactly why a symbol's Buy/Sell VALUE columns don't tie out to
+    # its Net P&L: realised P&L only counts matched (closed) quantity, while
+    # the value columns are gross for the period. Positive = net long still
+    # running; negative = net short still running (or its opening leg fell
+    # before `from_date`). Surfacing it lets the UI explain the gap instead of
+    # the client reading it as "missing money".
+    for agg in by_symbol.values():
+        agg["open_qty"] = int((agg.get("buy_qty") or 0) - (agg.get("sell_qty") or 0))
+
     net = round(total_realized_net, 2)                  # NET P&L (after brokerage)
     charges = round(total_charges, 2)
     realized = round(total_realized_net + charges, 2)   # GROSS P&L (before brokerage)
@@ -89,7 +106,9 @@ async def _pnl_payload(user, from_date: datetime | None, to_date: datetime | Non
     return {
         "from": f,
         "to": t,
-        "total_trades": len(trades),
+        # Count of fills that actually contribute to this report (superseded
+        # reopen-undone fills excluded) — keeps the tile consistent with money.
+        "total_trades": matched_trades,
         # Legacy + PDF-builder field names (do NOT remove — report_pdf_service
         # reads these directly).
         "total_buy_value": round(total_buy, 2),
@@ -113,8 +132,11 @@ async def _pnl_payload(user, from_date: datetime | None, to_date: datetime | Non
                     2,
                 ),
                 "brokerage": round(float(r.get("charges") or 0), 2),
-                "trades": int((r.get("buy_qty") or 0) + (r.get("sell_qty") or 0) > 0)
-                + 0,  # at least 1 if any qty
+                # Real fill count for this symbol (was a bool→int that made
+                # every symbol show "1 trade" regardless of activity).
+                "trades": int(r.get("trades") or 0),
+                # Net unmatched qty so the APK can flag a still-open position.
+                "open_qty": int(r.get("open_qty") or 0),
             }
             for r in by_symbol_rows
         ],
@@ -340,7 +362,11 @@ async def tradebook_full_pdf(
 ):
     from app.models.order import Order, OrderStatus
     from app.models.position import Position, PositionStatus
-    from app.models.transaction import TransactionType, WalletTransaction
+    from app.models.transaction import (
+        TransactionStatus,
+        TransactionType,
+        WalletTransaction,
+    )
     from app.models.wallet import Wallet
 
     now = now_utc()
@@ -368,6 +394,10 @@ async def tradebook_full_pdf(
     # 2. Money transactions
     tx_q: dict[str, Any] = {
         "user_id": uid,
+        # Only SETTLED money moves — a PENDING / FAILED deposit or withdrawal
+        # request must never show up as real cash-in/out on the statement
+        # (that was the deposit/withdrawal mismatch clients reported).
+        "status": TransactionStatus.COMPLETED.value,
         "transaction_type": {"$in": [
             TransactionType.DEPOSIT.value,
             TransactionType.WITHDRAWAL.value,
@@ -423,7 +453,12 @@ async def tradebook_full_pdf(
     closed_rows.sort(key=lambda r: r.get("time", ""))
 
     # 3. Money totals
-    all_tx_q: dict[str, Any] = {"user_id": uid}
+    all_tx_q: dict[str, Any] = {
+        "user_id": uid,
+        # Same settled-only guard as above so the deposit / withdrawal /
+        # adjustment / bonus totals reconcile with the actual wallet.
+        "status": TransactionStatus.COMPLETED.value,
+    }
     if q_time:
         all_tx_q["created_at"] = q_time
     all_txs = await WalletTransaction.find(all_tx_q).to_list()
