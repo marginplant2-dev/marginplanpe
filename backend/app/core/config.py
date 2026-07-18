@@ -73,6 +73,17 @@ class Settings(BaseSettings):
     # sits comfortably under the chosen interval.
     RISK_TICK_SEC: float = 1.0
 
+    # Market tick-fanout interval (seconds) — how often the feed leader's
+    # `market_tick_loop` overlays subscribed tokens, refreshes `mdlive`, and
+    # publishes CHANGED prices to the `/ws/marketdata` fanout. Lower = snappier
+    # tick-by-tick price movement on the web/APK AND fresher `mdlive` for the
+    # risk enforcer (better stop-out/SL timing). 0.07 s (~14 Hz) is the tuned
+    # default; the loop only PUBLISHES on a price change, so a flat book costs
+    # nothing extra. Tunable via env so weekday full-market load (feed on a
+    # single event loop) can be dialed back toward 0.1 if CPU heads to the
+    # ceiling — no redeploy needed.
+    MARKET_TICK_SEC: float = 0.07
+
     # ── Redis ────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
     # Bumped from 50 → 300 after the market_tick_loop started raising

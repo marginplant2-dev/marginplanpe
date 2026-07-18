@@ -31,16 +31,15 @@ export type MarketQuote = {
  * subscribes to the given tokens, and returns a `{token → quote}` map that
  * updates as ticks arrive. Auto-reconnects with exponential backoff.
  *
- * Throttling — display refresh is coalesced to ~200 ms (5 Hz). The
- * backend tick loop publishes at 250 ms so this lines up with one
- * upstream tick per render cycle. Previously sat at 500 ms (2 Hz) to
- * suppress flicker, but option-chain and Zerodha price movements felt
- * static between polls. 200 ms strikes the balance — visible "tick
- * tick" movement without the 4-10 Hz flicker users complained about
- * at 0 ms. The WS itself still receives every upstream tick at full
- * rate so data freshness is preserved.
+ * Throttling — display refresh is coalesced to 60 ms (~16 Hz) so it
+ * stays a touch quicker than the backend tick pump (MARKET_TICK_SEC,
+ * ~70 ms) — every upstream tick paints on the very next render cycle
+ * with no data piling up between flushes. Snappy "tick tick" movement
+ * on web + APK. The WS itself still receives every upstream tick at
+ * full rate so data freshness is preserved; the coalesce only bounds
+ * how often React re-renders, not what data arrives.
  */
-const DISPLAY_THROTTLE_MS = 100;
+const DISPLAY_THROTTLE_MS = 60;
 
 // Heartbeat: send a ping this often. The server replies {type:"pong"},
 // which also resets the staleness watchdog below.

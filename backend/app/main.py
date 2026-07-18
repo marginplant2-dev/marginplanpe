@@ -681,7 +681,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
             # Drive the tick fanout in the foreground until cancelled
             # (leadership lost / shutdown) or its own _running flag clears.
-            await market_data_service.tick_loop(interval_sec=0.1)
+            # Interval is env-tunable (MARKET_TICK_SEC, default 0.07s ≈ 14 Hz)
+            # so price movement is snappy and `mdlive` stays fresh for risk.
+            await market_data_service.tick_loop(interval_sec=settings.MARKET_TICK_SEC)
         finally:
             market_data_service.set_feed_leader(False)
             for _t in subtasks:
