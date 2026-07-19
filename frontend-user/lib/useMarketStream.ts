@@ -31,15 +31,14 @@ export type MarketQuote = {
  * subscribes to the given tokens, and returns a `{token → quote}` map that
  * updates as ticks arrive. Auto-reconnects with exponential backoff.
  *
- * Throttling — display refresh is coalesced to 60 ms (~16 Hz) so it
- * stays a touch quicker than the backend tick pump (MARKET_TICK_SEC,
- * ~70 ms) — every upstream tick paints on the very next render cycle
- * with no data piling up between flushes. Snappy "tick tick" movement
- * on web + APK. The WS itself still receives every upstream tick at
- * full rate so data freshness is preserved; the coalesce only bounds
- * how often React re-renders, not what data arrives.
+ * Throttling — display refresh is coalesced to 100 ms (10 Hz) to line up
+ * with the backend tick pump (MARKET_TICK_SEC = 0.1s) — every upstream
+ * tick paints on the next render cycle without piling up between flushes.
+ * Still visibly tick-by-tick on web + APK. The WS itself still receives
+ * every upstream tick at full rate so data freshness is preserved; the
+ * coalesce only bounds how often React re-renders, not what data arrives.
  */
-const DISPLAY_THROTTLE_MS = 60;
+const DISPLAY_THROTTLE_MS = 100;
 
 // Heartbeat: send a ping this often. The server replies {type:"pong"},
 // which also resets the staleness watchdog below.

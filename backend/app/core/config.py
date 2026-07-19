@@ -77,12 +77,13 @@ class Settings(BaseSettings):
     # `market_tick_loop` overlays subscribed tokens, refreshes `mdlive`, and
     # publishes CHANGED prices to the `/ws/marketdata` fanout. Lower = snappier
     # tick-by-tick price movement on the web/APK AND fresher `mdlive` for the
-    # risk enforcer (better stop-out/SL timing). 0.07 s (~14 Hz) is the tuned
-    # default; the loop only PUBLISHES on a price change, so a flat book costs
-    # nothing extra. Tunable via env so weekday full-market load (feed on a
-    # single event loop) can be dialed back toward 0.1 if CPU heads to the
-    # ceiling — no redeploy needed.
-    MARKET_TICK_SEC: float = 0.07
+    # risk enforcer (better stop-out/SL timing). Default 0.1 s (100ms ≈ 10 Hz)
+    # — the SAFE value: at ~1100+ subscribed Zerodha tokens the overlay churn
+    # at 0.07 pushed the single-core feed to ~75-85% even off-market, leaving
+    # too little weekday headroom. 100ms still looks tick-by-tick to the eye,
+    # and the loop only PUBLISHES on a price change so a flat book costs
+    # nothing. Tunable via env if a box has spare CPU to burn.
+    MARKET_TICK_SEC: float = 0.1
 
     # ── Feed process split (multi-core) ──────────────────────────────
     # The feed leader is ONE asyncio event loop = ONE CPU core (Python GIL).
