@@ -560,33 +560,47 @@ async def get_effective_risk(user_id: str | PydanticObjectId) -> dict[str, Any]:
     merged: dict[str, Any] = {f: getattr(g, f) for f in RISK_FIELDS}
     sources = {f: "GLOBAL" for f in RISK_FIELDS}
 
-    # Layer 2: pool default — picks exactly ONE tier override based on
-    # the user's pool membership (broker > sub-admin > super-admin).
-    # Each tier is independent — super-admin's risk edits no longer leak
-    # into admin / broker pools as a shared fallback.
+    # Layer 2: pool CASCADE — collect the override from EVERY tier in the
+    # user's ownership chain and merge PER-FIELD with priority:
+    #     broker (most specific) > sub-admin > super-admin > global.
+    # Previously this picked EXACTLY ONE tier, so a broker-nested user skipped
+    # the admin's risk entirely (broker → straight to global). Now a field the
+    # broker/sub-broker didn't set falls through to the admin's value, then the
+    # super-admin's, then global — the SAME cascade the segment settings use,
+    # so risk + segments resolve consistently. Operator ask: "if a broker /
+    # sub-broker sets their own risk it overrides the admin, otherwise the
+    # admin's setting still applies to that broker's users."
     user_doc = await User.get(PydanticObjectId(uid))
     if user_doc is not None:
-        pool_risk = None
-        pool_source = None
+        broker_risk = None
+        admin_risk = None
+        super_admin_risk = None
         broker_anc = user_doc.broker_ancestry or []
         if broker_anc:
-            broker_id = broker_anc[-1]
-            pool_risk = await get_broker_risk(broker_id)
-            pool_source = "BROKER"
-        elif user_doc.assigned_admin_id is not None:
-            pool_risk = await get_sub_admin_risk(user_doc.assigned_admin_id)
-            pool_source = "SUB_ADMIN"
-        else:
-            sa_id = await _resolve_super_admin_id()
-            if sa_id is not None:
-                pool_risk = await get_super_admin_risk(sa_id)
-                pool_source = "SUPER_ADMIN"
-        if pool_risk is not None and pool_source is not None:
+            # Immediate broker (== sub-broker for a sub-broker's client).
+            broker_risk = await get_broker_risk(broker_anc[-1])
+        if user_doc.assigned_admin_id is not None:
+            admin_risk = await get_sub_admin_risk(user_doc.assigned_admin_id)
+        sa_id = await _resolve_super_admin_id()
+        if sa_id is not None:
+            super_admin_risk = await get_super_admin_risk(sa_id)
+        # First non-None per field wins, in priority order. A field is only
+        # filled while it's still at its GLOBAL default (sources[f] == "GLOBAL"),
+        # so a higher-priority tier that already set it is never overwritten.
+        for source, pool in (
+            ("BROKER", broker_risk),
+            ("SUB_ADMIN", admin_risk),
+            ("SUPER_ADMIN", super_admin_risk),
+        ):
+            if pool is None:
+                continue
             for f in RISK_FIELDS:
-                v = getattr(pool_risk, f, None)
+                if sources[f] != "GLOBAL":
+                    continue  # already set by a more-specific tier
+                v = getattr(pool, f, None)
                 if v is not None:
                     merged[f] = v
-                    sources[f] = pool_source
+                    sources[f] = source
 
     # Layer 3: per-user override (highest priority)
     u = await get_user_risk(uid)
