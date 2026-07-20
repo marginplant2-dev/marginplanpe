@@ -551,7 +551,16 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
     );
 
     const optimisticId = `optimistic_${Date.now()}`;
-    const fillPrice = orderType === "MARKET" ? sideQuote : Number(limitPrice || ltp) || ltp;
+    // Price for THIS order's side. MUST come from `action` (the button the
+    // user actually pressed), NOT the `side` state — the BUY / SELL buttons
+    // call submit("BUY") / submit("SELL") directly and never setSide(), so
+    // `side` is stuck on its initial value ("BUY" by default). Using it meant
+    // a SELL was submitted with the BUY (ask) price as `expected_price`; the
+    // backend honours any expected_price within 1% of the live side, so the
+    // SELL booked at the BUY price — an instant open+close showed identical
+    // entry/exit and ₹0 P&L (the "buy-sell same price" reports).
+    const actionQuote = action === "BUY" ? buyPrice : sellPrice;
+    const fillPrice = orderType === "MARKET" ? actionQuote : Number(limitPrice || ltp) || ltp;
     const signedQty = (action === "BUY" ? 1 : -1) * lotsToUse * lotSize;
     const isImmediate = orderType === "MARKET";
 
@@ -718,7 +727,7 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
       is_amo: false,
       stop_loss: slTpEnabled && Number(stopLoss) > 0 ? Number(stopLoss) : null,
       target: slTpEnabled && Number(target) > 0 ? Number(target) : null,
-      expected_price: orderType === "MARKET" ? sideQuote : null,
+      expected_price: orderType === "MARKET" ? actionQuote : null,
     })
       .then(() => {
         // Success toast already fired instantly above; just reconcile caches.
