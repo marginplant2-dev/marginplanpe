@@ -136,9 +136,31 @@ def _rupee() -> str:
     return "₹" if _HAS_RUPEE else "Rs. "
 
 
+def _num(v: Any) -> float:
+    """Parse a payload number that may ALREADY be a display-formatted string.
+
+    The tradebook payload builders emit some fields pre-formatted
+    (``f"{qty:,.2f}"`` → ``"9,000.00"``), so a bare ``float()`` blew up with
+    ``ValueError: could not convert string to float: '9,000.00'`` the moment a
+    value crossed 1,000 and picked up a thousands separator — which 500'd the
+    whole tradebook PDF (browser showed a bare "Network Error"). Values under
+    1,000 parsed fine, which is why it looked intermittent. Strips commas /
+    currency symbols / whitespace and never raises — unparseable → 0.0.
+    """
+    if v is None or v == "":
+        return 0.0
+    if isinstance(v, (int, float)):
+        return float(v)
+    try:
+        return float(
+            str(v).replace(",", "").replace("₹", "").replace("Rs.", "").strip() or 0
+        )
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _fmt_money(v: float | int | str | None) -> str:
-    n = float(v or 0)
-    return f"{_rupee()}{n:,.2f}"
+    return f"{_rupee()}{_num(v):,.2f}"
 
 
 def _fmt_qty(v: Any) -> str:
@@ -366,7 +388,7 @@ def build_pnl_pdf(user, payload: dict) -> bytes:
     doc, buf = _doc()
     rng_from = _fmt_date(payload.get("from"))
     rng_to = _fmt_date(payload.get("to"))
-    net_pnl = float(payload.get("net_pnl") or 0)
+    net_pnl = _num(payload.get("net_pnl") or 0)
     elems = _header(
         "Profit & Loss Statement",
         f"Period: {rng_from} → {rng_to}",
@@ -400,7 +422,7 @@ def build_pnl_pdf(user, payload: dict) -> bytes:
         elems.append(Paragraph("Symbol-wise breakdown", styles["h2"]))
         rows: list[list[Any]] = [["Symbol", "Buy Qty", "Sell Qty", "Buy Value", "Sell Value", "Charges", "P&L"]]
         for s in by_symbol:
-            pnl = float(s.get("pnl") or 0)
+            pnl = _num(s.get("pnl") or 0)
             rows.append(
                 [
                     s.get("symbol", "—"),
@@ -549,7 +571,7 @@ def build_full_tradebook_pdf(user, payload: dict) -> bytes:
     rng_from = payload.get("from_label", "Beginning")
     rng_to = payload.get("to_label", "Now")
     generated_at = payload.get("generated_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    total_brokerage = float(payload.get("total_brokerage", 0))
+    total_brokerage = _num(payload.get("total_brokerage", 0))
 
     # ── Branded header ─────────────────────────────────────────────
     brand_name = admin_brand or "MarginPlant Broker"
@@ -661,8 +683,8 @@ def build_full_tradebook_pdf(user, payload: dict) -> bytes:
     total_brokerage_col = 0.0
     total_pnl = 0.0
     for tx in closed:
-        brokerage = float(tx.get("brokerage") or 0)
-        pnl = float(tx.get("total_pnl") or 0)
+        brokerage = _num(tx.get("brokerage") or 0)
+        pnl = _num(tx.get("total_pnl") or 0)
         total_brokerage_col += brokerage
         total_pnl += pnl
 
@@ -705,12 +727,12 @@ def build_full_tradebook_pdf(user, payload: dict) -> bytes:
     mw = page_w / 7
     money_widths = [mw] * 7
     money_row = [
-        f"{float(money.get('credit_in', 0)):,.2f}",
-        f"{float(money.get('credit_out', 0)):,.2f}",
-        f"{float(money.get('deposit', 0)):,.2f}",
-        f"{float(money.get('withdraw', 0)):,.2f}",
-        f"{float(money.get('adjustment', 0)):,.2f}",
-        f"{float(money.get('bonus', 0)):,.2f}",
+        f"{_num(money.get('credit_in', 0)):,.2f}",
+        f"{_num(money.get('credit_out', 0)):,.2f}",
+        f"{_num(money.get('deposit', 0)):,.2f}",
+        f"{_num(money.get('withdraw', 0)):,.2f}",
+        f"{_num(money.get('adjustment', 0)):,.2f}",
+        f"{_num(money.get('bonus', 0)):,.2f}",
         f"{total_brokerage:,.2f}",
     ]
     elems.append(_ark_table(money_headers, [money_row], money_widths))
@@ -734,10 +756,12 @@ def build_full_tradebook_pdf(user, payload: dict) -> bytes:
     od_total_pnl = 0.0
     od_total_val = 0.0
     for d in opened:
-        amt = float(d.get("amount") or 0)
-        com = float(d.get("commission") or 0)
-        pnl = float(d.get("total_pnl") or 0)
-        val = float(d.get("value") or 0)
+        # `amount` arrives pre-formatted ("9,000.00") from the payload builder,
+        # so parse comma-tolerantly — a bare float() 500'd the whole PDF.
+        amt = _num(d.get("amount"))
+        com = _num(d.get("commission"))
+        pnl = _num(d.get("total_pnl"))
+        val = _num(d.get("value"))
         od_total_amt += amt
         od_total_com += com
         od_total_pnl += pnl
@@ -798,13 +822,13 @@ def build_full_tradebook_pdf(user, payload: dict) -> bytes:
     elems.append(Paragraph("<b>Financial Standings</b>", styles["h2"]))
 
     fin_items = [
-        ("Balance", f"{_rupee()}{float(fin.get('balance', 0)):,.2f}"),
-        ("Credit", f"{_rupee()}{float(fin.get('credit', 0)):,.2f}"),
-        ("Equity", f"{_rupee()}{float(fin.get('equity', 0)):,.2f}"),
-        ("Total PnL", f"{_rupee()}{float(fin.get('total_pnl', 0)):,.2f}"),
-        ("Used Margin", f"{_rupee()}{float(fin.get('used_margin', 0)):,.2f}"),
-        ("Holding Margin", f"{_rupee()}{float(fin.get('holding_margin', 0)):,.2f}"),
-        ("Free Margin", f"{_rupee()}{float(fin.get('free_margin', 0)):,.2f}"),
+        ("Balance", f"{_rupee()}{_num(fin.get('balance', 0)):,.2f}"),
+        ("Credit", f"{_rupee()}{_num(fin.get('credit', 0)):,.2f}"),
+        ("Equity", f"{_rupee()}{_num(fin.get('equity', 0)):,.2f}"),
+        ("Total PnL", f"{_rupee()}{_num(fin.get('total_pnl', 0)):,.2f}"),
+        ("Used Margin", f"{_rupee()}{_num(fin.get('used_margin', 0)):,.2f}"),
+        ("Holding Margin", f"{_rupee()}{_num(fin.get('holding_margin', 0)):,.2f}"),
+        ("Free Margin", f"{_rupee()}{_num(fin.get('free_margin', 0)):,.2f}"),
         ("Margin Level", fin.get("margin_level", "0.00%")),
         ("Brokerage Paid", f"{_rupee()}{total_brokerage:,.2f}"),
     ]
