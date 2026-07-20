@@ -21,7 +21,12 @@ export default function TradebookPage() {
 
   const { data: usersData } = useQuery({
     queryKey: ["admin", "users", "tradebook-search", search],
-    queryFn: () => UsersAPI.list({ search, limit: 10, page: 1 }),
+    // NOTE: /admin/users takes `q` + `page_size` — NOT `search` / `limit`.
+    // Sending the wrong names meant FastAPI silently ignored both: the box
+    // never filtered (it returned the same default first page whatever the
+    // admin typed), so the user could never be found/selected and the PDF
+    // could never be generated. Same param shape the audit page already uses.
+    queryFn: () => UsersAPI.list({ q: search, page_size: 10, page: 1 }),
     enabled: search.length >= 2,
   });
 

@@ -202,17 +202,22 @@ async def _audit_scope_user_ids(admin) -> list[PydanticObjectId] | None:
     underlying mongo filters (`assigned_admin_id` for admin,
     `broker_ancestry` for broker) walk the right subtree per role.
     """
+    from app.core.dependencies import scoped_user_filter
     from app.models.user import User, UserRole
 
     if admin.role == UserRole.SUPER_ADMIN:
         return None
     ids: set[PydanticObjectId] = {admin.id}
-    if admin.role == UserRole.ADMIN:
-        downstream = await User.find(User.assigned_admin_id == admin.id).to_list()
-    elif admin.role == UserRole.BROKER:
-        downstream = await User.find(
-            {"broker_ancestry": admin.id}
-        ).to_list()
+    # Use the SAME comprehensive pool clause the /admin/users list + the audit
+    # page's own user-search run through (`scoped_user_filter` → `_pool_clause`).
+    # For ADMIN that unions the directly-assigned users AND the transferred-
+    # broker subtree; the old flat `assigned_admin_id == admin.id` MISSED every
+    # broker-subtree client. That mismatch was user-visible: the audit search
+    # box (scoped by the list endpoint) offered a broker's client, but clicking
+    # it filtered the feed by an id the audit scope excluded → empty feed
+    # ("search me naam aata hai, click karo to record nahi dikhta").
+    if admin.role in (UserRole.ADMIN, UserRole.BROKER):
+        downstream = await User.find(await scoped_user_filter(admin)).to_list()
     else:
         downstream = []
     for u in downstream:

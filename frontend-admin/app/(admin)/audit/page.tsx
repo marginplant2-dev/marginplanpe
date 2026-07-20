@@ -215,6 +215,18 @@ function AuditLogsInner() {
     setPage(1);
   }
 
+  // Reset to page 1 whenever the FILTER changes (scoped user / date range).
+  // Clicking a user in the search box is a client-side navigation — the
+  // component never remounts, so `page` survived the filter change. If the
+  // admin was on page 3 of the 44k-event global feed and then scoped to a
+  // user who only has ~30 events (1 page), the query asked for page 3 of a
+  // 1-page result and rendered an EMPTY table — the reported "search me naam
+  // aata hai, click karo to us user ka record nahi dikhta" bug. Preset chips
+  // already reset via selectPreset(); this covers the other two filters.
+  useEffect(() => {
+    setPage(1);
+  }, [scopedUserId, fromDate, toDate]);
+
   const { data: scopedUser } = useQuery({
     queryKey: ["admin", "user", scopedUserId],
     queryFn: () => UsersAPI.detail(scopedUserId!),
