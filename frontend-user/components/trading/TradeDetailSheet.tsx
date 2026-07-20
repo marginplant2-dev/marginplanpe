@@ -327,6 +327,54 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
   void quote?.fx_rate;
   const fxMultiplier = 1;
 
+  // ── Upper / lower circuit (daily price band) ──────────────────────
+  // Pre-flight mirror of the server gate so the user sees the lock BEFORE
+  // tapping instead of getting a rejection toast after. The backend
+  // validator stays authoritative — this only avoids the round-trip.
+  //
+  // A circuit is DIRECTIONAL, not a halt: at the upper edge only SELL may
+  // open, at the lower edge only BUY. Null limits mean "no band" and must
+  // never be read as 0 (a 0 ceiling would lock every instrument).
+  const circLower = Number(effSettings?.lower_circuit ?? 0) || null;
+  const circUpper = Number(effSettings?.upper_circuit ?? 0) || null;
+  // Held size for THIS instrument + product, in LOTS and signed
+  // (+ long, − short, 0 flat) — same keys the server merges fills on.
+  const circHeldLots = (() => {
+    if (!Array.isArray(openPositions) || !token) return 0;
+    const p = openPositions.find(
+      (r: any) =>
+        String(r?.instrument?.token ?? r?.token ?? "") === String(token) &&
+        String(r?.product_type ?? "") === String(productType),
+    );
+    if (!p) return 0;
+    const ls = Number(p?.instrument?.lot_size ?? lotSize) || lotSize || 1;
+    return Number(p.quantity ?? 0) / ls;
+  })();
+  /** Would an order on this side REDUCE the open position? Exits are always
+   *  allowed — the band stops you OPENING into a locked side, it must never
+   *  trap you in a position. Mirrors the validator's
+   *  `abs(projected_net) < abs(signed_held)` (both in lots). */
+  const circWouldReduce = (act: "BUY" | "SELL") => {
+    const delta = act === "BUY" ? lots : -lots;
+    return Math.abs(circHeldLots + delta) < Math.abs(circHeldLots);
+  };
+  // Raw edge state — band + live price only. Kept SEPARATE from "blocked"
+  // so the banner can still explain the lock in the case where the user's
+  // own order is exempt. Guarded on ltp > 0: outside market hours LTP is
+  // frequently 0 and `0 <= lower` is true, which would falsely lock
+  // everything the moment the feed goes quiet.
+  const circAtUpper = !!(circUpper && ltp > 0 && ltp >= circUpper);
+  const circAtLower = !!(circLower && ltp > 0 && ltp <= circLower);
+  const circLockedSide = circAtUpper ? "UPPER" : circAtLower ? "LOWER" : null;
+  // Blocked = at the edge, on the locked side, and NOT an exit.
+  const circBuyBlocked = circAtUpper && !circWouldReduce("BUY");
+  const circSellBlocked = circAtLower && !circWouldReduce("SELL");
+  // At the edge but still permitted because the order would CLOSE. Said
+  // explicitly in the banner — a user staring at a red warning otherwise
+  // assumes they're trapped and never tries to exit.
+  const circExitAllowed =
+    (circAtUpper && circWouldReduce("BUY")) || (circAtLower && circWouldReduce("SELL"));
+
   // ── Margin ────────────────────────────────────────────────────────
   const serverMarginPct =
     effSettings?.margin_percentage != null
@@ -447,6 +495,17 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
 
   // ── Submit ────────────────────────────────────────────────────────
   async function submit(action: "BUY" | "SELL") {
+    // Circuit guard — same condition as the disabled button, because the
+    // handler can still be reached (keyboard, race, stale render). Exits are
+    // exempt via circWouldReduce() inside circBuyBlocked/circSellBlocked.
+    if ((action === "BUY" && circBuyBlocked) || (action === "SELL" && circSellBlocked)) {
+      toast.error(
+        action === "BUY"
+          ? `Upper circuit ₹${circUpper} hit — only SELL is allowed right now.`
+          : `Lower circuit ₹${circLower} hit — only BUY is allowed right now.`,
+      );
+      return;
+    }
     if (!instrument || !token) {
       toast.error("Instrument not loaded");
       return;
@@ -1214,6 +1273,34 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
           );
         })()}
 
+        {/* ── Circuit banner ──────────────────────────────────────────
+            Shown whenever the live price sits at a band edge. Names the
+            band and the direction that can still trade, so the user sees
+            the lock BEFORE tapping. When their own order would CLOSE a
+            position we say so explicitly — otherwise someone staring at a
+            red warning assumes they're trapped and never tries to exit. */}
+        {circLockedSide && (
+          <div
+            className={cn(
+              "mx-4 mb-1 mt-3 rounded-lg border p-2.5 text-xs",
+              circExitAllowed
+                ? "border-amber-500/30 bg-amber-500/[0.07]"
+                : "border-red-500/30 bg-red-500/[0.07]",
+            )}
+          >
+            <div className="font-semibold text-foreground">
+              {circLockedSide === "UPPER"
+                ? `Upper circuit ₹${circUpper} — only SELL can open`
+                : `Lower circuit ₹${circLower} — only BUY can open`}
+            </div>
+            {circExitAllowed && (
+              <div className="mt-0.5 font-medium text-amber-700 dark:text-amber-300">
+                Closing your open position is still allowed.
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Big BUY / SELL ──────────────────────────────────────── */}
         <div className="mt-4 grid grid-cols-2 gap-2 px-4 pb-4">
           {/* `loading` removed — submit is fire-and-forget now and the
@@ -1222,7 +1309,7 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
               lockout in case the close animation is slow. */}
           <Button
             type="button"
-            disabled={submitting !== null}
+            disabled={submitting !== null || circBuyBlocked}
             onClick={() => submit("BUY")}
             className="flex h-14 flex-col items-center justify-center gap-0 rounded-lg bg-buy text-buy-foreground hover:bg-buy/90"
           >
@@ -1235,7 +1322,7 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
           </Button>
           <Button
             type="button"
-            disabled={submitting !== null}
+            disabled={submitting !== null || circSellBlocked}
             onClick={() => submit("SELL")}
             className="flex h-14 flex-col items-center justify-center gap-0 rounded-lg bg-sell text-sell-foreground hover:bg-sell/90"
           >

@@ -112,6 +112,18 @@ class Settings(BaseSettings):
     # feed by setting FEED_GROUP=all and stopping the global service.
     FEED_GROUP: str = "all"
 
+    # ── Upper / lower circuit (daily price band) enforcement ─────────
+    # Master switch for the circuit gate in the order validator. OFF by
+    # default so this ships dark and prod behaviour is byte-identical until
+    # deliberately enabled.
+    CIRCUIT_BANDS_ENABLED: bool = False
+    # Rollout safety valve. With bands ENABLED but ENFORCE off, a would-be
+    # circuit rejection is ALLOWED through and logged at WARNING instead —
+    # so an operator can watch `circuit_block` lines for a session and
+    # confirm the band data is sane before real orders start bouncing.
+    # Flip True to actually reject.
+    CIRCUIT_ENFORCE: bool = False
+
     # ── Redis ────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
     # Bumped from 50 → 300 after the market_tick_loop started raising
@@ -357,6 +369,8 @@ class Settings(BaseSettings):
         "BRANDING_ENABLED",
         "LOGIN_TENANT_ISOLATION",
         "LOGIN_TENANT_ISOLATION_ENFORCE",
+        "CIRCUIT_BANDS_ENABLED",
+        "CIRCUIT_ENFORCE",
         mode="before",
     )
     @classmethod

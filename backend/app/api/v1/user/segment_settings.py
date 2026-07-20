@@ -13,9 +13,10 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
+from app.core.config import settings
 from app.core.dependencies import CurrentUser
 from app.schemas.common import APIResponse
-from app.services import instrument_service, netting_service
+from app.services import instrument_service, market_data_service, netting_service
 
 router = APIRouter(prefix="/segment-settings", tags=["user-segment-settings"])
 
@@ -148,6 +149,31 @@ async def get_effective_for_instrument(
         except Exception:
             pass
 
+    # ── Daily price band (upper / lower circuit) ─────────────────────
+    # Day-cached per instrument, so this poll costs a Redis GET at most.
+    # Fails open to (None, None) — a band lookup problem must never make the
+    # ticket look locked. `circuit_locked_side` is derived from the LIVE
+    # price against the band: at the upper edge only SELL may OPEN, at the
+    # lower edge only BUY. The UI still has to apply the exit exemption on
+    # top (a reducing order is always allowed) — see the ticket.
+    _circ_lower = _circ_upper = None
+    _circ_side: str | None = None
+    if settings.CIRCUIT_BANDS_ENABLED:
+        try:
+            from app.services import circuit_service as _circ
+
+            _circ_lower, _circ_upper = await _circ.get_circuit_band(instrument)
+            if _circ_lower is not None or _circ_upper is not None:
+                _ltp = await market_data_service.get_ltp(instrument.token)
+                if _ltp and _ltp > 0:
+                    if _circ_upper is not None and _ltp >= _circ_upper:
+                        _circ_side = "UPPER"
+                    elif _circ_lower is not None and _ltp <= _circ_lower:
+                        _circ_side = "LOWER"
+        except Exception:
+            _circ_lower = _circ_upper = None
+            _circ_side = None
+
     # Trim down to the fields the OrderPanel actually displays — keeps the
     # response payload small for a 3× / second poll.
     out = {
@@ -210,6 +236,18 @@ async def get_effective_for_instrument(
         # execution markup in matching_engine.execute_market_order.
         "spread_pips": s.get("spread_pips"),
         "spread_type": s.get("spread_type"),
+        # ── Daily price band (upper / lower circuit) ─────────────────
+        # Piggy-backed on this call — the order ticket already fetches it
+        # per instrument, so the band costs no extra round-trip. Either
+        # side may be null (no band, non-band exchange, or the feed didn't
+        # report one) and the UI MUST treat null as "no limit", never as 0.
+        # `circuit_locked_side` is the derived directional lock the banner
+        # renders: at UPPER only SELL may open, at LOWER only BUY.
+        # The backend validator remains authoritative; this is the
+        # pre-flight mirror so the user sees the lock before tapping.
+        "lower_circuit": (float(_circ_lower) if _circ_lower is not None else None),
+        "upper_circuit": (float(_circ_upper) if _circ_upper is not None else None),
+        "circuit_locked_side": _circ_side,
         # Source attribution so the UI can show "Override applied"
         "sources": resolved.get("sources", {}),
         # Expiry-day flag — frontend can tag the margin tile with a

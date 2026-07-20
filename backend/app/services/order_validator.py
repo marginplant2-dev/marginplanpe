@@ -11,6 +11,7 @@ from datetime import datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 
+from app.core.config import settings
 from app.core.exceptions import (
     InsufficientFundsError,
     MarketClosedError,
@@ -321,6 +322,87 @@ async def validate(
             # downstream `wallet_service.adjust` will still gate via
             # InsufficientFundsError if margin can't be sourced.
             pass
+
+    # ── Upper / lower circuit (exchange daily price band) ───────────
+    # A circuit is a DIRECTIONAL lock, not a halt: at the upper circuit only
+    # SELL can execute, at the lower circuit only BUY. Blocking the scrip
+    # outright would be wrong, and so would blocking the locked side
+    # unconditionally — hence the exemption below.
+    #
+    # EXIT EXEMPTION (the whole point): a trader must ALWAYS be able to close.
+    # The band stops you OPENING into a locked side; it must never become a
+    # trap. `is_reducing` covers full AND partial closes (it compares
+    # |projected_net| < |signed_held|, both in LOTS), and `is_squareoff`
+    # covers the risk-engine / admin auto-flatten, which bypasses every gate.
+    # The two cases this rescues are LONG-at-lower-circuit exiting via SELL
+    # and SHORT-at-upper-circuit covering via BUY — both would otherwise be
+    # rejected on the locked side, and they fail SILENTLY (nobody notices
+    # until someone is trapped in a position).
+    #
+    # `signed_held` is read from the SAME position keys the matching engine
+    # merges fills on (user_id + instrument.token + product_type + OPEN) —
+    # verified identical; if they ever drift, `signed_held` reads 0 and this
+    # exemption quietly stops firing.
+    #
+    # This is a B-book platform (fills are internal at LTP, never routed), so
+    # honouring the exit is not just correct but actually executable.
+    #
+    # FAIL OPEN throughout: no band, dead feed, cold cache, LTP 0 → allowed.
+    if settings.CIRCUIT_BANDS_ENABLED and not is_reducing and not is_squareoff:
+        try:
+            from app.services import circuit_service
+
+            _lower, _upper = await circuit_service.get_circuit_band(instrument)
+            if _lower is not None or _upper is not None:
+                # The order's own price. LIMIT books at the user's price,
+                # SL-M at its trigger; a MARKET order books at the live side,
+                # which the ticket already sends as `expected_price` (the
+                # exact bid/ask it displayed) — LTP is the fallback.
+                if order_type == OrderType.MARKET:
+                    _ref = (
+                        expected_price
+                        if expected_price is not None and expected_price > 0
+                        else ltp
+                    )
+                elif order_type == OrderType.SL_M:
+                    _ref = trigger_price if trigger_price and trigger_price > 0 else price
+                else:
+                    _ref = price
+                _hit = circuit_service.evaluate(
+                    action=action.value if hasattr(action, "value") else str(action),
+                    order_type=(
+                        order_type.value if hasattr(order_type, "value") else str(order_type)
+                    ),
+                    lower=_lower,
+                    upper=_upper,
+                    cur=to_decimal(ltp) if ltp else None,
+                    ref_price=to_decimal(_ref) if _ref else None,
+                )
+                if _hit is not None:
+                    _code, _message = _hit
+                    # Logged on BOTH paths so a log-only rollout shows exactly
+                    # which orders would start bouncing once ENFORCE flips on.
+                    _vlog.warning(
+                        "circuit_block user=%s symbol=%s action=%s code=%s "
+                        "ltp=%s ref=%s lower=%s upper=%s enforce=%s",
+                        user.id,
+                        instrument.symbol,
+                        getattr(action, "value", action),
+                        _code,
+                        ltp,
+                        _ref,
+                        _lower,
+                        _upper,
+                        settings.CIRCUIT_ENFORCE,
+                    )
+                    if settings.CIRCUIT_ENFORCE:
+                        raise OrderRejectedError(_message, code=_code)
+        except OrderRejectedError:
+            raise
+        except Exception:  # pragma: no cover
+            # Band lookup / evaluation problem → treat as "no band". One
+            # broker API hiccup must never halt the platform.
+            _vlog.debug("circuit_gate_failed", exc_info=True)
 
     # ── Block gate (segment level): tradingEnabled = false ────────
     # Admin paused this segment. Existing positions can still be closed
