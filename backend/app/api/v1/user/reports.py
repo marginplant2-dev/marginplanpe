@@ -8,11 +8,24 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from app.core.config import settings
 from app.core.dependencies import CurrentUser
 from app.models.trade import Trade
 from app.schemas.common import APIResponse
 from app.services import report_pdf_service
 from app.utils.time_utils import now_utc
+
+
+def _brand_slug() -> str:
+    """Filename-safe brand prefix taken from APP_NAME.
+
+    Downloaded report filenames were hard-coded to `setupfx_…`, so every user
+    on the current brand still received files stamped with the OLD one. Derive
+    it from config instead: "MarginPlant Broker" → "marginplant".
+    """
+    raw = (settings.APP_NAME or "").strip().lower()
+    slug = "".join(c if c.isalnum() else "_" for c in raw).strip("_")
+    return slug.split("_")[0] or "report"
 
 router = APIRouter(prefix="/reports", tags=["user-reports"])
 
@@ -292,7 +305,7 @@ async def pnl_report_pdf(
     payload = await _pnl_payload(user, from_date, to_date)
     pdf = report_pdf_service.build_pnl_pdf(user, payload)
     stamp = datetime.now().strftime("%Y%m%d")
-    return _pdf_response(pdf, f"setupfx_pnl_{stamp}.pdf")
+    return _pdf_response(pdf, f"{_brand_slug()}_pnl_{stamp}.pdf")
 
 
 @router.get("/tradebook/pdf")
@@ -305,7 +318,7 @@ async def tradebook_pdf(
     rows = await _tradebook_payload(user, from_date, to_date, limit)
     pdf = report_pdf_service.build_tradebook_pdf(user, rows)
     stamp = datetime.now().strftime("%Y%m%d")
-    return _pdf_response(pdf, f"setupfx_tradebook_{stamp}.pdf")
+    return _pdf_response(pdf, f"{_brand_slug()}_tradebook_{stamp}.pdf")
 
 
 @router.get("/brokerage/pdf")
@@ -317,7 +330,7 @@ async def brokerage_pdf(
     payload = await _brokerage_payload(user, from_date, to_date)
     pdf = report_pdf_service.build_brokerage_pdf(user, payload)
     stamp = datetime.now().strftime("%Y%m%d")
-    return _pdf_response(pdf, f"setupfx_brokerage_{stamp}.pdf")
+    return _pdf_response(pdf, f"{_brand_slug()}_brokerage_{stamp}.pdf")
 
 
 @router.get("/tax/pdf")
@@ -325,7 +338,7 @@ async def tax_pdf(user: CurrentUser):
     payload = await _tax_payload(user)
     pdf = report_pdf_service.build_tax_pdf(user, payload)
     stamp = datetime.now().strftime("%Y%m%d")
-    return _pdf_response(pdf, f"setupfx_tax_{stamp}.pdf")
+    return _pdf_response(pdf, f"{_brand_slug()}_tax_{stamp}.pdf")
 
 
 @router.get("/margin/pdf")
@@ -336,7 +349,7 @@ async def margin_pdf(user: CurrentUser):
         s = s.model_dump(mode="json")
     pdf = report_pdf_service.build_margin_pdf(user, s)
     stamp = datetime.now().strftime("%Y%m%d")
-    return _pdf_response(pdf, f"setupfx_margin_{stamp}.pdf")
+    return _pdf_response(pdf, f"{_brand_slug()}_margin_{stamp}.pdf")
 
 
 # ── Full tradebook PDF (ARK Trader style, same as admin version) ───

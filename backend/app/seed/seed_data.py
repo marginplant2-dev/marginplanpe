@@ -76,12 +76,16 @@ async def seed_company_bank() -> None:
     existing = await CompanyBankAccount.find_one()
     if existing is not None:
         return
+    # Placeholder row so the deposit screen renders on a fresh install — the
+    # operator replaces every field with real bank details in admin →
+    # Payments. Brand comes from APP_NAME so a new deploy never stamps the
+    # old `SetupFX` name into the account holder / UPI handle.
     await CompanyBankAccount(
         bank_name="HDFC Bank",
-        account_holder="SetupFX Broker Pvt Ltd",
+        account_holder=f"{settings.APP_NAME} Pvt Ltd",
         account_number="00000000000000",
         ifsc_code="HDFC0000001",
-        upi_id="setupfx@hdfcbank",
+        upi_id="",
         is_default=True,
         is_active=True,
     ).insert()
@@ -98,8 +102,16 @@ async def seed_wd_rules() -> None:
 
 async def seed_platform_settings() -> None:
     defaults: list[tuple[str, object, SettingType, str, bool, str]] = [
-        ("platform.name", "SetupFX Broker", SettingType.STRING, "general", True, "Public platform name"),
-        ("platform.support_email", "support@setupfx.com", SettingType.STRING, "general", True, "Support email"),
+        # Branding + support contact come from config (env-tunable), NOT a
+        # hard-coded literal. These are seeded into PlatformSetting on first
+        # boot and are editable afterwards in admin → Platform Settings, so a
+        # literal here silently stamped the old `SetupFX` branding /
+        # `support@setupfx.com` into every fresh deploy's DB even when the
+        # .env already carried the correct brand. SUPPORT_EMAIL defaults to
+        # empty — the support UI then hides the email option instead of
+        # showing a dead address.
+        ("platform.name", settings.APP_NAME, SettingType.STRING, "general", True, "Public platform name"),
+        ("platform.support_email", settings.SUPPORT_EMAIL, SettingType.STRING, "general", True, "Support email"),
         ("platform.support_whatsapp", "", SettingType.STRING, "general", True, "Support WhatsApp number (with country code, e.g. +919999999999)"),
         ("platform.theme", "dark", SettingType.STRING, "general", True, "UI theme hint"),
         ("platform.language", "en", SettingType.STRING, "general", True, "Default UI language"),

@@ -22,7 +22,15 @@ class Settings(BaseSettings):
     )
 
     # ── Application ──────────────────────────────────────────────────
-    APP_NAME: str = "SetupFX Broker"
+    APP_NAME: str = "MarginPlant Broker"
+    # Public support address surfaced by /user/support and the apk/web
+    # "Contact support" affordance. Seeded into the `platform.support_email`
+    # PlatformSetting on first boot (admins can then edit it in Platform
+    # Settings). Empty = not configured, and the UI simply hides the email
+    # option rather than showing a dead address — which is why this has no
+    # invented default. Previously the seed hard-coded a stale
+    # `support@setupfx.com` straight into the DB.
+    SUPPORT_EMAIL: str = ""
     APP_ENV: Literal["development", "staging", "production"] = "development"
     APP_DEBUG: bool = False
     APP_HOST: str = "0.0.0.0"
@@ -239,7 +247,7 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
     SMTP_PASSWORD: SecretStr = Field(default=SecretStr(""))
-    SMTP_FROM: str = "no-reply@setupfx.com"
+    SMTP_FROM: str = "no-reply@marginplant.com"
     SMTP_TLS: bool = True
     SMS_PROVIDER: Literal["mock", "twilio", "msg91"] = "mock"
     SMS_API_KEY: SecretStr = Field(default=SecretStr(""))
@@ -276,7 +284,7 @@ class Settings(BaseSettings):
     VAPID_SUBJECT: str = "mailto:admin@marginplant.com"
 
     # ── Seed ─────────────────────────────────────────────────────────
-    SEED_SUPER_ADMIN_EMAIL: str = "admin@setupfx.com"
+    SEED_SUPER_ADMIN_EMAIL: str = "admin@marginplant.com"
     SEED_SUPER_ADMIN_PASSWORD: SecretStr = Field(default=SecretStr("Admin@123"))
     SEED_SUPER_ADMIN_MOBILE: str = "9999999999"
     RUN_SEED_ON_STARTUP: bool = True
