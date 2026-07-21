@@ -355,6 +355,45 @@ export function OrderPanel({ instrument, ltp, bid, ask, open, high, low, close, 
   const sidePriceMissing =
     (side === "BUY" && buyPrice <= 0) || (side === "SELL" && sellPrice <= 0);
 
+  // ── Upper / lower circuit (daily price band) ──────────────────────
+  // Mirror of the backend gate so the locked side is disabled BEFORE the
+  // user submits, not as a rejection toast after. A circuit is DIRECTIONAL:
+  // at the upper edge only SELL may OPEN, at the lower edge only BUY. Exits
+  // are exempt — a reducing order is ALWAYS allowed, the band must never
+  // trap you in a position. Null limits mean "no band" and are never read
+  // as 0 (a 0 ceiling would falsely lock every instrument). Guarded on
+  // ltp > 0 — outside market hours LTP is 0 and `0 <= lower` would lock all.
+  const circUpper = Number(effSettings?.upper_circuit ?? 0) || null;
+  const circLower = Number(effSettings?.lower_circuit ?? 0) || null;
+  // Held size for THIS instrument + product, in LOTS and signed
+  // (+ long, − short) — same keys the matching engine merges fills on,
+  // and the same cache the per-instrument-cap check above already reads.
+  const circHeldLots = (() => {
+    const positions =
+      (qc.getQueryData<any[]>(["positions", "open"]) as any[] | undefined) || [];
+    const p = positions.find(
+      (r) =>
+        r && r.instrument_token === instrument?.token && r.product_type === productType,
+    );
+    return p ? Number(p.quantity ?? 0) / (lotSize || 1) : 0;
+  })();
+  const circWouldReduce = (act: "BUY" | "SELL") => {
+    const delta = act === "BUY" ? lots : -lots;
+    return Math.abs(circHeldLots + delta) < Math.abs(circHeldLots);
+  };
+  const circAtUpper = !!(circUpper && ltp > 0 && ltp >= circUpper);
+  const circAtLower = !!(circLower && ltp > 0 && ltp <= circLower);
+  const circLockedSide = circAtUpper ? "UPPER" : circAtLower ? "LOWER" : null;
+  // Blocked for the CURRENTLY selected side (submit acts on `side`).
+  const circBlockedNow =
+    (side === "BUY" && circAtUpper && !circWouldReduce("BUY")) ||
+    (side === "SELL" && circAtLower && !circWouldReduce("SELL"));
+  // At the edge but the selected side would CLOSE — still permitted. Said
+  // explicitly so a user facing a warning still tries to exit.
+  const circExitAllowedNow =
+    (side === "BUY" && circAtUpper && circWouldReduce("BUY")) ||
+    (side === "SELL" && circAtLower && circWouldReduce("SELL"));
+
   // No currency prefix anywhere price is shown — display the bare
   // grouped number. Decimal count still varies by instrument so crypto
   // stays at 2 places and forex keeps 4 places.
@@ -454,6 +493,17 @@ export function OrderPanel({ instrument, ltp, bid, ask, open, high, low, close, 
     if (sidePriceMissing) {
       toast.error(
         `Cannot ${side === "BUY" ? "buy" : "sell"} — no live ${side === "BUY" ? "ask" : "bid"} price for this instrument. Try a different contract.`,
+      );
+      return;
+    }
+    // Circuit guard — same condition as the disabled submit button, because
+    // the handler is still reachable (Enter key, stale render). Exits pass
+    // via circWouldReduce() inside circBlockedNow.
+    if (circBlockedNow) {
+      toast.error(
+        side === "BUY"
+          ? `Upper circuit ₹${circUpper} hit — only SELL is allowed right now.`
+          : `Lower circuit ₹${circLower} hit — only BUY is allowed right now.`,
       );
       return;
     }
@@ -1259,12 +1309,36 @@ export function OrderPanel({ instrument, ltp, bid, ask, open, high, low, close, 
               </span>
             </div>
           ))}
+        {/* Circuit banner — names the band + the side that can still open.
+            When the selected side would CLOSE, says so explicitly so a user
+            facing the warning still tries to exit. */}
+        {circLockedSide && (
+          <div
+            className={cn(
+              "mb-2 rounded-md border p-2 text-xs",
+              circExitAllowedNow
+                ? "border-amber-500/30 bg-amber-500/[0.07]"
+                : "border-red-500/30 bg-red-500/[0.07]",
+            )}
+          >
+            <div className="font-semibold text-foreground">
+              {circLockedSide === "UPPER"
+                ? `Upper circuit ₹${circUpper} — only SELL can open`
+                : `Lower circuit ₹${circLower} — only BUY can open`}
+            </div>
+            {circExitAllowedNow && (
+              <div className="mt-0.5 font-medium text-amber-700 dark:text-amber-300">
+                Closing your open position is still allowed.
+              </div>
+            )}
+          </div>
+        )}
         <Button
           type="button"
           variant={side === "BUY" ? "buy" : "sell"}
           className="h-11 w-full text-sm font-semibold"
           loading={submitting}
-          disabled={sidePriceMissing}
+          disabled={sidePriceMissing || circBlockedNow}
           onClick={submit}
         >
           {side} {fmtLots(lots)} {isCrypto || isForex ? "lots" : `lot${lots === 1 ? "" : "s"}`}
