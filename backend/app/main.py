@@ -662,7 +662,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                             "zerodha_subscription_trim",
                             _partial(
                                 _zerodha_heal.subscription_trim_loop,
-                                interval_sec=600.0,
+                                interval_sec=300.0,
                                 keep_count=1200,
                             ),
                         ),

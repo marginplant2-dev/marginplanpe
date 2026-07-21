@@ -1220,6 +1220,15 @@ class ZerodhaService:
         s = await self._get_settings()
         all_subs = list(s.subscribedInstruments)
         if len(all_subs) <= keep_count:
+            # WS/DB already within budget — but _subscribed/_state can still be
+            # bloated (a prior trim shrank the DB, not those sets). Bound them to
+            # the current DB tokens so they never outgrow the WS pool.
+            try:
+                from app.services import market_data_service as _mds
+
+                _mds.prune_subscribed_numeric({i.token for i in all_subs})
+            except Exception:
+                logger.debug("zerodha_trim_prune_ticksets_failed", exc_info=True)
             return {"kept": len(all_subs), "removed": 0, "must_keep_added": 0}
 
         # Build the must-keep set: open positions + active watchlist items +
@@ -1291,12 +1300,27 @@ class ZerodhaService:
             for tok in evict_tokens:
                 self.ticks_by_token.pop(tok, None)
                 self._token_last_used.pop(tok, None)
+        # ALSO prune the tick_loop's iteration sets (_subscribed / _state) to
+        # the SAME keep-set. Trimming only the WS above left those two growing
+        # unbounded (7,171 tokens seen) while the WS stayed at keep_count — the
+        # tick_loop then overlaid all 7,171 per pass on one core → ~10 s stale
+        # prices. Bounding them here keeps every published price fresh no matter
+        # how long the session runs. Best-effort: a failure just leaves the old
+        # (harmless, if slower) behaviour.
+        pruned_ticksets = 0
+        try:
+            from app.services import market_data_service as _mds
+
+            pruned_ticksets = _mds.prune_subscribed_numeric(keep_set)
+        except Exception:
+            logger.debug("zerodha_trim_prune_ticksets_failed", exc_info=True)
         logger.info(
             "zerodha_subscriptions_trimmed",
             extra={
                 "kept": len(keep),
                 "removed": len(evict_tokens),
                 "must_keep_added": must_keep_added_from_positions,
+                "tick_sets_pruned": pruned_ticksets,
             },
         )
         return {

@@ -100,6 +100,35 @@ def _group_filter(tokens: list) -> list:
     return [t for t in tokens if _in_feed_group(t)]
 
 
+def prune_subscribed_numeric(keep_tokens: set) -> int:
+    """Drop numeric (Zerodha) tokens from ``_subscribed`` / ``_state`` that are
+    NOT in ``keep_tokens``. Called by the Zerodha LRU trim.
+
+    THE FIX for the "option chain is 10 s behind live" incident: the trim
+    already caps the Zerodha WS subscription at ``keep_count`` (~1200), but it
+    never touched ``_subscribed`` / ``_state`` — the sets the ``tick_loop``
+    actually iterates (``_state ∩ _subscribed``). So as a trader browsed option
+    chains all day those two sets grew UNBOUNDED (7,171 tokens observed) while
+    the WS stayed at 1200. The tick_loop then overlaid 7,171 tokens per pass on
+    a single-core feed, stretching one pass to ~10 s → every published price
+    (option chain, positions, risk enforcer's `mdlive`) was ~10 s stale.
+
+    Bounding these two sets to the SAME keep-set as the WS keeps the tick_loop's
+    per-pass work fixed no matter how long the session runs. Symbol-style
+    (crypto/forex) tokens are left alone — they're the global feed's concern.
+    mdlive keys for dropped tokens are left to expire on their own 30 s TTL.
+    """
+    keep_str = {str(int(t)) for t in keep_tokens if str(t).lstrip("-").isdigit()}
+    dropped = 0
+    for t in list(_subscribed):
+        ts = str(t)
+        if ts.lstrip("-").isdigit() and ts not in keep_str:
+            _subscribed.discard(t)
+            _state.pop(t, None)
+            dropped += 1
+    return dropped
+
+
 # In-memory token → symbol cache (avoids MongoDB lookup on every tick)
 _token_symbol_cache: dict[str, str | None] = {}
 _TOKEN_CACHE_WARM = False
