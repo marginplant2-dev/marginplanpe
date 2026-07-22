@@ -49,13 +49,26 @@ logger = logging.getLogger(__name__)
 # energy, global indices) is 24×7 / international and has no circuit.
 BAND_EXCHANGES: frozenset[str] = frozenset({"NSE", "BSE", "NFO", "BFO", "MCX", "CDS"})
 
-# Band is fixed for the session, so a day-scoped key is enough. The TTL is a
-# backstop only — the date in the key is what actually rolls it over.
-_TTL_SEC = 24 * 3600
+# The band is NOT fixed for the session: MCX (4%→6%→9%) and NSE (5%→10%→20%)
+# EXPAND the band intraday once price reaches an edge. A 24 h cache pinned the
+# narrow morning value all day, so the moment price legitimately traded past the
+# old edge (band widened) the stale ceiling false-locked the scrip for the rest
+# of the session (CRUDEOIL: cached upper ₹8266 vs live 8473 → BUY stuck). So the
+# band is refreshed on a short TTL — long enough to shield the per-order path
+# from a Kite call storm, short enough to pick up an expansion within ~a minute.
+# The staleness guard in evaluate() is the second line of defence for the window
+# between refreshes.
+_TTL_SEC = 90
 # A "no band" answer is cached for much less time so a transient feed outage
 # (expired token at 08:00, WS reconnect) doesn't suppress the band for the
 # rest of the day — but still shields the API from a per-order retry storm.
 _TTL_EMPTY_SEC = 300
+
+# How far ABOVE the upper (or below the lower) the live price may sit before the
+# cached band is judged stale and ignored. A genuine lock pins price exactly at
+# the edge (0% past it); this small slack only tolerates the final tick / decimal
+# rounding, while comfortably catching a real expansion (edges jump whole %s).
+_STALE_TOL = Decimal("0.005")  # 0.5%
 
 
 def _norm(v: Any) -> Decimal | None:
@@ -178,6 +191,20 @@ def evaluate(
     different fix for the user.
     """
     act = (action or "").upper()
+
+    # Staleness guard — drop a band edge the live price has already broken past.
+    # A REAL circuit is a pinned price: at the upper circuit the LTP sits AT the
+    # ceiling and physically cannot trade above it, so `cur` can only ever equal
+    # the upper (never exceed it). If `cur` is materially ABOVE the cached upper
+    # (or BELOW the cached lower), the cache is STALE — the exchange widened the
+    # band intraday and our value lagged — and locking on it would freeze a scrip
+    # that is trading perfectly legally. Only a band the price is sitting at (or
+    # just under, within tolerance for the last tick / rounding) is a live lock.
+    if cur is not None and cur > 0:
+        if upper is not None and cur > upper * (Decimal(1) + _STALE_TOL):
+            upper = None  # price broke above → cached ceiling is stale, ignore it
+        if lower is not None and cur < lower * (Decimal(1) - _STALE_TOL):
+            lower = None  # price broke below → cached floor is stale, ignore it
 
     # Rule 1 — directional lock.
     if cur is not None and cur > 0:

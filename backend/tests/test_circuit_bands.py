@@ -197,6 +197,64 @@ def test_ref_zero_skips_price_rule():
                 cur=D("100"), ref=D("0")) is None
 
 
+# ── Staleness guard: an expanded band must never false-lock ──────────
+# The CRUDEOIL incident: exchange widened the band intraday (MCX 4%→6%→9%),
+# our cached morning ceiling lagged, and `cur >= stale_upper` froze BUY on a
+# scrip trading perfectly legally. A genuine lock pins price AT the edge, so a
+# price materially PAST the edge proves the band is stale → ignore it.
+def test_stale_upper_does_not_lock_buy():
+    # Cached upper 110, live price 115 (well past it) → band stale → BUY allowed.
+    assert gate(signed_held=0, lots=1, action="BUY", lower=LO, upper=UP,
+                cur=D("115"), ref=D("115")) is None
+
+
+def test_stale_upper_crudeoil_repro():
+    # The exact production numbers: cached upper ₹8266, live ₹8473 → no lock.
+    assert gate(signed_held=0, lots=1, action="BUY",
+                lower=D("7900"), upper=D("8266"),
+                cur=D("8473"), ref=D("8473")) is None
+
+
+def test_genuine_upper_still_locks_at_edge():
+    # Price sitting exactly at the ceiling is a REAL lock — must still fire.
+    hit = gate(signed_held=0, lots=1, action="BUY", lower=LO, upper=UP,
+               cur=D("110"), ref=D("110"))
+    assert hit is not None and hit[0] == "UPPER_CIRCUIT_BUY"
+
+
+def test_upper_within_tolerance_still_locks():
+    # Last tick / rounding may nudge cur a hair past the edge (≤0.5%) — still a
+    # live lock. 110 × 1.005 = 110.55.
+    hit = gate(signed_held=0, lots=1, action="BUY", lower=LO, upper=UP,
+               cur=D("110.5"), ref=D("110.5"))
+    assert hit is not None and hit[0] == "UPPER_CIRCUIT_BUY"
+
+
+def test_upper_just_past_tolerance_is_stale():
+    # 110.6 > 110.55 → judged stale → no lock.
+    assert gate(signed_held=0, lots=1, action="BUY", lower=LO, upper=UP,
+                cur=D("110.6"), ref=D("110.6")) is None
+
+
+def test_stale_lower_does_not_lock_sell():
+    # Symmetric: cached lower 90, live 85 (well below) → band stale → SELL ok.
+    assert gate(signed_held=0, lots=1, action="SELL", lower=LO, upper=UP,
+                cur=D("85"), ref=D("85")) is None
+
+
+def test_genuine_lower_still_locks_at_edge():
+    hit = gate(signed_held=0, lots=1, action="SELL", lower=LO, upper=UP,
+               cur=D("90"), ref=D("90"))
+    assert hit is not None and hit[0] == "LOWER_CIRCUIT_SELL"
+
+
+def test_stale_upper_also_frees_rule2_limit():
+    # A stale ceiling must not flag a LIMIT via rule 2 either: cur 115 proves
+    # upper 110 stale, so a limit at 113 (above the stale edge) is NOT blocked.
+    assert gate(signed_held=0, lots=1, action="BUY", lower=LO, upper=UP,
+                cur=D("115"), ref=D("113"), order_type="LIMIT") is None
+
+
 # ── Exchange allow-list / fail-open on the lookup itself ─────────────
 class _Instr:
     def __init__(self, exchange, token="1", symbol="X"):
