@@ -409,7 +409,10 @@ export function OptionChainPicker({ open, onOpenChange, onPick, initialUnderlyin
               <div className="flex items-center gap-2 overflow-x-auto border-b border-border px-4 py-2 scrollbar-thin">
                 {expiries.length === 0 ? (
                   <span className="text-xs text-muted-foreground">
-                    {isFetching ? "Loading expiries…" : "No expiries available"}
+                    {/* "Loading…" only before the first response — the chain
+                        polls, so `isFetching` alone would never let a scrip with
+                        no options settle to the empty message. */}
+                    {chain == null && isFetching ? "Loading expiries…" : "No expiries available"}
                   </span>
                 ) : (
                   expiries.map((iso) => {
@@ -470,7 +473,7 @@ export function OptionChainPicker({ open, onOpenChange, onPick, initialUnderlyin
               <div className="flex-1 overflow-y-auto scrollbar-thin">
                 {liveRows.length === 0 ? (
                   <div className="grid h-32 place-items-center text-xs text-muted-foreground">
-                    {isFetching ? "Loading…" : "No options. Subscribe instruments via admin → Zerodha Connect."}
+                    {chain == null && isFetching ? "Loading…" : "No options. Subscribe instruments via admin → Zerodha Connect."}
                   </div>
                 ) : (
                   <div>

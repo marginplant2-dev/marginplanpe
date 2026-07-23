@@ -159,7 +159,16 @@ export function MobileOptionChain({ onSelect, fixedUnderlying }: Props) {
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
         {rows.length === 0 ? (
           <div className="grid h-24 place-items-center px-4 text-center text-xs text-muted-foreground">
-            {isFetching ? "Loading…" : `No options available for ${underlying}`}
+            {/* "Loading…" ONLY on the very first fetch (no response yet). The
+                chain polls every 1 s, so `isFetching` flips true on every poll
+                — gating the message on it pinned "Loading…" forever for a scrip
+                that genuinely has no options (e.g. a plain equity like
+                SENSEXADD): rows stay [] and the poll never lets it fall through
+                to the empty state. Once ANY response has arrived (`data` set,
+                even with rows=[]), show the real "no options" message. */}
+            {data == null && isFetching
+              ? "Loading…"
+              : `No options available for ${underlying}`}
           </div>
         ) : (
           rows.map((r) => {
