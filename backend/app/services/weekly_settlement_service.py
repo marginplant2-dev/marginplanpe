@@ -233,10 +233,6 @@ async def _settle_one_position(
             opening_quantity=abs(qty_signed),
             avg_price=Decimal128(str(ltp)),
             ltp=Decimal128(str(ltp)),
-            # Fresh FIFO lifecycle at the settlement price — one lot. Keeps
-            # the lot queue in lockstep with avg_price so post-settlement
-            # closes book FIFO from the settle basis (not the pre-settle fills).
-            lots=[{"price": str(ltp), "qty": abs(qty_signed)}],
             margin_used=pos.margin_used,  # carried as-is (no new block/release)
             realized_pnl=Decimal128("0"),
             unrealized_pnl=Decimal128("0"),
