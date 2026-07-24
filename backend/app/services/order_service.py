@@ -231,6 +231,43 @@ async def place_order(
     trigger = to_decimal(payload.get("trigger_price") or 0)
     is_amo = bool(payload.get("is_amo") or False)
     is_squareoff = bool(payload.get("is_squareoff") or False)
+
+    # ── Same-instrument product netting (one product book per stock) ──
+    # A user must hold at most ONE product book per instrument. If an OPEN
+    # position already exists for this (user, token) — e.g. a lot that was
+    # auto-carried MIS→NRML at yesterday's EOD (`convert_intraday_to_carry`)
+    # — a fresh order on the same stock must ADOPT that position's
+    # product_type so it NETS into the existing position (weighted-avg)
+    # instead of opening a second row under a different product. Netting
+    # keys on (user, token, product_type), so without this the same stock
+    # shows twice (one MIS, one NRML). Margin then resolves against the
+    # adopted (carry) product — the safe/conservative side.
+    #
+    # Skipped for squareoff / close orders (those already target a specific
+    # position's product_type) and when the token has MULTIPLE distinct open
+    # product types (legacy fragmentation — don't guess which to adopt;
+    # leave those for the merge_fragmented_positions script).
+    if not is_squareoff:
+        from app.models.position import Position, PositionStatus
+
+        _open_here = await Position.find(
+            Position.user_id == user.id,
+            Position.instrument.token == token,
+            Position.status == PositionStatus.OPEN,
+        ).to_list()
+        _distinct_pt = {p.product_type for p in _open_here}
+        if len(_distinct_pt) == 1:
+            _existing_pt = next(iter(_distinct_pt))
+            if _existing_pt != product_type:
+                logger.info(
+                    "order_product_type_adopted_from_open_position "
+                    "token=%s requested=%s adopted=%s",
+                    token,
+                    product_type.value,
+                    _existing_pt.value,
+                )
+                product_type = _existing_pt
+
     # Optional system close tag (risk_enforcer SL/TP/stop-out, admin force-
     # close) — stamped on the Order so the Orders monitor can show WHY it
     # closed. None for ordinary opens; order_reason_code derives those.
