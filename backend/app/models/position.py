@@ -58,6 +58,18 @@ class Position(TimestampMixin):
     avg_price: Money = Field(default_factory=_zero)
     ltp: Money = Field(default_factory=_zero)
 
+    # FIFO lot queue — the open quantity broken into its constituent fills,
+    # oldest first: [{"price": "222368.50", "qty": 30.0}, ...]. Maintained by
+    # apply_fill (append on open/pyramid, consume-from-front on close/flip).
+    # Realized P&L is booked per-lot FIFO from this queue so the wallet
+    # ledger matches the user Closed blotter row-for-row (operator spec
+    # 24-Jul: "ledger bhi FIFO se P&L nikale"). Self-healing: whenever the
+    # queue disagrees with quantity/avg_price (legacy docs, admin edits,
+    # settlement reopens), `seeded_lots` reseeds it as ONE lot at avg_price
+    # — FIFO then degenerates to the old weighted-average behaviour for
+    # that close, so money can never drift.
+    lots: list[dict] = Field(default_factory=list)
+
     realized_pnl: Money = Field(default_factory=_zero)
     unrealized_pnl: Money = Field(default_factory=_zero)
     margin_used: Money = Field(default_factory=_zero)

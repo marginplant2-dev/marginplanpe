@@ -356,12 +356,25 @@ async def execute_market_order(
     # Opening fills leave both = None.
     pnl_inr_dec: Decimal | None = None
     raw_pnl_inr_dec: Decimal | None = None
+    close_legs: list[dict] | None = None
     if is_closing and existing_pos is not None:
+        # FIFO booking (operator spec 24-Jul: "ledger bhi FIFO se P&L
+        # nikale"): realize against the position's oldest opening lots, not
+        # the running weighted average, so the wallet ledger line equals the
+        # user Closed-blotter FIFO rows. `seeded_lots` self-heals a missing/
+        # stale queue to ONE lot at avg_price — in that case this expression
+        # is EXACTLY the old (ltp − avg) × qty formula, so legacy positions
+        # keep booking the same money as before. apply_fill() below consumes
+        # the same queue with the same helper, keeping position.lots,
+        # position.realized_pnl and this wallet booking in perfect lockstep.
+        from app.services.position_service import consume_lots_fifo, seeded_lots
+
         cur_qty = to_decimal(existing_pos.quantity)
-        avg = to_decimal(existing_pos.avg_price)
         closed_qty = min(abs(cur_qty), qty_dec)
         sign = Decimal(1) if cur_qty > 0 else Decimal(-1)
-        raw_realized = (ltp - avg) * closed_qty * sign
+        raw_realized, close_legs, _ = consume_lots_fifo(
+            seeded_lots(existing_pos), closed_qty, ltp, sign
+        )
         if market_data_service.is_usd_quoted_segment(order.instrument.segment):
             fx = to_decimal(market_data_service.get_usd_inr_rate())
             raw_realized = raw_realized * fx
@@ -384,6 +397,7 @@ async def execute_market_order(
             str(quantize_money(notional + (charges.total if order.action == OrderAction.SELL else -charges.total)))
         ),
         pnl_inr=Decimal128(str(pnl_inr_dec)) if pnl_inr_dec is not None else None,
+        close_legs=close_legs if close_legs else None,
     )
     order.filled_quantity += order.quantity
     order.pending_quantity = max(0, order.quantity - order.filled_quantity)

@@ -54,6 +54,17 @@ class Trade(TimestampMixin):
     # the close), so the displayed P&L matches the user's true cost.
     pnl_inr: Money | None = None
 
+    # FIFO close breakdown, frozen at fill time (closing fills only):
+    #   [{"entry_price": "221582.50", "qty": 30.0, "pnl": "18330.00"}, ...]
+    # One element per opening lot this close consumed, oldest first. `pnl`
+    # is the RAW gross for that lot (no brokerage fold, no FX — same basis
+    # as the wallet PNL ledger line, whose amount == sum of these legs).
+    # The user Closed blotter renders these rows directly, so what the
+    # ledger booked and what the Closed tab shows are the SAME numbers by
+    # construction (operator spec 24-Jul: "ledger bhi FIFO se P&L nikale").
+    # None on opening fills and on legacy closes from before this field.
+    close_legs: list[dict] | None = None
+
     # Set True when an admin REOPEN (or DELETE) undoes the close this trade
     # belongs to. The close fill stays in the collection for the audit trail,
     # but the user-facing Closed blotter (list_closed_trade_events_fifo) hides

@@ -33,6 +33,88 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def seeded_lots(pos: Position) -> list[dict]:
+    """Return a VALID FIFO lot queue for `pos`, self-healing on any drift.
+
+    The queue is trusted only when the lot quantities sum to |pos.quantity|
+    (within a dust epsilon). Anything else — legacy docs from before the
+    `lots` field, admin qty/avg edits, settlement reopens that skipped the
+    field — reseeds ONE lot at (avg_price × |quantity|). A single lot at
+    the weighted average makes FIFO mathematically IDENTICAL to the old
+    (price − avg) × qty formula, so the fallback can never change money;
+    it only loses the per-fill breakdown for that one position.
+    """
+    qty_abs = abs(float(pos.quantity or 0))
+    lots = list(pos.lots or [])
+    try:
+        lots_qty = sum(float(l.get("qty") or 0) for l in lots)
+        prices_ok = all(float(str(l.get("price"))) > 0 for l in lots)
+    except Exception:
+        lots_qty, prices_ok = -1.0, False
+    if not lots or not prices_ok or abs(lots_qty - qty_abs) > 1e-6:
+        if qty_abs <= 0:
+            return []
+        return [{"price": str(to_decimal(pos.avg_price)), "qty": qty_abs}]
+    return lots
+
+
+def consume_lots_fifo(
+    lots: list[dict],
+    close_qty: Decimal,
+    close_price: Decimal,
+    sign: Decimal,
+) -> tuple[Decimal, list[dict], list[dict]]:
+    """Consume `close_qty` from the FRONT (oldest) of `lots` at `close_price`.
+
+    Returns ``(realized_total, legs, remaining_lots)`` where each leg is
+    {"entry_price": str, "qty": float, "pnl": str} — the per-lot raw gross
+    this close realizes. `sign` is +1 for a long being sold, −1 for a short
+    being bought back. Pure function: never mutates the input list. The
+    matching engine PREVIEWS with it (wallet booking + Trade.close_legs) and
+    `apply_fill` COMMITS with it (position.lots update) — one code path, so
+    the booked ledger amount and the stored breakdown can never diverge.
+    """
+    remaining = close_qty
+    realized_total = Decimal(0)
+    legs: list[dict] = []
+    out: list[dict] = []
+    for lot in lots:
+        lot_qty = to_decimal(lot.get("qty") or 0)
+        lot_price = to_decimal(str(lot.get("price")))
+        if remaining <= 0 or lot_qty <= 0:
+            if lot_qty > 0:
+                out.append({"price": str(lot_price), "qty": float(lot_qty)})
+            continue
+        take = min(lot_qty, remaining)
+        leg_pnl = quantize_money((close_price - lot_price) * take * sign)
+        realized_total += leg_pnl
+        legs.append({
+            "entry_price": str(lot_price),
+            "qty": float(take),
+            "pnl": str(leg_pnl),
+        })
+        left = lot_qty - take
+        remaining -= take
+        if left > 0:
+            out.append({"price": str(lot_price), "qty": float(left)})
+    return quantize_money(realized_total), legs, out
+
+
+def _lots_wavg(lots: list[dict]) -> Decimal | None:
+    """Weighted-average price of a lot queue; None when empty."""
+    total = Decimal(0)
+    value = Decimal(0)
+    for lot in lots:
+        q = to_decimal(lot.get("qty") or 0)
+        if q <= 0:
+            continue
+        total += q
+        value += to_decimal(str(lot.get("price"))) * q
+    if total <= 0:
+        return None
+    return quantize_money(value / total)
+
+
 async def apply_fill(
     *,
     user_id: PydanticObjectId,
@@ -84,6 +166,7 @@ async def apply_fill(
             opening_quantity=abs(signed_qty),
             avg_price=Decimal128(str(price)),
             ltp=Decimal128(str(price)),
+            lots=[{"price": str(price), "qty": abs(signed_qty)}],
             margin_used=Decimal128(str(margin_used)),
             stop_loss=Decimal128(str(stop_loss)) if stop_loss is not None else None,
             target=Decimal128(str(target)) if target is not None else None,
@@ -148,6 +231,8 @@ async def apply_fill(
             # Previously closed position being reopened on this fill.
             pos.avg_price = Decimal128(str(price))
             pos.quantity = signed_qty
+            # Fresh lifecycle → fresh FIFO lot queue.
+            pos.lots = [{"price": str(price), "qty": abs(signed_qty)}]
             # Reopen — reset the recorded opening side to the new direction.
             pos.opened_side = action
             pos.opening_quantity = abs(signed_qty)
@@ -155,6 +240,12 @@ async def apply_fill(
             apply_brackets = True
         elif (cur_qty > 0 and signed_qty > 0) or (cur_qty < 0 and signed_qty < 0):
             # Same side (pyramiding): weighted avg, ADD the new leg's margin.
+            # FIFO lots: validate/seed the existing queue while pos.quantity
+            # still reflects the pre-fill size, then append this fill as the
+            # newest lot at the back of the queue.
+            _lots = seeded_lots(pos)
+            _lots.append({"price": str(price), "qty": abs(signed_qty)})
+            pos.lots = _lots
             total = to_decimal(abs(cur_qty) + abs(signed_qty))
             pos.avg_price = Decimal128(
                 str(quantize_money((cur_avg * to_decimal(abs(cur_qty)) + price * to_decimal(abs(signed_qty))) / total))
@@ -166,11 +257,22 @@ async def apply_fill(
         else:
             # Opposite side: realize PnL on the closed portion + release
             # margin proportional to how much of the original was closed.
+            # P&L is booked per-lot FIFO from the position's lot queue — the
+            # SAME helper the matching engine used to preview the wallet PNL
+            # for this fill, so position.realized_pnl, the ledger line and
+            # Trade.close_legs always agree. seeded_lots degrades to ONE lot
+            # at avg_price (mathematically identical to the old
+            # (price − avg) × qty formula) whenever the queue is missing or
+            # stale, so this can never book different money than before.
             closed_qty = min(abs(cur_qty), abs(signed_qty))
             sign = 1 if cur_qty > 0 else -1
-            realized = (price - cur_avg) * to_decimal(closed_qty) * sign
+            _base_lots = seeded_lots(pos)  # validate BEFORE pos.quantity changes
+            realized, _legs, _remaining_lots = consume_lots_fifo(
+                _base_lots, to_decimal(closed_qty), price, Decimal(sign)
+            )
             pos.realized_pnl = Decimal128(str(quantize_money(to_decimal(pos.realized_pnl) + realized)))
             pos.quantity = new_qty
+            pos.lots = _remaining_lots
             if new_qty == 0:
                 # Fully closed: all locked margin against this position is freed.
                 pos.status = PositionStatus.CLOSED
@@ -200,6 +302,9 @@ async def apply_fill(
                 # opposite position. Margin = the portion of the new order
                 # margin that backs the remaining qty.
                 pos.avg_price = Decimal128(str(price))
+                # Flip opens a brand-new lifecycle on the opposite side —
+                # its FIFO queue is exactly one lot at the flip price.
+                pos.lots = [{"price": str(price), "qty": abs(new_qty)}]
                 # Flip — record the new active direction so the Closed-tab
                 # card (and anyone else reading `opened_side`) reflects the
                 # surviving leg, not the one that was just flattened.
@@ -224,6 +329,17 @@ async def apply_fill(
                 # doesn't add new locked margin — it releases existing.)
                 scale = to_decimal(abs(new_qty)) / to_decimal(abs(cur_qty))
                 new_margin_used = to_decimal(pos.margin_used) * scale
+                # FIFO: the remaining cost basis is the SURVIVING lots'
+                # weighted average (the front lots were just consumed).
+                # Re-anchor avg_price there so unrealized P&L, weekly
+                # settlement and expiry settlement (all mark against
+                # avg_price) stay consistent with the FIFO bookings —
+                # realized + remaining always telescopes to the true total.
+                # With a seeded single-lot queue this is a no-op (wavg ==
+                # old avg), i.e. exactly the old behaviour.
+                _wavg_left = _lots_wavg(pos.lots or [])
+                if _wavg_left is not None:
+                    pos.avg_price = Decimal128(str(_wavg_left))
                 # apply_brackets stays False — the surviving position is in
                 # its original direction with its original avg, so existing
                 # SL/TP remain valid (if any). The closing order's bracket
@@ -1221,6 +1337,59 @@ async def list_closed_trade_events_fifo(
                 "open_brk": _charge(t),  # stored for pro-rata allocation on close
                 "original_qty": qty,     # original fill qty for correct pro-rata on partial closes
             })
+            continue
+
+        # ── Booked FIFO breakdown (trades since the FIFO-booking change) ──
+        # These trades carry the EXACT per-lot breakdown the matching engine
+        # booked to the wallet (Trade.close_legs, frozen at fill time). Render
+        # those rows verbatim — the ledger PNL line equals their sum by
+        # construction, so the Closed tab and the Ledger can never disagree
+        # (operator spec 24-Jul). The reconstruction queue is still drained so
+        # any legacy trades later in the walk keep pairing correctly.
+        stored_legs = getattr(t, "close_legs", None)
+        if stored_legs:
+            _sl_close_brk = _charge(t)
+            remaining = qty
+            open_brk_total = 0.0
+            row_opened_at = t.executed_at
+            first_fill = True
+            while remaining > 1e-9 and q:
+                front = q[0]
+                consume = min(front["qty"], remaining)
+                orig_qty = front.get("original_qty") or consume
+                if orig_qty > 0:
+                    open_brk_total += front.get("open_brk", 0.0) * (consume / orig_qty)
+                if first_fill:
+                    row_opened_at = front["opened_at"]
+                    first_fill = False
+                front["qty"] -= consume
+                remaining -= consume
+                if front["qty"] < 1e-9:
+                    q.popleft()
+
+            opened_side = "SELL" if is_buy else "BUY"
+            total_leg_qty = sum(float(l.get("qty") or 0) for l in stored_legs) or qty
+            for _li, leg in enumerate(stored_legs):
+                leg_qty = float(leg.get("qty") or 0)
+                if leg_qty <= 0:
+                    continue
+                share = leg_qty / total_leg_qty if total_leg_qty > 0 else 0.0
+                events.append({
+                    "_row_id": f"fifo_{t.id}_{_li}",
+                    "_closed_at": t.executed_at,
+                    "_superseded": getattr(t, "superseded_by_reopen", False),
+                    "instrument": t.instrument,
+                    "product_type": t.product_type,
+                    "opened_side": opened_side,
+                    "entry_price": float(str(leg.get("entry_price"))),
+                    "close_price": price,
+                    "qty": leg_qty,
+                    "gross_pnl": float(str(leg.get("pnl"))),
+                    "brokerage": (open_brk_total + _sl_close_brk) * share,
+                    "opened_at": row_opened_at,
+                    "closed_at": t.executed_at,
+                    "instrument_token": t.instrument.token,
+                })
             continue
 
         # ── Closing fill: consume from queue ─────────────────────────────
