@@ -1273,6 +1273,65 @@ async def list_closed_trade_events_fifo(
             continue
 
         close_brk = _charge(t)
+
+        # ── Ledger-consistent close row (normal path) ────────────────────
+        # Emit ONE row per closing trade whose P&L is the amount ACTUALLY
+        # booked — Trade.pnl_inr (+ close brokerage) = raw gross on the
+        # position's running weighted-average, exactly what the matching
+        # engine computed and the wallet ledger recorded as
+        # "Realized profit/loss on X close". Recomputing gross FIFO per
+        # opening fill (the fallback loop below) produced per-row numbers —
+        # sometimes even the OPPOSITE sign — that never matched the ledger,
+        # the operator's "closed tab aur ledger ka P&L match nahi hota"
+        # report. We STILL drain the FIFO queue here so open-leg brokerage
+        # allocation and every later close stay correct; only the DISPLAYED
+        # gross + entry now come from the booked P&L. `entry` is backed out
+        # from the booked gross so (close − entry) × qty reconciles on-screen.
+        if t.pnl_inr is not None and qty > 0 and price > 0:
+            gross = float(str(t.pnl_inr)) + close_brk  # raw gross (ledger basis)
+            opened_side = "SELL" if is_buy else "BUY"
+            entry_price = (
+                price - (gross / qty) if opened_side == "BUY" else price + (gross / qty)
+            )
+
+            remaining = qty
+            open_brk_alloc = 0.0
+            row_opened_at = t.executed_at
+            first_fill = True
+            while remaining > 1e-9 and q:
+                front = q[0]
+                consume = min(front["qty"], remaining)
+                orig_qty = front.get("original_qty") or consume
+                if orig_qty > 0:
+                    open_brk_alloc += front.get("open_brk", 0.0) * (consume / orig_qty)
+                if first_fill:
+                    row_opened_at = front["opened_at"]
+                    first_fill = False
+                front["qty"] -= consume
+                remaining -= consume
+                if front["qty"] < 1e-9:
+                    q.popleft()
+
+            events.append({
+                "_row_id": f"fifo_{t.id}_0",
+                "_closed_at": t.executed_at,
+                "_superseded": getattr(t, "superseded_by_reopen", False),
+                "instrument": t.instrument,
+                "product_type": t.product_type,
+                "opened_side": opened_side,
+                "entry_price": entry_price,
+                "close_price": price,
+                "qty": qty,
+                "gross_pnl": gross,
+                "brokerage": open_brk_alloc + close_brk,
+                "opened_at": row_opened_at,
+                "closed_at": t.executed_at,
+                "instrument_token": t.instrument.token,
+            })
+            continue
+
+        # ── Fallback: pnl_inr missing (rare engine-miss) ─────────────────
+        # No booked P&L to anchor on — reconstruct it FIFO per opening fill.
         remaining = qty
         sub_idx = 0
 
