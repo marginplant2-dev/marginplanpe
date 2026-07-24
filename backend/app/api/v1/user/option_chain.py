@@ -768,7 +768,16 @@ async def option_chain(
         # The cluster issues ~one /quote per _OCQ_TTL window instead of ~4/s.
         from app.core.redis_client import get_redis as _get_redis
 
-        _OCQ_TTL = 2  # seconds a REST snapshot is shared before a refresh
+        # Seconds a REST snapshot is shared (and the single-flight lock is held)
+        # before a refresh. REST is a TRANSITIONAL price source: it only feeds a
+        # strike during the ~1-3 s warm-up before its live WS tick lands, after
+        # which mdlive takes over. So a few seconds of shared staleness here is
+        # invisible, while HALVING the Kite /quote call rate (one per 4 s per
+        # underlying instead of one per 2 s) — which is what was tripping Kite's
+        # ~1 req/s limit (46 timeouts / 2 h observed) and freezing the chain for
+        # a beat until it "fixed itself" once the WS caught up. Fewer 429s → the
+        # warm-up window stays smoothly priced instead of stalling.
+        _OCQ_TTL = 4  # was 2 — see note above
 
         async def _ocq_read(keys: list[str]) -> None:
             """Merge any Redis-cached snapshots for `keys` into batch_snapshots."""
