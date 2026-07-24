@@ -933,6 +933,21 @@ async def list_active_trades(user: CurrentUser):
     trade_owner: dict[str, Position] = {}
     remaining_qty: dict[str, float] = {}
 
+    # One open position per (user, token) is the invariant now — order_service
+    # makes a fresh order ADOPT an existing open position's product_type, and
+    # historical MIS+NRML splits on the same stock were merged. So attribute
+    # trades to a position by TOKEN, NOT by product_type: a position that was
+    # carried MIS->NRML at EOD keeps MIS-typed backing fills, so a
+    # product_type match would attract ZERO same-side trades and the Active
+    # tab would under-show (or drop) it — the exact LINDEINDIA "position 7,
+    # active 1" symptom. We ONLY keep the product_type gate for a token that
+    # genuinely still holds MULTIPLE open positions (legacy fragmentation),
+    # where mixing books would double-count.
+    from collections import Counter as _Counter
+
+    _tok_counts = _Counter(p.instrument.token for p in open_positions)
+    _multi_pos_tokens = {tok for tok, c in _tok_counts.items() if c > 1}
+
     for p in open_positions:
         if p.quantity == 0:
             continue
@@ -944,7 +959,10 @@ async def list_active_trades(user: CurrentUser):
         for t in trades:
             if t.instrument.token != p.instrument.token:
                 continue
-            if str(t.product_type.value) != str(p.product_type.value):
+            if (
+                p.instrument.token in _multi_pos_tokens
+                and str(t.product_type.value) != str(p.product_type.value)
+            ):
                 continue
             t_time = t.executed_at or t.created_at
             if p.opened_at and t_time and t_time < p.opened_at:
@@ -1002,7 +1020,10 @@ async def list_active_trades(user: CurrentUser):
             all_same = [
                 t for t in trades
                 if t.instrument.token == p.instrument.token
-                and str(t.product_type.value) == str(p.product_type.value)
+                and (
+                    p.instrument.token not in _multi_pos_tokens
+                    or str(t.product_type.value) == str(p.product_type.value)
+                )
                 and ((is_long and t.action == OrderAction.BUY) or
                      (not is_long and t.action == OrderAction.SELL))
             ]
@@ -1374,8 +1395,21 @@ async def close_active_trade(trade_id: str, user: CurrentUser):
         Trade.instrument.token == t.instrument.token,
     ).to_list()
 
-    same_pt = [tr for tr in all_trades if tr.product_type == p.product_type]
-    pool = same_pt if same_pt else all_trades
+    # Attribute by TOKEN unless this token genuinely holds MULTIPLE open
+    # positions (legacy fragmentation). One-position-per-token is the invariant
+    # now, and a carried MIS->NRML position keeps MIS-typed backing fills — so
+    # a product_type-scoped pool would miss them and FIFO the wrong leftover.
+    # Mirrors the token-based attribution in list_active_trades above.
+    other_open = await Position.find(
+        Position.user_id == user.id,
+        Position.instrument.token == t.instrument.token,
+        Position.status == PositionStatus.OPEN,
+    ).count()
+    if other_open > 1:
+        same_pt = [tr for tr in all_trades if tr.product_type == p.product_type]
+        pool = same_pt if same_pt else all_trades
+    else:
+        pool = all_trades
 
     is_long = p.quantity > 0
 
