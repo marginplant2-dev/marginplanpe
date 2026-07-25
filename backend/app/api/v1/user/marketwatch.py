@@ -9,13 +9,78 @@ from fastapi import APIRouter, HTTPException
 
 from app.core.dependencies import CurrentUser
 from app.core.redis_client import publish
-from app.models._base import Exchange
+from app.models._base import Exchange, InstrumentType
 from app.models.watchlist import Watchlist, WatchlistItem
 from app.schemas.common import APIResponse
 from app.schemas.trading import WatchlistAddItem, WatchlistCreate
 from app.services import instrument_service, market_data_service
 
 logger = logging.getLogger(__name__)
+
+
+async def _drop_items_beyond_expiry_cap(
+    user_id: PydanticObjectId, items: list[WatchlistItem]
+) -> list[WatchlistItem]:
+    """Hide watchlist FUTURES whose expiry is beyond the user's "Show expiry
+    month" window.
+
+    Mirrors the instrument-search cap (instruments.py ``_cap_futures_by_expiry``)
+    so that when the admin LOWERS the expiry setting the favourites list trims
+    itself on the very next read — the operator's "expiry 2 month set kiya par
+    pehle add kiye instruments favourites/add-list me dikhte rahe" bug. It is
+    read-time only: nothing is deleted, so raising the setting back brings the
+    rows straight back with no data loss.
+
+    Only FUT is capped (option legs are added through the option-chain picker,
+    which is already expiry-capped at add time). The allowed expiries are taken
+    from the FULL futures calendar per underlying — NOT just the user's picks —
+    so a lone far-month favourite is still correctly judged "beyond N".
+    """
+    if not items:
+        return items
+    from app.api.v1.user.option_chain import (
+        _effective_max_expiries,
+        _resolve_expiry_settings_for_user,
+    )
+    from app.models.instrument import Instrument
+    from app.utils.time_utils import now_ist
+
+    tokens = [it.instrument_token for it in items]
+    insts = await Instrument.find({"token": {"$in": tokens}}).to_list()
+    by_token = {i.token: i for i in insts}
+
+    # Underlyings (keyed by spot token) that have a FUT favourite to cap.
+    fut_unds: dict[str, tuple[str, str]] = {}  # underlying_token -> (exchange, root)
+    for i in insts:
+        if i.instrument_type == InstrumentType.FUT and i.expiry and i.underlying_token:
+            fut_unds[i.underlying_token] = (str(i.exchange), i.name)
+    if not fut_unds:
+        return items
+
+    settings = await _resolve_expiry_settings_for_user(user_id)
+    today = now_ist().date()
+    allowed: dict[str, set] = {}
+    for ut, (exch, root) in fut_unds.items():
+        n = max(1, int(_effective_max_expiries(settings, root, exch)))
+        docs = await Instrument.find(
+            {"underlying_token": ut, "instrument_type": InstrumentType.FUT.value}
+        ).to_list()
+        exps = sorted({d.expiry for d in docs if d.expiry and d.expiry >= today})
+        allowed[ut] = set(exps[:n])  # nearest N distinct expiries
+
+    out: list[WatchlistItem] = []
+    for it in items:
+        inst = by_token.get(it.instrument_token)
+        if (
+            inst is not None
+            and inst.instrument_type == InstrumentType.FUT
+            and inst.expiry
+            and allowed.get(inst.underlying_token)  # non-empty calendar only
+            and inst.expiry not in allowed[inst.underlying_token]
+        ):
+            continue  # FUT beyond the per-underlying expiry cap → hide
+        out.append(it)
+    return out
 
 
 async def _notify_marketwatch_changed(
@@ -166,6 +231,10 @@ async def list_segment_items(segment_name: str, user: CurrentUser):
             for it in items
             if token_row.get(it.instrument_token, "") not in inactive_admin
         ]
+
+    # Expiry cap — hide FUT favourites beyond the user's "Show expiry month"
+    # window so lowering the admin setting trims the list immediately.
+    items = await _drop_items_beyond_expiry_cap(user.id, items)
 
     return APIResponse(
         data=[
