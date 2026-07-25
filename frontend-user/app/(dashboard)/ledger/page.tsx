@@ -32,6 +32,12 @@ const VISIBLE_TYPES = new Set<string>([
   "WITHDRAWAL",
   "SETTLEMENT_OUTSTANDING_BOOKED",
   "SETTLEMENT_OUTSTANDING_RECOVERY",
+  // Admin manual wallet changes — the backend relabels these to
+  // "Deposit by admin" / "Withdrawal by admin" by direction.
+  "ADJUSTMENT",
+  "BONUS",
+  "PENALTY",
+  "PROMO",
 ]);
 
 export default function UserLedgerPage() {

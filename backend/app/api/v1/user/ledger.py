@@ -67,6 +67,18 @@ _LABELS: dict[TransactionType, str] = {
     TransactionType.SETTLEMENT_OUTSTANDING_RECOVERY: "Settlement recovered",
 }
 
+# Manual balance changes an ADMIN makes on a user's wallet (the admin
+# `wallet-adjust` action defaults to ADJUSTMENT and also offers BONUS / PENALTY
+# / PROMO). To the user these are simply money the admin put in or took out, so
+# the ledger relabels them by direction — "Deposit by admin" for a credit,
+# "Withdrawal by admin" for a debit — instead of the internal type name.
+_ADMIN_MANUAL_TYPES: frozenset[TransactionType] = frozenset({
+    TransactionType.ADJUSTMENT,
+    TransactionType.BONUS,
+    TransactionType.PENALTY,
+    TransactionType.PROMO,
+})
+
 
 # Words / patterns that leak internal admin actions into the user's
 # ledger. When any of these appears in a row's narration on a sensitive
@@ -181,6 +193,10 @@ async def ledger(
             total_settlement_booked += abs(d)
 
         label = _LABELS.get(t.transaction_type, t.transaction_type.value)
+        # Admin manual wallet changes → show as a plain admin-initiated
+        # deposit / withdrawal, chosen by the sign of the amount.
+        if t.transaction_type in _ADMIN_MANUAL_TYPES:
+            label = "Deposit by admin" if d > 0 else "Withdrawal by admin"
         particulars = _sanitize_narration(t)
 
         out.append(
