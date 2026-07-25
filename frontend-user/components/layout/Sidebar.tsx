@@ -33,7 +33,7 @@ const items = [
   { href: "/positions", label: "Positions", icon: Activity },
   { href: "/wallet", label: "Wallet", icon: Wallet },
   { href: "/ledger", label: "Ledger", icon: ScrollText },
-  { href: "/reports/pnl", label: "Reports", icon: FileText },
+  { href: "/reports/tradebook", label: "Reports", icon: FileText },
   { href: "/alerts", label: "Alerts", icon: Bell },
   { href: "/profile", label: "Profile", icon: User },
 ];

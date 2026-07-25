@@ -174,8 +174,8 @@ export default function ProfilePage() {
           icon={ReceiptText}
           tone="primary"
           label="Reports"
-          sub="P&L · Tradebook · Margin · Brokerage · Tax"
-          href="/reports/pnl"
+          sub="Download your tradebook"
+          href="/reports/tradebook"
         />
         <ListRowLink
           icon={Bell}
