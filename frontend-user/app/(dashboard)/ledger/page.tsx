@@ -77,6 +77,7 @@ export default function UserLedgerPage() {
   return (
     <div className="space-y-4">
       <PageHeader
+        back
         title="Ledger"
         description={`${visibleRows.length} ${visibleRows.length === 1 ? "entry" : "entries"} — deposits, withdrawals & settlements`}
       />

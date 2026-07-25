@@ -14,6 +14,10 @@ interface Props {
   value: DateRange;
   onChange: (next: DateRange) => void;
   className?: string;
+  /** Show ONLY the From → To date inputs — no preset pills, no Custom toggle.
+   *  Used by the tradebook where the operator wants a plain "from date to
+   *  date" download picker and nothing else. */
+  simple?: boolean;
 }
 
 // Common presets — anything outside this is "Custom" via the date
@@ -41,8 +45,31 @@ function presetRange(days: number | null): DateRange {
   return { from: isoDay(from), to: isoDay(to) };
 }
 
-export function DateRangeBar({ value, onChange, className }: Props) {
+export function DateRangeBar({ value, onChange, className, simple }: Props) {
+  // Simple mode: just the two date inputs, always visible.
   const [open, setOpen] = useState(false);
+
+  if (simple) {
+    return (
+      <div className={cn("flex flex-wrap items-center gap-2", className)}>
+        <Input
+          type="date"
+          value={value.from ?? ""}
+          onChange={(e) => onChange({ ...value, from: e.target.value || undefined })}
+          className="h-9 w-auto text-xs"
+          aria-label="From date"
+        />
+        <span className="text-xs text-muted-foreground">to</span>
+        <Input
+          type="date"
+          value={value.to ?? ""}
+          onChange={(e) => onChange({ ...value, to: e.target.value || undefined })}
+          className="h-9 w-auto text-xs"
+          aria-label="To date"
+        />
+      </div>
+    );
+  }
 
   // Match the active preset by comparing day-spans — keeps the pill
   // highlighted after a reload if the URL/state happens to land on a

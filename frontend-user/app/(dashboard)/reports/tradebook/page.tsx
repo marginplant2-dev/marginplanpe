@@ -31,11 +31,12 @@ export default function TradebookPage() {
   return (
     <div className="space-y-4">
       <PageHeader
+        back
         title="Tradebook"
         description="Choose a date range and download your trade book."
       />
 
-      <DateRangeBar value={range} onChange={setRange} />
+      <DateRangeBar simple value={range} onChange={setRange} />
 
       <Card className="p-4">
         <div className="text-sm font-medium">Download tradebook</div>
