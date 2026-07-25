@@ -470,8 +470,15 @@ export const DashboardAPI = {
 };
 
 export const LedgerAPI = {
-  list: (params?: { from_date?: string; to_date?: string; limit?: number }) =>
-    unwrap<any>(api.get("/user/ledger", { params })),
+  list: (params?: {
+    from_date?: string;
+    to_date?: string;
+    limit?: number;
+    // Comma-separated transaction_type filter. The ledger page passes only
+    // DEPOSIT,WITHDRAWAL,SETTLEMENT_* so those rows are never pushed past the
+    // row limit by a busy trader's trade/brokerage/P&L rows.
+    types?: string;
+  }) => unwrap<any>(api.get("/user/ledger", { params })),
 };
 
 export const ReportsAPI = {

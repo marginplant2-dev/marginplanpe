@@ -138,6 +138,11 @@ async def ledger(
     from_date: datetime | None = None,
     to_date: datetime | None = None,
     limit: int = Query(default=200, le=1000),
+    types: str | None = Query(
+        default=None,
+        description="Comma-separated transaction_type filter (e.g. "
+        "DEPOSIT,WITHDRAWAL,SETTLEMENT_OUTSTANDING_BOOKED). Omit for all types.",
+    ),
 ):
     q: dict[str, Any] = {"user_id": user.id}
     if from_date or to_date:
@@ -146,6 +151,14 @@ async def ledger(
             q["created_at"]["$gte"] = from_date
         if to_date:
             q["created_at"]["$lte"] = to_date
+    # Optional server-side type filter. The user ledger page requests only
+    # DEPOSIT / WITHDRAWAL / SETTLEMENT_* so those rows can't be crowded out of
+    # the `limit` window by a busy account's TRADE / BROKERAGE / PNL rows.
+    # Backward-compatible: no `types` param → every transaction type as before.
+    if types:
+        wanted = [x.strip() for x in types.split(",") if x.strip()]
+        if wanted:
+            q["transaction_type"] = {"$in": wanted}
     rows = await WalletTransaction.find(q).sort("+created_at").limit(limit).to_list()
 
     out = []
