@@ -125,3 +125,46 @@ def test_closed_blotter_falls_back_to_fifo_without_basis():
     # No override → pure FIFO front (unchanged for every other close).
     q = [103.0, 105.0, 110.0]
     assert _pick_index(q, None) == 0
+
+
+# ── Active-tab reconstruction: drop the tapped fill, not the FIFO oldest ──
+# Replicates list_active_trades' same-side consumption: with a specific-lot
+# basis, consume the matching-price fill first, then FIFO for any remainder.
+def _consume(fills, close_qty, basis):
+    """fills: list of [price, remaining_qty] (oldest-first). Returns the list
+    after consuming `close_qty`, matching-price-first when basis is set."""
+    fills = [list(f) for f in fills]
+    remain = close_qty
+    if basis is not None:
+        for f in fills:
+            if remain <= 0:
+                break
+            if f[1] > 0 and abs(f[0] - basis) < 1e-6:
+                c = min(f[1], remain)
+                f[1] -= c
+                remain -= c
+    for f in fills:
+        if remain <= 0:
+            break
+        c = min(f[1], remain)
+        f[1] -= c
+        remain -= c
+    return fills
+
+
+def test_active_tab_drops_the_tapped_fill():
+    # Operator's XAUUSD case: fills 4100.35, 4100.49, 4100.56 (oldest-first),
+    # exit the 4100.49 lot (100). It must be the one consumed; the other two
+    # survive — NOT the oldest 4100.35 (the pre-fix FIFO bug).
+    fills = [[4100.35, 100], [4100.49, 100], [4100.56, 100]]
+    out = _consume(fills, 100, basis=4100.49)
+    survivors = [f[0] for f in out if f[1] > 1e-9]
+    assert survivors == [4100.35, 4100.56]
+
+
+def test_active_tab_fifo_when_no_basis():
+    # No override → oldest consumed (unchanged avg-price behaviour).
+    fills = [[4100.35, 100], [4100.49, 100], [4100.56, 100]]
+    out = _consume(fills, 100, basis=None)
+    survivors = [f[0] for f in out if f[1] > 1e-9]
+    assert survivors == [4100.49, 4100.56]

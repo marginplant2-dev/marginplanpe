@@ -1011,8 +1011,34 @@ async def list_active_trades(user: CurrentUser):
             if is_same:
                 same_side_fifo.append((t, tq))
             else:
-                # Consume from oldest same-side fills
                 remain = tq
+                # Specific-lot close: a closing trade tagged with
+                # cost_basis_override (Active-tab Exit) consumes the same-side
+                # fill whose ENTRY PRICE matches the tapped lot FIRST — so the
+                # Active tab drops the exact fill the user exited (and the
+                # Closed blotter shows the same one), not the FIFO oldest. Any
+                # remainder, and every non-override close, falls to FIFO below.
+                _cbo = getattr(t, "cost_basis_override", None)
+                _basis = None
+                if _cbo is not None:
+                    try:
+                        _basis = float(str(_cbo))
+                    except Exception:
+                        _basis = None
+                if _basis is not None:
+                    for i, (st, sq) in enumerate(same_side_fifo):
+                        if remain <= 0:
+                            break
+                        try:
+                            match = sq > 1e-9 and abs(float(str(st.price)) - _basis) < 1e-6
+                        except Exception:
+                            match = False
+                        if match:
+                            consume = min(sq, remain)
+                            same_side_fifo[i] = (st, sq - consume)
+                            remain -= consume
+                # FIFO: consume from oldest same-side fills (the remainder, or
+                # the whole quantity for a normal avg-price close).
                 for i, (st, sq) in enumerate(same_side_fifo):
                     if remain <= 0:
                         break
