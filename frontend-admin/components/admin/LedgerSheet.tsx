@@ -39,8 +39,22 @@ function formatINR(v: unknown): string {
 
 const PAGE_SIZE = 25;
 
+// A SETTLEMENT_OUTSTANDING_BOOKED row is really an UNPAID BROKERAGE charge
+// (not a stop-out/close shortfall) when its narration is a "Charges for …"
+// line — the ₹/trade brokerage that couldn't be debited because the wallet
+// was at 0, so it was parked on settlement_outstanding. Close-loss and
+// admin position-delete shortfalls read "Realized loss … — shortfall" /
+// "Delete … — reverse close P&L" and stay labelled as settlement.
+function isBrokerageShortfall(tt: string, narration?: string): boolean {
+  return (
+    tt === "SETTLEMENT_OUTSTANDING_BOOKED" &&
+    String(narration ?? "").trim().toLowerCase().startsWith("charges for")
+  );
+}
+
 // Human-readable label for transaction type
-function txLabel(tt: string, amt: number): string {
+function txLabel(tt: string, amt: number, narration?: string): string {
+  if (isBrokerageShortfall(tt, narration)) return "Brokerage charge (unpaid)";
   switch (tt) {
     case "DEPOSIT": return "Deposit";
     case "WITHDRAWAL": return "Withdrawal";
@@ -55,7 +69,8 @@ function txLabel(tt: string, amt: number): string {
 }
 
 // Color pill for transaction type
-function txColor(tt: string, amt: number): string {
+function txColor(tt: string, amt: number, narration?: string): string {
+  if (isBrokerageShortfall(tt, narration)) return "bg-rose-100 text-rose-700 border-rose-200";
   if (tt === "SETTLEMENT_OUTSTANDING_BOOKED") return "bg-orange-100 text-orange-700 border-orange-200";
   if (tt === "SETTLEMENT_OUTSTANDING_RECOVERY") return "bg-blue-100 text-blue-700 border-blue-200";
   if (amt >= 0) return "bg-green-100 text-green-700 border-green-200";
@@ -225,8 +240,8 @@ export function LedgerSheet({ open, onClose, user }: Props) {
                   return (
                     <div key={t.id} className="flex items-center justify-between rounded-md border border-border p-2.5 text-sm bg-card hover:bg-muted/30 transition-colors">
                       <div className="flex flex-col leading-tight min-w-0 gap-0.5">
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border w-fit ${txColor(tt, amt)}`}>
-                          {txLabel(tt, amt)}
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border w-fit ${txColor(tt, amt, t.narration)}`}>
+                          {txLabel(tt, amt, t.narration)}
                         </span>
                         <span className="text-xs text-muted-foreground truncate max-w-[200px] sm:max-w-[300px]">{t.narration || "—"}</span>
                         <span className="text-[10px] text-muted-foreground">{t.created_at ? new Date(t.created_at).toLocaleString() : "—"}</span>
