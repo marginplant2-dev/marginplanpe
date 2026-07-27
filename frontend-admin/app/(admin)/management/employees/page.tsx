@@ -53,12 +53,17 @@ const PERMISSION_LABELS: Array<{ key: keyof AdminPermissions; label: string }> =
   { key: "reports", label: "Reports" },
   { key: "brokerage", label: "Brokerage" },
   { key: "brokers", label: "Brokers" },
+  { key: "accounts", label: "Accounts" },
+  { key: "pnl_sharing", label: "P&L Sharing" },
+  { key: "audit", label: "Audit logs" },
+  { key: "support", label: "Support" },
 ];
 
 const ALL_OFF: AdminPermissions = {
   users: false, kyc: false, deposits: false, withdrawals: false, banks: false,
   segment_settings: false, risk: false, netting: false, trading_view: false,
   ledger: false, reports: false, brokers: false, brokerage: false,
+  accounts: false, pnl_sharing: false, audit: false, support: false,
 };
 
 export default function EmployeesPage() {

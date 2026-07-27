@@ -20,6 +20,11 @@ export interface AdminPermissions {
   brokers: boolean;
   // Gates the Bank Accounts tab on the Payments page.
   banks: boolean;
+  // Previously un-gated sections, now grantable (mainly for employees).
+  accounts: boolean;
+  pnl_sharing: boolean;
+  audit: boolean;
+  support: boolean;
 }
 
 // Tri-state permission level (admin → broker grant, or broker → sub-broker).

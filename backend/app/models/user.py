@@ -118,6 +118,14 @@ class AdminPermissions(BaseModel):
     # True so existing admins keep their bank-management capability —
     # super-admin can turn it OFF per sub-admin to lock down.
     banks: bool = True
+    # Sections that used to be un-gated (visible to every admin-tier user).
+    # Added so they can be granted to EMPLOYEES per-section. Existing admins are
+    # backfilled to True (scripts.grant_all_sections_to_existing_admins) so they
+    # keep the access they already had; employees get them only when granted.
+    accounts: bool = False        # Accounts + Accounts Dashboard
+    pnl_sharing: bool = False     # P&L Sharing agreements
+    audit: bool = False           # Audit logs + Admin Actions history
+    support: bool = False         # Support
 
 
 # Tri-state permissions granted by an admin to a broker (or by a broker to

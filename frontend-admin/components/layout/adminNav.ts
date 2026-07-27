@@ -49,6 +49,10 @@ export type AdminNavItem = {
   // Visible to SUPER_ADMIN or ADMIN only (never EMPLOYEE / BROKER). Used by
   // the Employee-management item — every admin manages their own staff.
   superOrAdmin?: boolean;
+  // Employee-only gate for items that are UN-gated for super/admin/broker
+  // (they stay visible to those roles) but must be grantable per-section to
+  // employees. e.g. Accounts, Audit, Support, P&L Sharing.
+  empPerm?: PermissionKey;
 };
 
 export type AdminNavGroup = { title: string; items: AdminNavItem[] };
@@ -58,7 +62,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     title: "Overview",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: Home },
-      { href: "/accounts-dashboard", label: "Accounts", icon: BarChart3 },
+      { href: "/accounts-dashboard", label: "Accounts", icon: BarChart3, empPerm: "accounts" },
     ],
   },
   {
@@ -122,7 +126,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         brokerLabel: "Sub-brokers",
         hideForSuperAdmin: true,
       },
-      { href: "/management/pnl-sharing", label: "P&L Sharing", icon: Handshake },
+      { href: "/management/pnl-sharing", label: "P&L Sharing", icon: Handshake, empPerm: "pnl_sharing" },
     ],
   },
   {
@@ -133,9 +137,9 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { href: "/download-app", label: "Download App", icon: Download },
       { href: "/holidays", label: "Holiday calendar", icon: Calendar, superOnly: true },
       { href: "/backup", label: "Backup & EOD", icon: DatabaseBackup, superOnly: true },
-      { href: "/support", label: "Support", icon: MessageCircle },
-      { href: "/audit", label: "Audit logs", icon: History },
-      { href: "/admin-actions", label: "Admin Actions", icon: History },
+      { href: "/support", label: "Support", icon: MessageCircle, empPerm: "support" },
+      { href: "/audit", label: "Audit logs", icon: History, empPerm: "audit" },
+      { href: "/admin-actions", label: "Admin Actions", icon: History, empPerm: "audit" },
     ],
   },
 ];
@@ -152,7 +156,10 @@ export function filterAdminNav(
       // and every super/admin-tier item stays hidden.
       if (admin?.role === "EMPLOYEE") {
         if (it.href === "/dashboard") return true;
-        return it.perm ? canSee(admin, it.perm) : false;
+        // Gate by the item's section perm (perm) OR its employee-only perm
+        // (empPerm, for sections that stay un-gated for other roles).
+        const key = it.perm ?? it.empPerm;
+        return key ? canSee(admin, key) : false;
       }
       if (it.hideForSuperAdmin && isSuperAdmin(admin)) return false;
       if (it.superOrAdmin) return isSuperAdmin(admin) || admin?.role === "ADMIN";

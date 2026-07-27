@@ -57,6 +57,10 @@ const PERMISSION_LABELS: Array<{ key: keyof AdminPermissions; label: string }> =
   { key: "reports", label: "Reports" },
   { key: "brokerage", label: "Brokerage" },
   { key: "brokers", label: "Brokers (sub-admin can mint brokers)" },
+  { key: "accounts", label: "Accounts" },
+  { key: "pnl_sharing", label: "P&L Sharing" },
+  { key: "audit", label: "Audit logs" },
+  { key: "support", label: "Support" },
 ];
 
 const ALL_OFF: AdminPermissions = {
@@ -73,6 +77,10 @@ const ALL_OFF: AdminPermissions = {
   reports: false,
   brokers: false,
   brokerage: false,
+  accounts: false,
+  pnl_sharing: false,
+  audit: false,
+  support: false,
 };
 
 export default function SubAdminsPage() {
