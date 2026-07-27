@@ -21,6 +21,30 @@ from app.utils.decimal_utils import to_decimal
 router = APIRouter(prefix="/positions", tags=["user-positions"])
 
 
+def _recompute_overnight_holding(product_type, mode: str | None) -> bool:
+    """Should the carry-forward ("Holding" / CF Required) margin be recomputed
+    from the OVERNIGHT settings instead of just equalling the locked used margin?
+
+    Only for MIS in percent/fixed mode. Rationale (operator bug: an all-NRML
+    book showed *Used Margin > CF Required*, which reads as broken):
+      • NRML / CNC positions already carry — the validator locked the
+        overnight-correct amount at entry, so their carry margin IS
+        `margin_used`. (reports.py / admin reports already return
+        `holding_margin == used_margin`.)
+      • In Times mode leverage is symmetric — `netting_service` forces
+        `is_overnight=False`, so the validator uses the intraday leverage for
+        every product; the separate overnight field is never charged.
+        Recomputing with it invents a phantom used≠CF gap.
+    Recompute is meaningful ONLY when an intraday (MIS) position in
+    percent/fixed mode would need a genuinely different margin if rolled
+    overnight — the original point of the Holding tile."""
+    try:
+        pt = product_type.value if hasattr(product_type, "value") else str(product_type)
+    except Exception:
+        pt = str(product_type or "")
+    return pt.upper() == "MIS" and (mode or "times") != "times"
+
+
 def _opt_type_from_symbol(symbol: str | None) -> str | None:
     """Derive option type (CE/PE) from a trading symbol suffix.
 
@@ -412,30 +436,35 @@ async def open_positions(user: CurrentUser):
         # the explicit overnight fields, otherwise an MCX FUT row with
         # 500× intraday / 70× overnight reports holding = intraday and
         # the user has no warning before the EOD rollover force-closes.
+        # Default: carry margin = the locked used margin. Correct for every
+        # carry-by-default position (NRML/CNC, and any product in Times mode) —
+        # see _recompute_overnight_holding. Only MIS in percent/fixed mode
+        # recomputes the genuine overnight requirement below.
         holding_margin = float(d.get("margin_used") or 0.0)
         if not isinstance(resolved, BaseException) and resolved is not None:
             s = (resolved.get("settings") if isinstance(resolved, dict) else None) or {}
             try:
-                avg_native = float(str(r.avg_price))
-                qty_abs = abs(float(r.quantity))
-                notional = avg_native * qty_abs
                 mode = s.get("margin_calc_mode") or "times"
-                ovn_fixed = float(s.get("overnight_fixed_margin_per_lot") or 0)
-                if mode == "fixed" and ovn_fixed > 0:
-                    lot_size = max(1, int(getattr(r.instrument, "lot_size", 1) or 1))
-                    lots = qty_abs / lot_size
-                    cf = ovn_fixed * lots
-                else:
-                    ovn_pct = float(s.get("overnight_margin_percentage") or 100.0) / 100.0
-                    ovn_lev = float(s.get("overnight_leverage") or 1.0) or 1.0
-                    cf = notional * ovn_pct / ovn_lev
-                    # USD-quoted instruments — convert to INR like the
-                    # validator does at order time (fixed-per-lot is
-                    # already admin-entered in INR so it's skipped).
-                    if market_data_service.is_usd_quoted_segment(r.segment_type) or \
-                            market_data_service.is_usd_quoted_segment(r.instrument.segment):
-                        cf = cf * market_data_service.get_usd_inr_rate()
-                holding_margin = round(cf, 2)
+                if _recompute_overnight_holding(r.product_type, mode):
+                    avg_native = float(str(r.avg_price))
+                    qty_abs = abs(float(r.quantity))
+                    notional = avg_native * qty_abs
+                    ovn_fixed = float(s.get("overnight_fixed_margin_per_lot") or 0)
+                    if mode == "fixed" and ovn_fixed > 0:
+                        lot_size = max(1, int(getattr(r.instrument, "lot_size", 1) or 1))
+                        lots = qty_abs / lot_size
+                        cf = ovn_fixed * lots
+                    else:
+                        ovn_pct = float(s.get("overnight_margin_percentage") or 100.0) / 100.0
+                        ovn_lev = float(s.get("overnight_leverage") or 1.0) or 1.0
+                        cf = notional * ovn_pct / ovn_lev
+                        # USD-quoted instruments — convert to INR like the
+                        # validator does at order time (fixed-per-lot is
+                        # already admin-entered in INR so it's skipped).
+                        if market_data_service.is_usd_quoted_segment(r.segment_type) or \
+                                market_data_service.is_usd_quoted_segment(r.instrument.segment):
+                            cf = cf * market_data_service.get_usd_inr_rate()
+                    holding_margin = round(cf, 2)
             except Exception:
                 pass
         d["holding_margin"] = f"{holding_margin:.2f}"
@@ -1104,27 +1133,27 @@ async def list_active_trades(user: CurrentUser):
             "BUY" if p.quantity >= 0 else "SELL",
         )
         s = ovn_settings_by_key.get(sett_key) or {}
+        # Default: carry margin = locked used margin (NRML/CNC + Times mode).
+        holding_margin_inr = used_margin_inr
         try:
-            lot_size = max(1, int(p.instrument.lot_size or 1))
-            trade_lots = qty / lot_size if lot_size > 0 else qty
             mode = s.get("margin_calc_mode") or "times"
-            ovn_fixed = float(s.get("overnight_fixed_margin_per_lot") or 0)
-            if mode == "fixed" and ovn_fixed > 0:
-                holding_native = ovn_fixed * trade_lots
-            else:
-                trade_notional = qty * price
-                ovn_pct = float(s.get("overnight_margin_percentage") or 100.0) / 100.0
-                ovn_lev = float(s.get("overnight_leverage") or 1.0) or 1.0
-                holding_native = trade_notional * ovn_pct / ovn_lev
-            # USD → INR same as the order validator does. Skip for
-            # fixed mode where ₹/lot is already admin-entered in INR.
-            if is_usd and not (mode == "fixed" and ovn_fixed > 0):
-                holding_native *= fx
-            holding_margin_inr = round(holding_native, 2)
+            if _recompute_overnight_holding(p.product_type, mode):
+                lot_size = max(1, int(p.instrument.lot_size or 1))
+                trade_lots = qty / lot_size if lot_size > 0 else qty
+                ovn_fixed = float(s.get("overnight_fixed_margin_per_lot") or 0)
+                if mode == "fixed" and ovn_fixed > 0:
+                    holding_native = ovn_fixed * trade_lots
+                else:
+                    trade_notional = qty * price
+                    ovn_pct = float(s.get("overnight_margin_percentage") or 100.0) / 100.0
+                    ovn_lev = float(s.get("overnight_leverage") or 1.0) or 1.0
+                    holding_native = trade_notional * ovn_pct / ovn_lev
+                # USD → INR same as the order validator does. Skip for
+                # fixed mode where ₹/lot is already admin-entered in INR.
+                if is_usd and not (mode == "fixed" and ovn_fixed > 0):
+                    holding_native *= fx
+                holding_margin_inr = round(holding_native, 2)
         except Exception:
-            # Resolver hiccup — fall back to the locked intraday margin
-            # so the card never shows ₹0 / NaN, but DON'T multiply by
-            # 1.4 (the bug this commit is fixing).
             holding_margin_inr = used_margin_inr
 
         rows.append({
@@ -1202,21 +1231,24 @@ async def list_active_trades(user: CurrentUser):
             "BUY" if p.quantity >= 0 else "SELL",
         )
         s = ovn_settings_by_key.get(sett_key) or {}
+        # Default: carry margin = locked used margin (NRML/CNC + Times mode).
+        holding_margin_inr = used_margin_inr
         try:
-            lot_size = max(1, int(p.instrument.lot_size or 1))
-            pos_lots = qty / lot_size if lot_size > 0 else qty
             mode = s.get("margin_calc_mode") or "times"
-            ovn_fixed = float(s.get("overnight_fixed_margin_per_lot") or 0)
-            if mode == "fixed" and ovn_fixed > 0:
-                holding_native = ovn_fixed * pos_lots
-            else:
-                notional = qty * price
-                ovn_pct = float(s.get("overnight_margin_percentage") or 100.0) / 100.0
-                ovn_lev = float(s.get("overnight_leverage") or 1.0) or 1.0
-                holding_native = notional * ovn_pct / ovn_lev
-            if is_usd and not (mode == "fixed" and ovn_fixed > 0):
-                holding_native *= fx
-            holding_margin_inr = round(holding_native, 2)
+            if _recompute_overnight_holding(p.product_type, mode):
+                lot_size = max(1, int(p.instrument.lot_size or 1))
+                pos_lots = qty / lot_size if lot_size > 0 else qty
+                ovn_fixed = float(s.get("overnight_fixed_margin_per_lot") or 0)
+                if mode == "fixed" and ovn_fixed > 0:
+                    holding_native = ovn_fixed * pos_lots
+                else:
+                    notional = qty * price
+                    ovn_pct = float(s.get("overnight_margin_percentage") or 100.0) / 100.0
+                    ovn_lev = float(s.get("overnight_leverage") or 1.0) or 1.0
+                    holding_native = notional * ovn_pct / ovn_lev
+                if is_usd and not (mode == "fixed" and ovn_fixed > 0):
+                    holding_native *= fx
+                holding_margin_inr = round(holding_native, 2)
         except Exception:
             holding_margin_inr = used_margin_inr
 
