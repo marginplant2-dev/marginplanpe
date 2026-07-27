@@ -25,18 +25,18 @@ def _recompute_overnight_holding(product_type, mode: str | None) -> bool:
     """Should the carry-forward ("Holding" / CF Required) margin be recomputed
     from the OVERNIGHT settings instead of just equalling the locked used margin?
 
-    Yes for every MIS position; no for NRML/CNC.
-      • NRML / CNC already carry — the validator locked the overnight-correct
-        amount at entry, so their carry margin IS `margin_used` (recomputing
-        would just reprint the same number, and any mismatch reads as the
-        "Used > CF" bug an all-NRML book once showed).
-      • MIS is an INTRADAY lock. To carry it overnight the platform needs the
-        OVERNIGHT margin, which differs from the locked intraday margin whenever
-        the admin set a different overnight tier — INCLUDING Times mode (operator
-        config: NSE_EQ intraday 700× / overnight 70×, so a MIS position that
-        locked ~700× needs ~70× — i.e. 10× more — to roll). The Holding tile
-        exists precisely to surface that gap; suppressing it in Times mode (an
-        earlier over-correction) made CF Required under-count every MIS lot.
+    Yes for both MIS and NRML; no for CNC.
+      • Every position now locks the INTRADAY margin at entry (700× in Times
+        mode) and KEEPS it through the overnight carry — the EOD MIS→NRML flip
+        is margin-neutral (see convert_intraday_to_carry). So USED = intraday
+        lock for MIS and NRML alike, and the carry (CF Required) tile must be
+        recomputed from the OVERNIGHT settings for BOTH to surface the true
+        overnight requirement (operator config: NSE_EQ intraday 700× /
+        overnight 70×, so a lot locked at ~700× needs ~70× — 10× more — to
+        carry). Returning `margin_used` for NRML would reprint the intraday
+        lock and hide the CF gate the owner asked for.
+      • USED (intraday, small) ≤ CF (overnight, large) always in this model, so
+        the old "Used > CF" all-NRML artefact cannot reappear.
 
     When the admin set overnight == intraday the recompute simply returns the
     same number, so this is always safe."""
@@ -44,7 +44,7 @@ def _recompute_overnight_holding(product_type, mode: str | None) -> bool:
         pt = product_type.value if hasattr(product_type, "value") else str(product_type)
     except Exception:
         pt = str(product_type or "")
-    return pt.upper() == "MIS"
+    return pt.upper() in {"MIS", "NRML"}
 
 
 def _opt_type_from_symbol(symbol: str | None) -> str | None:
@@ -438,10 +438,11 @@ async def open_positions(user: CurrentUser):
         # the explicit overnight fields, otherwise an MCX FUT row with
         # 500× intraday / 70× overnight reports holding = intraday and
         # the user has no warning before the EOD rollover force-closes.
-        # Default: carry margin = the locked used margin. Correct for every
-        # carry-by-default position (NRML/CNC, and any product in Times mode) —
-        # see _recompute_overnight_holding. Only MIS in percent/fixed mode
-        # recomputes the genuine overnight requirement below.
+        # Default: carry margin = the locked used margin (CNC only). MIS AND
+        # NRML now lock the INTRADAY margin (700× in Times mode) and keep it
+        # through the carry — the EOD flip is margin-neutral — so both recompute
+        # the genuine OVERNIGHT requirement below to surface the CF gate. See
+        # _recompute_overnight_holding.
         holding_margin = float(d.get("margin_used") or 0.0)
         if not isinstance(resolved, BaseException) and resolved is not None:
             s = (resolved.get("settings") if isinstance(resolved, dict) else None) or {}
