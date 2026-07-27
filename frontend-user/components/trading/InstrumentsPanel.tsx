@@ -429,16 +429,20 @@ export function InstrumentsPanel({ onClose }: Props) {
     if (debouncedSearch.trim().length > 0) return (searchHits ?? []).map(enrich);
     if (bucket.mode === "watchlist") return wlQuotes ?? [];
     if (managedSegmentName) {
-      // Segment items come back as {id, instrument_token, symbol, exchange}.
-      // Shape them like search hits so the same `enrich` works.
+      // Segment items come back as {id, instrument_token, symbol, exchange}
+      // PLUS the contract metadata (expiry / instrument_type / segment) the
+      // API now attaches. Passing `expiry` through is what keeps the
+      // "26-JUN-2026" line under the symbol AFTER the instrument is added —
+      // it used to be hardcoded null here, so the expiry a trader saw while
+      // searching disappeared the moment they added it to the chip.
       return (segmentItems ?? []).map((it: any) =>
         enrich({
           token: it.instrument_token,
           symbol: it.symbol,
           exchange: it.exchange,
-          segment: null,
-          expiry: null,
-          instrument_type: null,
+          segment: it.segment ?? null,
+          expiry: it.expiry ?? null,
+          instrument_type: it.instrument_type ?? null,
         }),
       );
     }

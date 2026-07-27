@@ -159,6 +159,43 @@ def _kite_row_to_payload(r: dict) -> dict:
     }
 
 
+def _row_expiry_date(exp_raw) -> _date | None:
+    """Parse whatever the row carries (ISO string, date, datetime) into a date."""
+    from datetime import datetime as _dt
+
+    if not exp_raw:
+        return None
+    if isinstance(exp_raw, _dt):  # datetime subclasses date — narrow it first
+        return exp_raw.date()
+    if isinstance(exp_raw, _date):
+        return exp_raw
+    try:
+        return _date.fromisoformat(str(exp_raw)[:10])
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _drop_expired_rows(rows: list, *, get_exp) -> list:
+    """Drop already-expired contracts from a result set.
+
+    The Kite instrument catalog is cached for up to 4 DAYS (see
+    `_INSTRUMENTS_TTL_SEC`), so it keeps serving contracts that expired days
+    ago — that's how an expired July MCX crude kept turning up in search and
+    could be re-added to a watchlist right after the sweep removed it. IST
+    date boundary: a contract stays searchable through its own expiry day.
+    """
+    from app.utils.time_utils import now_ist
+
+    today = now_ist().date()
+    out = []
+    for r in rows:
+        exp = _row_expiry_date(get_exp(r))
+        if exp is not None and exp < today:
+            continue
+        out.append(r)
+    return out
+
+
 def _cap_futures_by_expiry(rows: list, *, get_it, get_root, get_exp, get_ex, cap_for) -> list:
     """Trim FUTURES so only the nearest N expiries per underlying survive,
     where N = cap_for(root, exchange) — per-underlying "Show expiry month",
@@ -168,12 +205,18 @@ def _cap_futures_by_expiry(rows: list, *, get_it, get_root, get_exp, get_ex, cap
     """
     from collections import defaultdict
 
+    from app.utils.time_utils import now_ist
+
+    today_s = str(now_ist().date())
     exps_by_root: dict[str, set] = defaultdict(set)
     ex_by_root: dict[str, str] = {}
     for r in rows:
         if (get_it(r) or "").upper() == "FUT":
             exp = get_exp(r)
-            if exp:
+            # PAST expiries must not consume a slot of the nearest-N window —
+            # with a cap of 2 an expired near month used to hide the real
+            # far month while itself still showing.
+            if exp and str(exp)[:10] >= today_s:
                 root = (get_root(r) or "").upper()
                 exps_by_root[root].add(str(exp)[:10])
                 ex_by_root.setdefault(root, get_ex(r) or "")
@@ -332,6 +375,11 @@ async def search(
                 r for r in fast_results
                 if not is_symbol_blocked_for(r.get("symbol") or "", blocked)
             ]
+            # Expired contracts never surface — the Kite catalog cache is up
+            # to 4 days stale, so it still lists last week's dead F&O rows.
+            fast_results = _drop_expired_rows(
+                fast_results, get_exp=lambda r: r.get("expiry")
+            )
             fast_results = _cap_kite(fast_results)
             if fast_results:
                 return APIResponse(data=[_kite_row_to_payload(r) for r in fast_results])
@@ -348,6 +396,9 @@ async def search(
                     except Exception:
                         pass
 
+            from app.utils.time_utils import now_ist as _now_ist
+
+            _today_ist = _now_ist().date()
             q_upper = (q or "").strip().upper()
             collected: list[dict] = []
             for ex_key, cache in _zerodha._instruments_cache.items():
@@ -376,17 +427,11 @@ async def search(
                         if q_upper not in sym and q_upper not in name:
                             continue
                     # Drop expired contracts so the browse chips don't show
-                    # stale options/futures dated last month.
-                    exp_raw = inst.get("expiry")
-                    if exp_raw:
-                        try:
-                            from datetime import datetime as _dt, timezone as _tz
-
-                            exp_d = _dt.fromisoformat(str(exp_raw).replace("Z", "+00:00")).date()
-                            if exp_d < _dt.now(_tz.utc).date():
-                                continue
-                        except Exception:
-                            pass
+                    # stale options/futures dated last month. IST boundary —
+                    # a UTC "today" cut MCX contracts a day early after 18:30.
+                    exp_d = _row_expiry_date(inst.get("expiry"))
+                    if exp_d is not None and exp_d < _today_ist:
+                        continue
                     collected.append(inst)
                     if len(collected) >= limit:
                         break
@@ -415,6 +460,9 @@ async def search(
         i for i in results
         if not is_symbol_blocked_for(getattr(i, "symbol", "") or "", blocked)
     ]
+    # Expired rows never surface, even if the sweep hasn't flipped
+    # `is_active` yet (or the doc's expiry was backfilled late).
+    results = _drop_expired_rows(results, get_exp=lambda i: i.expiry)
     results = _cap_futures_by_expiry(
         results,
         get_it=lambda i: (i.instrument_type.value if hasattr(i.instrument_type, "value") else str(i.instrument_type)),

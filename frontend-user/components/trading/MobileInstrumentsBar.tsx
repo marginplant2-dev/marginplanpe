@@ -28,6 +28,28 @@ interface Props {
   ) => void;
 }
 
+const _EXPIRY_MONTHS = [
+  "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+  "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+] as const;
+
+/** Compact expiry for a mobile row — `19 AUG` (the broker-app convention the
+ *  operator asked for). The year is appended ONLY when the contract expires
+ *  in a different calendar year (`19 JAN 27`), so the common near-month case
+ *  stays short while a far month can never be misread. Server sends
+ *  `YYYY-MM-DD`; equities have no expiry and render nothing. */
+function formatExpiryShort(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const s = String(raw).slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return "";
+  const [, y, mo, d] = m;
+  const mon = _EXPIRY_MONTHS[Number(mo) - 1];
+  if (!mon) return "";
+  const label = `${Number(d)} ${mon}`;
+  return Number(y) === new Date().getFullYear() ? label : `${label} ${y.slice(2)}`;
+}
+
 type Bucket = {
   key: string;
   label: string;
@@ -366,6 +388,11 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
         symbol: s.symbol,
         exchange: s.exchange,
         segment: s.segment ?? s.instrument_type,
+        // Expiry rides along on EVERY list (search hits, browse buckets,
+        // segment chips and favourites) so a trader always sees WHICH
+        // contract month a row is — it used to show only while searching.
+        expiry: s.expiry ?? null,
+        instrument_type: s.instrument_type ?? null,
         bid: live?.bid ?? null,
         ask: live?.ask ?? null,
         ltp: live?.ltp ?? null,
@@ -406,8 +433,11 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
           token: it.instrument_token,
           symbol: it.symbol,
           exchange: it.exchange,
-          segment: null,
-          instrument_type: null,
+          // The segment-items API now returns the contract metadata, so the
+          // added row keeps the same expiry line it had in the search list.
+          segment: it.segment ?? null,
+          expiry: it.expiry ?? null,
+          instrument_type: it.instrument_type ?? null,
         }),
       );
     }
@@ -641,6 +671,7 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
                   symbol={q.symbol}
                   exchange={q.exchange}
                   segment={q.segment}
+                  expiry={q.expiry ?? null}
                   bid={bid}
                   ask={ask}
                   ltp={ltp}
@@ -682,6 +713,7 @@ function InstrumentRow({
   symbol,
   exchange,
   segment,
+  expiry,
   bid,
   ask,
   ltp,
@@ -694,6 +726,7 @@ function InstrumentRow({
   symbol: string;
   exchange?: string;
   segment?: string;
+  expiry?: string | null;
   bid: number | null;
   ask: number | null;
   ltp: number | null;
@@ -710,6 +743,7 @@ function InstrumentRow({
   // either side when only the last-traded price is available (e.g. a feed
   // that publishes LTP but no book), so the row never collapses to "—"
   // when there is a live price.
+  const expiryLabel = formatExpiryShort(expiry);
   const rawBid = bid ?? ltp ?? null;
   const rawAsk = ask ?? ltp ?? null;
   const stickyBid = useStickyNumber(rawBid);
@@ -749,16 +783,24 @@ function InstrumentRow({
         >
           {symbol}
         </span>
-        <span
-          className={cn(
-            "mt-0.5 font-tabular tabular-nums text-[11px] font-semibold",
-            changeColor,
+        <div className="mt-0.5 flex min-w-0 items-baseline gap-1.5">
+          <span
+            className={cn(
+              "font-tabular tabular-nums text-[11px] font-semibold",
+              changeColor,
+            )}
+          >
+            {stickyChange != null
+              ? `${stickyChange >= 0 ? "+" : ""}${stickyChange.toFixed(2)}%`
+              : "—"}
+          </span>
+          {/* Contract month — F&O only, blank for equity/index rows. */}
+          {expiryLabel && (
+            <span className="truncate text-[11px] font-medium uppercase text-muted-foreground">
+              {expiryLabel}
+            </span>
           )}
-        >
-          {stickyChange != null
-            ? `${stickyChange >= 0 ? "+" : ""}${stickyChange.toFixed(2)}%`
-            : "—"}
-        </span>
+        </div>
       </div>
 
       {/* Bid (sell, red) on top + Ask (buy, green) below — both prices

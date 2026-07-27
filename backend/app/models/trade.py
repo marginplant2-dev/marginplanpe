@@ -54,6 +54,14 @@ class Trade(TimestampMixin):
     # the close), so the displayed P&L matches the user's true cost.
     pnl_inr: Money | None = None
 
+    # Specific-lot close: the tapped fill's entry price this closing trade was
+    # booked against (Active-tab Exit). Mirrors the originating Order field so
+    # the FIFO closed-blotter (list_closed_trade_events_fifo) can pair this
+    # close with the SAME lot the money booked against — not the FIFO front —
+    # keeping the Closed-tab entry price and the wallet consistent. None on
+    # every other trade → pure FIFO display, unchanged.
+    cost_basis_override: Money | None = None
+
     # Set True when an admin REOPEN (or DELETE) undoes the close this trade
     # belongs to. The close fill stays in the collection for the audit trail,
     # but the user-facing Closed blotter (list_closed_trade_events_fifo) hides

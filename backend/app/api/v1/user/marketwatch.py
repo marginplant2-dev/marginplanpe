@@ -83,6 +83,102 @@ async def _drop_items_beyond_expiry_cap(
     return out
 
 
+async def _drop_expired_items(items: list[WatchlistItem]) -> list[WatchlistItem]:
+    """Hide every watchlist row whose contract has already expired / been
+    delisted — read-time safety net over the hourly `expiry_cleanup` sweep.
+
+    Operator report: "july mcx ka crude expire ho gaya hai fir bhi dikh raha
+    hai". The sweep alone can miss a row (Instrument doc absent, `expiry`
+    never populated, or a month-end guess that outlives a mid-month MCX
+    contract), and until the next sweep the user kept seeing a dead contract
+    with a frozen price. `dead_tokens` resolves doc expiry → Kite catalog →
+    symbol, so anything not provably live disappears on the very next read.
+    Never deletes here — the sweep owns removal, this only hides.
+    """
+    if not items:
+        return items
+    try:
+        from app.services.expiry_cleanup import dead_tokens
+
+        dead = await dead_tokens(
+            [(it.instrument_token, it.symbol, str(it.exchange)) for it in items]
+        )
+    except Exception:  # noqa: BLE001 — a resolver hiccup must not empty the list
+        logger.warning("watchlist_expiry_filter_failed")
+        return items
+    if not dead:
+        return items
+    return [it for it in items if it.instrument_token not in dead]
+
+
+async def _instrument_meta(tokens: list[str]) -> dict[str, dict]:
+    """Contract metadata for watchlist rows — keyed by token.
+
+    Favourites used to come back as bare {id, token, symbol, exchange}, so the
+    client had no expiry to render: the "26-JUN-2026" line that shows while
+    SEARCHING vanished the moment the same contract was added to a watchlist
+    or a segment chip (operator-flagged — a trader can't tell which month's
+    CRUDEOIL they're holding). Resolved from the Instrument doc, falling back
+    to the Kite catalog for tokens that were never mirrored (the catalog date
+    is exact — a symbol parse would only give a month-end guess).
+    """
+    tokens = [str(t) for t in tokens if t]
+    if not tokens:
+        return {}
+    from app.models.instrument import Instrument
+
+    out: dict[str, dict] = {}
+    try:
+        docs = await Instrument.find({"token": {"$in": list(set(tokens))}}).to_list()
+    except Exception:  # noqa: BLE001
+        logger.warning("watchlist_instrument_meta_failed")
+        return {}
+    for i in docs:
+        it_val = (
+            i.instrument_type.value
+            if hasattr(i.instrument_type, "value")
+            else str(i.instrument_type)
+        )
+        out[i.token] = {
+            "expiry": str(i.expiry) if i.expiry else None,
+            "instrument_type": it_val,
+            "segment": str(i.segment),
+            "name": i.name,
+            "lot_size": i.lot_size,
+            "strike": str(i.strike) if i.strike else None,
+        }
+
+    missing = [t for t in set(tokens) if t not in out]
+    if missing:
+        try:
+            from app.services.expiry_cleanup import catalog_index
+
+            idx, _warm = await catalog_index()
+            for t in missing:
+                exp = idx.get(t)
+                if exp is not None:
+                    out[t] = {"expiry": str(exp)}
+        except Exception:  # noqa: BLE001
+            pass
+    return out
+
+
+async def _assert_live_contract(inst) -> None:
+    """Reject adding an already-expired contract. The Kite catalog is cached
+    for up to 4 days, so a stale search hit could otherwise re-add exactly
+    what the expiry sweep just removed."""
+    try:
+        from app.services.expiry_cleanup import dead_tokens
+
+        dead = await dead_tokens([(inst.token, inst.symbol, str(inst.exchange))])
+    except Exception:  # noqa: BLE001 — never block an add on a resolver hiccup
+        return
+    if inst.token in dead:
+        raise HTTPException(
+            status_code=400, detail=f"{inst.symbol} has expired and can't be added"
+        )
+
+
 async def _notify_marketwatch_changed(
     user_id: PydanticObjectId, action: str, payload: dict | None = None,
 ) -> None:
@@ -232,10 +328,14 @@ async def list_segment_items(segment_name: str, user: CurrentUser):
             if token_row.get(it.instrument_token, "") not in inactive_admin
         ]
 
+    # Expired / delisted contracts never show, in any segment chip.
+    items = await _drop_expired_items(items)
+
     # Expiry cap — hide FUT favourites beyond the user's "Show expiry month"
     # window so lowering the admin setting trims the list immediately.
     items = await _drop_items_beyond_expiry_cap(user.id, items)
 
+    meta = await _instrument_meta([it.instrument_token for it in items])
     return APIResponse(
         data=[
             {
@@ -243,6 +343,9 @@ async def list_segment_items(segment_name: str, user: CurrentUser):
                 "instrument_token": it.instrument_token,
                 "symbol": it.symbol,
                 "exchange": str(it.exchange),
+                # Contract metadata so the chip row can render the expiry
+                # under the symbol, exactly like the search results do.
+                **meta.get(it.instrument_token, {}),
             }
             for it in items
         ]
@@ -258,6 +361,7 @@ async def add_segment_item(
         raise HTTPException(status_code=400, detail=f"Unsupported segment: {segment_name}")
     wl = await _get_or_create_segment_watchlist(user.id, seg)
     inst = await instrument_service.get_by_token(payload.token)
+    await _assert_live_contract(inst)
     existing = await WatchlistItem.find_one(
         WatchlistItem.watchlist_id == wl.id,
         WatchlistItem.instrument_token == inst.token,
@@ -320,8 +424,19 @@ async def list_watchlists(user: CurrentUser):
         await wl.insert()
         wls = [wl]
     out = []
+    per_wl: list[tuple] = []
     for wl in wls:
         items = await WatchlistItem.find(WatchlistItem.watchlist_id == wl.id).sort("sort_order").to_list()
+        # Expired / delisted contracts are never returned to the client.
+        items = await _drop_expired_items(items)
+        per_wl.append((wl, items))
+
+    # One metadata lookup for every watchlist's tokens (expiry / type / lot),
+    # so favourites render the same expiry line the search results do.
+    meta = await _instrument_meta(
+        [it.instrument_token for _wl, items in per_wl for it in items]
+    )
+    for wl, items in per_wl:
         out.append(
             {
                 "id": str(wl.id),
@@ -334,6 +449,7 @@ async def list_watchlists(user: CurrentUser):
                         "instrument_token": it.instrument_token,
                         "symbol": it.symbol,
                         "exchange": str(it.exchange),
+                        **meta.get(it.instrument_token, {}),
                     }
                     for it in items
                 ],
@@ -373,6 +489,7 @@ async def add_item(watchlist_id: str, payload: WatchlistAddItem, user: CurrentUs
     if wl is None or wl.user_id != user.id:
         raise HTTPException(status_code=404, detail="Watchlist not found")
     inst = await instrument_service.get_by_token(payload.token)
+    await _assert_live_contract(inst)
     existing = await WatchlistItem.find_one(
         WatchlistItem.watchlist_id == wl.id, WatchlistItem.instrument_token == inst.token
     )
@@ -447,13 +564,21 @@ async def quotes(watchlist_id: str, user: CurrentUser):
     blocked = await get_user_blocked_symbols(user.id)
     items = [it for it in items if not is_symbol_blocked_for(it.symbol or "", blocked)]
 
+    # …and expired / delisted contracts, so no dead row ever gets a quote row
+    # (they'd render with a frozen last price).
+    items = await _drop_expired_items(items)
+
     quotes = await market_data_service.get_quotes([it.instrument_token for it in items])
+    meta = await _instrument_meta([it.instrument_token for it in items])
     return APIResponse(
         data=[
             {
                 "instrument_token": it.instrument_token,
                 "symbol": it.symbol,
                 "exchange": str(it.exchange),
+                # Expiry / lot metadata rides along so a favourite row shows
+                # WHICH contract it is, not just the symbol + price.
+                **meta.get(it.instrument_token, {}),
                 **q,
             }
             for it, q in zip(items, quotes)

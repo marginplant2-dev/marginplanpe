@@ -92,6 +92,164 @@ def _ist_today_date():
     return datetime.now(IST).date()
 
 
+# ── Live-contract resolver (shared by the sweep AND every read path) ─────
+#
+# `parse_symbol_expiry` deliberately returns MONTH-END for monthly contracts,
+# which is a safe upper bound on NSE (last Thursday) but badly wrong on MCX:
+# CRUDEOIL expires ~19th, so CRUDEOIL26JULFUT looked "alive until Jul 31" and
+# kept showing in favourites for ~10 days after it actually died (operator
+# report: "july mcx ka crude expire ho gaya hai fir bhi dikh raha hai").
+#
+# The Kite instrument dump is the real source of truth: it lists every LIVE
+# contract and drops expired ones. So a derivative symbol that is ABSENT from
+# a warm catalog is delisted → treat as expired. Equities never match
+# `parse_symbol_expiry`, so they can never be caught by that rule.
+# Don't trust a suspiciously small catalog (half-written / truncated fetch).
+_CATALOG_MIN_ROWS = 100
+_CATALOG_TTL_SEC = 600.0
+
+_catalog_idx: dict[str, date | None] = {}
+_catalog_warm: set[str] = set()
+_catalog_at: float = 0.0
+_catalog_lock = asyncio.Lock()
+
+
+def _build_catalog_index(
+    caches: list[tuple[str, list[dict]]],
+) -> tuple[dict[str, date | None], set[str]]:
+    """Pure CPU pass over the Kite catalogs — runs in a THREAD (the dumps are
+    ~200K rows across exchanges; folding them on the event loop stalls the
+    worker, same reason the option-chain scan is threaded)."""
+    idx: dict[str, date | None] = {}
+    warm: set[str] = set()
+    for ex_key, rows in caches:
+        if not rows or len(rows) < _CATALOG_MIN_ROWS:
+            continue
+        warm.add(str(ex_key).upper())
+        for r in rows:
+            tok = str(r.get("token") or "")
+            if not tok:
+                continue
+            exp_raw = r.get("expiry")
+            exp: date | None = None
+            if exp_raw:
+                try:
+                    exp = datetime.fromisoformat(str(exp_raw)[:10]).date()
+                except Exception:  # noqa: BLE001
+                    exp = None
+            idx[tok] = exp
+    return idx, warm
+
+
+async def catalog_index(force: bool = False) -> tuple[dict[str, date | None], set[str]]:
+    """``(token -> expiry, warm_exchange_keys)`` built from the in-process Kite
+    instrument cache. Memoised for 10 min because read paths call it per
+    request; the sweep passes ``force=True`` for a fresh view.
+
+    An exchange only lands in `warm` when its catalog actually has rows, so a
+    cold / unauthenticated Zerodha can never make us judge live contracts dead.
+    """
+    global _catalog_idx, _catalog_warm, _catalog_at
+    import time as _time
+
+    def _fresh() -> bool:
+        return bool(_catalog_warm) and (_time.time() - _catalog_at) < _CATALOG_TTL_SEC
+
+    if not force and _fresh():
+        return _catalog_idx, _catalog_warm
+
+    async with _catalog_lock:
+        # A sibling request may have rebuilt it while we waited on the lock.
+        if not force and _fresh():
+            return _catalog_idx, _catalog_warm
+        try:
+            from app.services.zerodha_service import zerodha
+
+            caches = [(k, v) for k, v in list(zerodha._instruments_cache.items())]
+            idx, warm = await asyncio.to_thread(_build_catalog_index, caches)
+        except Exception:  # noqa: BLE001 — a cold feed must not break read paths
+            logger.warning("expiry_catalog_index_failed")
+            return _catalog_idx, _catalog_warm
+
+        _catalog_idx, _catalog_warm, _catalog_at = idx, warm, _time.time()
+        return _catalog_idx, _catalog_warm
+
+
+def is_dead_contract(
+    *,
+    token: str | None,
+    symbol: str | None,
+    exchange: str | None,
+    expiry: date | None,
+    today: date,
+    idx: dict[str, date | None],
+    warm: set[str],
+) -> bool:
+    """True when this contract must not be shown / traded any more.
+
+    Order of evidence (first hit wins):
+      1. a real expiry date (doc, else the catalog row) already in the past
+      2. the symbol-derived expiry (month-end upper bound) already in the past
+      3. an F&O symbol that is GONE from a warm Kite catalog → delisted
+
+    Anything we can't confidently classify is left alone — a parse miss or a
+    cold catalog never removes an instrument.
+    """
+    tok = str(token or "")
+    exp = expiry if expiry is not None else idx.get(tok)
+    if isinstance(exp, datetime):  # Mongo can hand back a datetime for a date
+        exp = exp.date()
+    if exp is not None and exp < today:
+        return True
+    parsed = parse_symbol_expiry(symbol)
+    if parsed is None:
+        return False  # equity / unknown format → never touched
+    if parsed < today:
+        return True
+    ex_key = str(exchange or "").upper()
+    return bool(tok and ex_key in warm and tok not in idx)
+
+
+async def dead_tokens(rows) -> set[str]:
+    """Read-path guard. ``rows`` = iterable of ``(token, symbol, exchange)``.
+
+    Returns the subset of tokens whose contract has expired or been delisted,
+    so watchlists / quotes / search can hide them the instant they're read —
+    without waiting for the hourly sweep, and regardless of whether the
+    Instrument doc carries a correct `expiry` (or exists at all).
+    """
+    rows = [(str(t or ""), s, e) for t, s, e in rows if t]
+    if not rows:
+        return set()
+
+    today = _ist_today_date()
+    idx, warm = await catalog_index()
+
+    by_token: dict[str, Instrument] = {}
+    try:
+        insts = await Instrument.find(
+            {"token": {"$in": [t for t, _s, _e in rows]}}
+        ).to_list()
+        by_token = {i.token: i for i in insts}
+    except Exception:  # noqa: BLE001
+        logger.warning("dead_tokens_instrument_lookup_failed")
+
+    out: set[str] = set()
+    for tok, sym, exch in rows:
+        inst = by_token.get(tok)
+        if is_dead_contract(
+            token=tok,
+            symbol=(getattr(inst, "symbol", None) or sym),
+            exchange=(str(getattr(inst, "exchange", "") or "") or exch),
+            expiry=getattr(inst, "expiry", None),
+            today=today,
+            idx=idx,
+            warm=warm,
+        ):
+            out.add(tok)
+    return out
+
+
 async def cleanup_expired_once() -> dict[str, int]:
     """Single sweep. Returns counts so the caller can log what changed.
 
@@ -108,6 +266,7 @@ async def cleanup_expired_once() -> dict[str, int]:
             still reference these tokens.
     """
     today = _ist_today_date()
+    idx, warm = await catalog_index(force=True)
 
     # A) Instruments that already carry a real expiry date.
     expired = await Instrument.find(
@@ -131,7 +290,11 @@ async def cleanup_expired_once() -> dict[str, int]:
     ).to_list()
     backfilled = 0
     for inst in null_expiry_fno:
-        parsed = parse_symbol_expiry(inst.symbol)
+        # The Kite catalog carries the EXACT date; the symbol parse is only a
+        # month-end upper bound (wrong by ~10 days for MCX, whose contracts
+        # expire mid-month). Prefer the catalog whenever it still lists the
+        # token, so the backfilled value can be trusted by the < today test.
+        parsed = idx.get(str(inst.token or "")) or parse_symbol_expiry(inst.symbol)
         if parsed is None:
             continue
         try:
@@ -146,13 +309,48 @@ async def cleanup_expired_once() -> dict[str, int]:
             expired.append(inst)
             seen_ids.add(inst.id)
 
+    # B2) Delisted derivatives — rows whose stored `expiry` still looks future
+    #     (typically a month-end guess) but that Kite no longer lists at all.
+    #     This is what finally kills a mid-month MCX contract (CRUDEOIL July
+    #     expires ~19th, month-end guess said Jul 31 → it lingered ~10 days).
+    #     Only runs for exchanges whose catalog is actually warm, so a cold /
+    #     disconnected Zerodha can never mass-deactivate live contracts.
+    delisted = 0
+    if warm:
+        fno_active = await Instrument.find(
+            {"is_active": True, "instrument_type": {"$in": ["FUT", "CE", "PE"]}}
+        ).to_list()
+        for inst in fno_active:
+            if inst.id in seen_ids:
+                continue
+            if is_dead_contract(
+                token=inst.token,
+                symbol=inst.symbol,
+                exchange=str(inst.exchange),
+                expiry=inst.expiry,
+                today=today,
+                idx=idx,
+                warm=warm,
+            ):
+                expired.append(inst)
+                seen_ids.add(inst.id)
+                delisted += 1
+
+    # C) Watchlist rows whose Instrument doc is missing entirely (added
+    #    straight off the Kite catalog before the mirror ran, or the doc was
+    #    deleted) — the instrument-driven sweep above can never see them, so
+    #    they survived every previous sweep. Resolve them from the symbol +
+    #    catalog directly and delete.
+    orphan_wl_removed = await _sweep_watchlist_orphans(today, idx, warm)
+
     if not expired:
         return {
             "instruments": 0,
-            "watchlist_items": 0,
+            "watchlist_items": orphan_wl_removed,
             "unsubscribed": 0,
             "positions_settled": 0,
             "expiry_backfilled": backfilled,
+            "delisted": 0,
         }
 
     expired_tokens = [str(i.token) for i in expired if i.token]
@@ -229,6 +427,8 @@ async def cleanup_expired_once() -> dict[str, int]:
                 "expiry_cleanup_instrument_save_failed", extra={"token": inst.token}
             )
 
+    wl_removed += orphan_wl_removed
+
     logger.info(
         "expiry_cleanup_swept",
         extra={
@@ -237,6 +437,7 @@ async def cleanup_expired_once() -> dict[str, int]:
             "tokens_unsubscribed": unsubbed,
             "positions_settled": settled,
             "expiry_backfilled": backfilled,
+            "delisted": delisted,
             "cutoff_date": str(today),
         },
     )
@@ -246,7 +447,63 @@ async def cleanup_expired_once() -> dict[str, int]:
         "unsubscribed": unsubbed,
         "positions_settled": settled,
         "expiry_backfilled": backfilled,
+        "delisted": delisted,
     }
+
+
+async def _sweep_watchlist_orphans(
+    today: date, idx: dict[str, date | None], warm: set[str]
+) -> int:
+    """Delete watchlist rows for dead contracts that the instrument-driven
+    sweep can't reach — i.e. rows whose token has NO Instrument doc. Judged
+    purely from the stored symbol + the Kite catalog, so an equity row (which
+    never parses as F&O) is never touched. Returns rows deleted."""
+    try:
+        items = await WatchlistItem.find({}).to_list()
+    except Exception:  # noqa: BLE001
+        logger.exception("expiry_cleanup_watchlist_scan_failed")
+        return 0
+    if not items:
+        return 0
+
+    tokens = list({str(it.instrument_token) for it in items if it.instrument_token})
+    known: set[str] = set()
+    try:
+        known = {
+            i.token
+            for i in await Instrument.find({"token": {"$in": tokens}}).to_list()
+        }
+    except Exception:  # noqa: BLE001
+        logger.exception("expiry_cleanup_watchlist_instrument_lookup_failed")
+        return 0
+
+    dead: list[WatchlistItem] = []
+    for it in items:
+        tok = str(it.instrument_token or "")
+        if not tok or tok in known:
+            continue  # covered by the Instrument-driven sweep above
+        if is_dead_contract(
+            token=tok,
+            symbol=it.symbol,
+            exchange=str(it.exchange),
+            expiry=None,
+            today=today,
+            idx=idx,
+            warm=warm,
+        ):
+            dead.append(it)
+
+    removed = 0
+    for it in dead:
+        try:
+            await it.delete()
+            removed += 1
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "expiry_cleanup_watchlist_orphan_delete_failed",
+                extra={"token": it.instrument_token},
+            )
+    return removed
 
 
 async def expiry_cleanup_loop(interval_sec: float = 3600.0) -> None:

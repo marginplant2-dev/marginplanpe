@@ -147,6 +147,29 @@ async def delete_instrument(instrument_id: str, admin: CurrentAdmin):
     return APIResponse(data={"ok": True})
 
 
+@router.post("/expiry-cleanup", response_model=APIResponse[dict])
+async def run_expiry_cleanup(admin: CurrentAdmin):
+    """Run the expiry sweep NOW instead of waiting for the hourly loop.
+
+    Same routine the background loop runs: settles open positions in expired
+    contracts, deletes the contract from every user's watchlist, unsubscribes
+    it from the Zerodha ticker and marks it inactive so search stops returning
+    it. Idempotent — safe to hit twice.
+    """
+    from app.services.expiry_cleanup import cleanup_expired_once
+    from app.services.zerodha_service import zerodha as _zerodha
+
+    # The delisted-contract rule only fires on a WARM catalog, so pre-warm
+    # here — otherwise a manual run right after a restart would skip it.
+    for ex_key in ("NSE", "NFO", "MCX", "BFO", "BSE"):
+        try:
+            await _zerodha.fetch_instruments(ex_key)
+        except Exception:  # noqa: BLE001
+            pass
+
+    return APIResponse(data=await cleanup_expired_once())
+
+
 @router.post("/repair-index-lots", response_model=APIResponse[dict])
 async def repair_index_lots(admin: CurrentAdmin):
     """Re-syncs F&O lot sizes and heals equity rows.
