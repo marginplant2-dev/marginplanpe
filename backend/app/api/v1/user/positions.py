@@ -25,24 +25,26 @@ def _recompute_overnight_holding(product_type, mode: str | None) -> bool:
     """Should the carry-forward ("Holding" / CF Required) margin be recomputed
     from the OVERNIGHT settings instead of just equalling the locked used margin?
 
-    Only for MIS in percent/fixed mode. Rationale (operator bug: an all-NRML
-    book showed *Used Margin > CF Required*, which reads as broken):
-      • NRML / CNC positions already carry — the validator locked the
-        overnight-correct amount at entry, so their carry margin IS
-        `margin_used`. (reports.py / admin reports already return
-        `holding_margin == used_margin`.)
-      • In Times mode leverage is symmetric — `netting_service` forces
-        `is_overnight=False`, so the validator uses the intraday leverage for
-        every product; the separate overnight field is never charged.
-        Recomputing with it invents a phantom used≠CF gap.
-    Recompute is meaningful ONLY when an intraday (MIS) position in
-    percent/fixed mode would need a genuinely different margin if rolled
-    overnight — the original point of the Holding tile."""
+    Yes for every MIS position; no for NRML/CNC.
+      • NRML / CNC already carry — the validator locked the overnight-correct
+        amount at entry, so their carry margin IS `margin_used` (recomputing
+        would just reprint the same number, and any mismatch reads as the
+        "Used > CF" bug an all-NRML book once showed).
+      • MIS is an INTRADAY lock. To carry it overnight the platform needs the
+        OVERNIGHT margin, which differs from the locked intraday margin whenever
+        the admin set a different overnight tier — INCLUDING Times mode (operator
+        config: NSE_EQ intraday 700× / overnight 70×, so a MIS position that
+        locked ~700× needs ~70× — i.e. 10× more — to roll). The Holding tile
+        exists precisely to surface that gap; suppressing it in Times mode (an
+        earlier over-correction) made CF Required under-count every MIS lot.
+
+    When the admin set overnight == intraday the recompute simply returns the
+    same number, so this is always safe."""
     try:
         pt = product_type.value if hasattr(product_type, "value") else str(product_type)
     except Exception:
         pt = str(product_type or "")
-    return pt.upper() == "MIS" and (mode or "times") != "times"
+    return pt.upper() == "MIS"
 
 
 def _opt_type_from_symbol(symbol: str | None) -> str | None:
