@@ -1299,9 +1299,26 @@ async def list_closed_trade_events_fifo(
         close_brk = _charge(t)
         remaining = qty
         sub_idx = 0
+        # Specific-lot close (Active-tab Exit): this closing trade was booked
+        # against a SPECIFIC tapped fill (cost_basis_override), not the FIFO
+        # front — so pair it with the queued opening fill whose entry price
+        # matches, and the Closed row shows that lot + a P&L equal to the wallet
+        # booking. None (every other close) → pure FIFO front, unchanged.
+        _basis = None
+        try:
+            if getattr(t, "cost_basis_override", None) is not None:
+                _basis = float(str(t.cost_basis_override))
+        except Exception:
+            _basis = None
 
         while remaining > 1e-9 and q:
-            front = q[0]
+            idx = 0
+            if _basis is not None:
+                for j in range(len(q)):
+                    if abs(q[j]["price"] - _basis) < 1e-6:
+                        idx = j
+                        break
+            front = q[idx]
             consume = min(front["qty"], remaining)
 
             # Gross P&L for this (opening-fill × closing-fill) pairing
@@ -1338,7 +1355,7 @@ async def list_closed_trade_events_fifo(
             sub_idx += 1
 
             if front["qty"] < 1e-9:
-                q.popleft()
+                del q[idx]
 
     # Drop closing fills an admin REOPEN/DELETE later undid. They stay in the
     # collection (audit) and were processed above so the FIFO pairing of the

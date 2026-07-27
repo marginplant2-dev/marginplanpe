@@ -81,8 +81,47 @@ def test_partial_qty_within_a_lot():
     assert ra == (D("106") * 10 - D("105") * 4) / 6
 
 
-def test_order_model_has_override_field():
-    # Guard the wiring: the opt-in field must exist on the Order model.
+def test_order_and_trade_have_override_field():
+    # Guard the wiring: the opt-in field must exist on BOTH models (Order sets
+    # it, Trade carries it for the closed-blotter FIFO pairing).
     from app.models.order import Order
+    from app.models.trade import Trade
 
     assert "cost_basis_override" in Order.model_fields
+    assert "cost_basis_override" in Trade.model_fields
+
+
+# ── Closed-blotter pairing: pick the matching lot, not the FIFO front ────
+# Replicates list_closed_trade_events_fifo's opening-fill selection so the
+# Closed row shows the lot the user actually exited (operator: exited 4093.36
+# but Closed showed 4093.10 — the FIFO front).
+def _pick_index(queue_prices, basis):
+    if basis is None:
+        return 0
+    for j, p in enumerate(queue_prices):
+        if abs(p - basis) < 1e-6:
+            return j
+    return 0  # no match → FIFO front
+
+
+def test_closed_blotter_pairs_the_tapped_lot():
+    q = [103.0, 105.0, 110.0]  # FIFO queue, oldest first
+    # Specific-lot close of the 105 lot → pairs index 1 (entry 105), NOT front.
+    assert _pick_index(q, 105.0) == 1
+    # The Closed row's gross then uses 105, matching the wallet booking.
+    entry = q[_pick_index(q, 105.0)]
+    assert realized(120, entry, 1, 1) == D("15")
+
+
+def test_closed_blotter_the_operator_xauusd_case():
+    # Exited the 4093.36 fill from {4093.10, 4093.36, 4093.93}; Closed must
+    # pair 4093.36 (idx 1), not the FIFO front 4093.10 (idx 0).
+    q = [4093.10, 4093.36, 4093.93]
+    assert _pick_index(q, 4093.36) == 1
+    assert q[_pick_index(q, 4093.36)] == 4093.36
+
+
+def test_closed_blotter_falls_back_to_fifo_without_basis():
+    # No override → pure FIFO front (unchanged for every other close).
+    q = [103.0, 105.0, 110.0]
+    assert _pick_index(q, None) == 0

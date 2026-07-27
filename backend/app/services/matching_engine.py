@@ -390,6 +390,10 @@ async def execute_market_order(
             str(quantize_money(notional + (charges.total if order.action == OrderAction.SELL else -charges.total)))
         ),
         pnl_inr=Decimal128(str(pnl_inr_dec)) if pnl_inr_dec is not None else None,
+        # Carry the specific-lot basis onto the Trade so the FIFO closed-blotter
+        # pairs this close with the SAME lot the P&L booked against. None for
+        # every non-Active-tab-Exit close → unchanged FIFO display.
+        cost_basis_override=getattr(order, "cost_basis_override", None) if is_closing else None,
     )
     order.filled_quantity += order.quantity
     order.pending_quantity = max(0, order.quantity - order.filled_quantity)
