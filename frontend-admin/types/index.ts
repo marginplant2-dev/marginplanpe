@@ -25,6 +25,13 @@ export interface AdminPermissions {
   pnl_sharing: boolean;
   audit: boolean;
   support: boolean;
+  // Granular sub-sections (children of trading_view / ledger).
+  orders: boolean;
+  positions: boolean;
+  marketwatch: boolean;
+  money_transactions: boolean;
+  broker_deposits: boolean;
+  download_app: boolean;
 }
 
 // Tri-state permission level (admin → broker grant, or broker → sub-broker).

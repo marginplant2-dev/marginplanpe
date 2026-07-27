@@ -43,6 +43,30 @@ ADMIN_ROLES: set[UserRole] = {
     UserRole.EMPLOYEE,
 }
 
+# Grouped (umbrella) permissions that are ALSO satisfied by any of their
+# granular children — so a super-admin/admin can grant an employee just one nav
+# page (e.g. "positions") and the employee still passes the umbrella gate the
+# shared backend endpoints use (e.g. require_perm("trading_view")). Nav
+# visibility stays granular (per-item empPerm on the frontend); the backend is
+# intentionally permissive at the umbrella level (any trading child → the shared
+# /trading endpoints), which is fine — the employee only SEES what they were
+# granted, and all data stays scoped to their parent admin.
+_UMBRELLA_CHILDREN: dict[str, tuple[str, ...]] = {
+    "trading_view": ("orders", "positions", "marketwatch"),
+    "ledger": ("money_transactions", "broker_deposits"),
+}
+
+
+def _admin_bool_perm(perms, perm: str) -> bool:
+    """True if the admin-tier `admin_permissions` object grants `perm` directly
+    OR grants any of its granular children (see _UMBRELLA_CHILDREN)."""
+    if perms is None:
+        return False
+    if bool(getattr(perms, perm, False)):
+        return True
+    return any(bool(getattr(perms, c, False)) for c in _UMBRELLA_CHILDREN.get(perm, ()))
+
+
 _user_oauth = OAuth2PasswordBearer(tokenUrl="/api/v1/user/auth/login", auto_error=True)
 _admin_oauth = OAuth2PasswordBearer(tokenUrl="/api/v1/admin/auth/login", auto_error=True)
 
@@ -411,8 +435,8 @@ def require_admin_permission(perm: str):
             raise InsufficientPermissionsError(
                 f"Permission '{perm}' not granted (broker)"
             )
-        perms = admin.admin_permissions
-        if perms is None or not getattr(perms, perm, False):
+        # ADMIN / EMPLOYEE — grant if the perm OR any granular child is held.
+        if not _admin_bool_perm(admin.admin_permissions, perm):
             raise InsufficientPermissionsError(
                 f"Permission '{perm}' not granted"
             )
@@ -466,9 +490,10 @@ def require_perm(perm: str, mode: str = "read"):
             return admin
         # EMPLOYEE reuses the ADMIN boolean check against its own
         # admin_permissions (granted sections, capped at its parent's perms).
+        # A granular child (e.g. "positions") also satisfies its umbrella
+        # (e.g. "trading_view") so one-page grants reach the shared endpoints.
         if admin.role in {UserRole.ADMIN, UserRole.EMPLOYEE}:
-            perms = admin.admin_permissions
-            if perms is None or not getattr(perms, perm, False):
+            if not _admin_bool_perm(admin.admin_permissions, perm):
                 raise InsufficientPermissionsError(
                     f"Permission '{perm}' not granted"
                 )

@@ -80,8 +80,8 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
   {
     title: "Money",
     items: [
-      { href: "/money-transactions", label: "Money Transactions", icon: Wallet, perm: "ledger" },
-      { href: "/broker-deposits", label: "Broker Deposits", icon: Handshake, perm: "ledger" },
+      { href: "/money-transactions", label: "Money Transactions", icon: Wallet, perm: "ledger", empPerm: "money_transactions" },
+      { href: "/broker-deposits", label: "Broker Deposits", icon: Handshake, perm: "ledger", empPerm: "broker_deposits" },
     ],
   },
   {
@@ -95,9 +95,9 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
   {
     title: "Trading",
     items: [
-      { href: "/orders", label: "Orders", icon: ListOrdered, perm: "trading_view" },
-      { href: "/positions", label: "Positions", icon: Activity, perm: "trading_view" },
-      { href: "/marketwatch", label: "Market Watch", icon: LineChart, perm: "trading_view" },
+      { href: "/orders", label: "Orders", icon: ListOrdered, perm: "trading_view", empPerm: "orders" },
+      { href: "/positions", label: "Positions", icon: Activity, perm: "trading_view", empPerm: "positions" },
+      { href: "/marketwatch", label: "Market Watch", icon: LineChart, perm: "trading_view", empPerm: "marketwatch" },
       { href: "/instruments", label: "Instruments", icon: ListChecks, superOnly: true },
       { href: "/zerodha", label: "Zerodha Connect", icon: Plug, superOnly: true },
     ],
@@ -134,7 +134,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     items: [
       { href: "/settings/platform", label: "Platform settings", icon: Cog },
       { href: "/settings/branding", label: "Branding", icon: Cog, adminTierOnly: true },
-      { href: "/download-app", label: "Download App", icon: Download },
+      { href: "/download-app", label: "Download App", icon: Download, empPerm: "download_app" },
       { href: "/holidays", label: "Holiday calendar", icon: Calendar, superOnly: true },
       { href: "/backup", label: "Backup & EOD", icon: DatabaseBackup, superOnly: true },
       { href: "/support", label: "Support", icon: MessageCircle, empPerm: "support" },
@@ -156,9 +156,11 @@ export function filterAdminNav(
       // and every super/admin-tier item stays hidden.
       if (admin?.role === "EMPLOYEE") {
         if (it.href === "/dashboard") return true;
-        // Gate by the item's section perm (perm) OR its employee-only perm
-        // (empPerm, for sections that stay un-gated for other roles).
-        const key = it.perm ?? it.empPerm;
+        // Employees are gated at the GRANULAR level: prefer the item's
+        // employee perm (empPerm — e.g. "positions") over the shared umbrella
+        // perm (perm — e.g. "trading_view") so one nav page can be granted
+        // without the whole group.
+        const key = it.empPerm ?? it.perm;
         return key ? canSee(admin, key) : false;
       }
       if (it.hideForSuperAdmin && isSuperAdmin(admin)) return false;

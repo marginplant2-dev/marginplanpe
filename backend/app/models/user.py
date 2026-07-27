@@ -126,6 +126,16 @@ class AdminPermissions(BaseModel):
     pnl_sharing: bool = False     # P&L Sharing agreements
     audit: bool = False           # Audit logs + Admin Actions history
     support: bool = False         # Support
+    # Granular sub-sections of the grouped perms above, so an admin can grant an
+    # employee (or sub-admin) exactly one nav page. Backend gates stay on the
+    # umbrella perm (trading_view / ledger) but ACCEPT any child too — see
+    # dependencies._UMBRELLA_CHILDREN — so granting a child grants API access.
+    orders: bool = False          # Trading → Orders          (child of trading_view)
+    positions: bool = False       # Trading → Positions        (child of trading_view)
+    marketwatch: bool = False     # Trading → Market Watch     (child of trading_view)
+    money_transactions: bool = False  # Money → Money Transactions (child of ledger)
+    broker_deposits: bool = False     # Money → Broker Deposits    (child of ledger)
+    download_app: bool = False    # System → Download App
 
 
 # Tri-state permissions granted by an admin to a broker (or by a broker to

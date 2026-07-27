@@ -48,15 +48,19 @@ const PERMISSION_LABELS: Array<{ key: keyof AdminPermissions; label: string }> =
   { key: "segment_settings", label: "Segment settings" },
   { key: "risk", label: "Risk management" },
   { key: "netting", label: "Netting overrides" },
-  { key: "trading_view", label: "Trading view" },
-  { key: "ledger", label: "Ledger" },
-  { key: "reports", label: "Reports" },
+  { key: "orders", label: "Orders" },
+  { key: "positions", label: "Positions" },
+  { key: "marketwatch", label: "Market Watch" },
+  { key: "money_transactions", label: "Money Transactions" },
+  { key: "broker_deposits", label: "Broker Deposits" },
+  { key: "reports", label: "Reports (incl. Tradebook)" },
   { key: "brokerage", label: "Brokerage" },
   { key: "brokers", label: "Brokers" },
   { key: "accounts", label: "Accounts" },
   { key: "pnl_sharing", label: "P&L Sharing" },
   { key: "audit", label: "Audit logs" },
   { key: "support", label: "Support" },
+  { key: "download_app", label: "Download App" },
 ];
 
 const ALL_OFF: AdminPermissions = {
@@ -64,6 +68,8 @@ const ALL_OFF: AdminPermissions = {
   segment_settings: false, risk: false, netting: false, trading_view: false,
   ledger: false, reports: false, brokers: false, brokerage: false,
   accounts: false, pnl_sharing: false, audit: false, support: false,
+  orders: false, positions: false, marketwatch: false,
+  money_transactions: false, broker_deposits: false, download_app: false,
 };
 
 export default function EmployeesPage() {
