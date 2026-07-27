@@ -35,7 +35,9 @@ export function canSee(
 ): boolean {
   if (!admin) return false;
   if (admin.role === "SUPER_ADMIN") return true;
-  if (admin.role === "ADMIN") {
+  // EMPLOYEE reuses the ADMIN boolean-permission model (its granted sections,
+  // capped at its parent admin's perms) → same visibility logic.
+  if (admin.role === "ADMIN" || admin.role === "EMPLOYEE") {
     const ap = admin.admin_permissions;
     if (!ap) return false;
     // `brokers` and other admin keys are boolean. Admin doesn't have

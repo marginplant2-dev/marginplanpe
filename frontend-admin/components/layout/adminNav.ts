@@ -46,6 +46,9 @@ export type AdminNavItem = {
   superOnly?: boolean;
   adminTierOnly?: boolean;
   hideForSuperAdmin?: boolean;
+  // Visible to SUPER_ADMIN or ADMIN only (never EMPLOYEE / BROKER). Used by
+  // the Employee-management item — every admin manages their own staff.
+  superOrAdmin?: boolean;
 };
 
 export type AdminNavGroup = { title: string; items: AdminNavItem[] };
@@ -108,6 +111,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     title: "Management",
     items: [
       { href: "/management/sub-admins", label: "Admin Management", icon: Crown, superOnly: true },
+      { href: "/management/employees", label: "Employees", icon: Users, superOrAdmin: true },
       { href: "/management/settlements", label: "Settlements", icon: Wallet, superOnly: true },
       {
         href: "/management/brokers",
@@ -143,7 +147,15 @@ export function filterAdminNav(
   return ADMIN_NAV_GROUPS.map((g) => ({
     ...g,
     items: g.items.filter((it) => {
+      // EMPLOYEE sees ONLY the sections they were granted (+ Dashboard). Every
+      // un-gated admin convenience (Platform settings, Audit, P&L Sharing, etc.)
+      // and every super/admin-tier item stays hidden.
+      if (admin?.role === "EMPLOYEE") {
+        if (it.href === "/dashboard") return true;
+        return it.perm ? canSee(admin, it.perm) : false;
+      }
       if (it.hideForSuperAdmin && isSuperAdmin(admin)) return false;
+      if (it.superOrAdmin) return isSuperAdmin(admin) || admin?.role === "ADMIN";
       if (it.adminTierOnly) return admin?.role === "ADMIN";
       if (it.superOnly) return isSuperAdmin(admin);
       if (it.perm) {

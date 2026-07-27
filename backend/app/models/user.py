@@ -28,6 +28,10 @@ class UserRole(StrEnum):
     # New tier: a broker sits under an admin and manages their own client
     # pool. Brokers can also create sub-brokers (nested, via broker_ancestry).
     BROKER = "BROKER"
+    # Staff sub-user of an admin. Logs in through the separate /employee-login
+    # portal, reuses `admin_permissions` for its granted sections, and operates
+    # on its PARENT admin's pool (assigned_admin_id → the creating admin).
+    EMPLOYEE = "EMPLOYEE"
 
 
 class UserStatus(StrEnum):
@@ -369,6 +373,7 @@ class User(TimestampMixin):
             UserRole.SUPER_ADMIN,
             UserRole.ADMIN,
             UserRole.BROKER,
+            UserRole.EMPLOYEE,
         }
 
     def is_internal(self) -> bool:

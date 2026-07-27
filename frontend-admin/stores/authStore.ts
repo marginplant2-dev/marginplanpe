@@ -14,6 +14,7 @@ interface AdminAuthState {
   setHydrated: (v: boolean) => void;
   setSession: (pair: AdminTokenPair) => void;
   login: (identifier: string, password: string, two_fa_code?: string) => Promise<AdminTokenPair>;
+  employeeLogin: (identifier: string, password: string, two_fa_code?: string) => Promise<AdminTokenPair>;
   logout: () => Promise<void>;
   // Refresh the persisted `admin` object from GET /admin/auth/me. Run on
   // app boot whenever a valid access token exists in localStorage so the
@@ -39,6 +40,16 @@ export const useAdminAuthStore = create<AdminAuthState>()(
         set({ loading: true });
         try {
           const pair = await AdminAuthAPI.login({ identifier, password, two_fa_code });
+          get().setSession(pair);
+          return pair;
+        } finally {
+          set({ loading: false });
+        }
+      },
+      employeeLogin: async (identifier, password, two_fa_code) => {
+        set({ loading: true });
+        try {
+          const pair = await AdminAuthAPI.employeeLogin({ identifier, password, two_fa_code });
           get().setSession(pair);
           return pair;
         } finally {

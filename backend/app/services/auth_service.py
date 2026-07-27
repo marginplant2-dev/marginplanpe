@@ -44,7 +44,12 @@ from app.utils.time_utils import now_utc
 
 logger = logging.getLogger(__name__)
 
-ADMIN_ROLES: set[UserRole] = {UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.BROKER}
+ADMIN_ROLES: set[UserRole] = {
+    UserRole.SUPER_ADMIN,
+    UserRole.ADMIN,
+    UserRole.BROKER,
+    UserRole.EMPLOYEE,
+}
 
 LoginAudience = Literal["user", "admin"]
 

@@ -9,6 +9,7 @@ from app.api.v1.admin import (
     brokerage,
     brokers,
     dashboard,
+    employees,
     expiry_overrides,
     infoway,
     instruments,
@@ -54,6 +55,7 @@ router.include_router(zerodha_auto_login.router)
 router.include_router(infoway.router)
 router.include_router(kyc.router)
 router.include_router(management.router)
+router.include_router(employees.router)
 router.include_router(brokers.router)
 router.include_router(pnl_sharing.router)
 router.include_router(notifications.router)

@@ -28,6 +28,7 @@ def _role_prefix(role: UserRole) -> str:
         UserRole.SUPER_ADMIN: "SADM",
         UserRole.ADMIN: "ADM",
         UserRole.BROKER: "BRK",
+        UserRole.EMPLOYEE: "EMP",
         UserRole.MASTER: "MAS",
         UserRole.DEALER: "DLR",
         UserRole.CLIENT: "CL",

@@ -136,6 +136,54 @@ async def admin_login(payload: AdminLoginRequest, request: Request):
     )
 
 
+@router.post(
+    "/employee-login",
+    response_model=APIResponse[AdminTokenPair],
+    status_code=status.HTTP_200_OK,
+    dependencies=[rate_limit("auth")],
+)
+async def employee_login(payload: AdminLoginRequest, request: Request):
+    """Separate login portal for EMPLOYEE (staff) accounts. Same admin token
+    machinery, but accepts ONLY role == EMPLOYEE — so admins can't use the
+    employee portal and employees can't use the admin /login. After login the
+    employee lands in the admin app showing only their granted sections."""
+    pair: TokenPair = await auth_service.authenticate(
+        identifier=payload.identifier,
+        password=payload.password,
+        two_fa_code=payload.two_fa_code,
+        audience="admin",
+        ip=_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    if pair.user.role != UserRole.EMPLOYEE.value:
+        raise InvalidCredentialsError()
+
+    emp = await User.get(pair.user.id)
+    if emp is None:
+        raise InvalidCredentialsError()
+
+    return APIResponse(
+        data=AdminTokenPair(
+            access_token=pair.access_token,
+            refresh_token=pair.refresh_token,
+            expires_in=pair.expires_in,
+            admin=AdminUserOut(
+                id=pair.user.id,
+                user_code=pair.user.user_code,
+                email=pair.user.email,
+                full_name=pair.user.full_name,
+                role=pair.user.role,
+                last_login_at=None,
+                admin_permissions=emp.admin_permissions,
+                pnl_share_pct=None,
+                broker_permissions=None,
+                assigned_broker_id=None,
+                **(await _branding_fields_for(emp)),
+            ),
+        )
+    )
+
+
 @router.post("/refresh", response_model=APIResponse[AdminTokenPair])
 async def admin_refresh(payload: RefreshRequest):
     pair = await auth_service.refresh_tokens(payload.refresh_token)
@@ -143,6 +191,7 @@ async def admin_refresh(payload: RefreshRequest):
         UserRole.SUPER_ADMIN.value,
         UserRole.ADMIN.value,
         UserRole.BROKER.value,
+        UserRole.EMPLOYEE.value,
     }:
         raise InvalidCredentialsError()
     admin_user = await User.get(pair.user.id)

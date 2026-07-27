@@ -208,9 +208,34 @@ export async function unwrap<T>(p: Promise<{ data: ApiResponse<T> }>): Promise<T
 export const AdminAuthAPI = {
   login: (body: { identifier: string; password: string; two_fa_code?: string }) =>
     unwrap<AdminTokenPair>(api.post("/admin/auth/login", body)),
+  // Separate portal for EMPLOYEE (staff) accounts — same token machinery,
+  // backend accepts only role == EMPLOYEE here.
+  employeeLogin: (body: { identifier: string; password: string; two_fa_code?: string }) =>
+    unwrap<AdminTokenPair>(api.post("/admin/auth/employee-login", body)),
   refresh: (refresh_token: string) => unwrap<AdminTokenPair>(api.post("/admin/auth/refresh", { refresh_token })),
   logout: (refresh_token?: string) => unwrap<any>(api.post("/admin/auth/logout", { refresh_token })),
   me: () => unwrap<any>(api.get("/admin/auth/me")),
+};
+
+// Employee (staff) management — available to every admin (super + sub) for
+// their OWN employees. Mirrors ManagementAPI's sub-admin shape.
+export const EmployeeMgmtAPI = {
+  list: (params?: { q?: string; status?: string; page?: number; page_size?: number }) =>
+    unwrap<any>(api.get("/admin/employees", { params })),
+  create: (body: {
+    full_name: string;
+    email: string;
+    mobile: string;
+    password: string;
+    permissions: Record<string, boolean>;
+  }) => unwrap<any>(api.post("/admin/employees", body)),
+  updatePermissions: (id: string, permissions: Record<string, boolean>) =>
+    unwrap<any>(api.put(`/admin/employees/${id}/permissions`, { permissions })),
+  block: (id: string) => unwrap<any>(api.post(`/admin/employees/${id}/block`)),
+  unblock: (id: string) => unwrap<any>(api.post(`/admin/employees/${id}/unblock`)),
+  resetPassword: (id: string, new_password: string) =>
+    unwrap<any>(api.post(`/admin/employees/${id}/reset-password`, { new_password })),
+  remove: (id: string) => unwrap<any>(api.delete(`/admin/employees/${id}`)),
 };
 
 export const DashboardAPI = {

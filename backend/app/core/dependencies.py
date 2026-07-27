@@ -31,7 +31,17 @@ from app.models.user import User, UserRole, UserStatus
 # BROKER is admin-tier (admin login endpoint accepts them, JWT audience
 # stays "admin") but visibility + write capability is narrowed below via
 # require_broker_permission(perm, min_level).
-ADMIN_ROLES: set[UserRole] = {UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.BROKER}
+# EMPLOYEE is admin-tier for login/JWT purposes too: employees log in through
+# the (separate) admin auth machinery, pass get_current_admin, and are then
+# narrowed to their granted sections via require_admin_permission and scoped to
+# their PARENT admin's pool via effective_scope_actor. They are NEVER super-admin
+# and can never manage other admins/employees (see require_admin_tier).
+ADMIN_ROLES: set[UserRole] = {
+    UserRole.SUPER_ADMIN,
+    UserRole.ADMIN,
+    UserRole.BROKER,
+    UserRole.EMPLOYEE,
+}
 
 _user_oauth = OAuth2PasswordBearer(tokenUrl="/api/v1/user/auth/login", auto_error=True)
 _admin_oauth = OAuth2PasswordBearer(tokenUrl="/api/v1/admin/auth/login", auto_error=True)
@@ -121,6 +131,18 @@ def require_super_admin(user: CurrentAdmin) -> User:
 SuperAdmin = Annotated[User, Depends(require_super_admin)]
 
 
+def require_admin_tier(user: CurrentAdmin) -> User:
+    """SUPER_ADMIN or ADMIN only. Used by the Employee-management surface:
+    every admin (super or sub) manages their OWN employees, but an EMPLOYEE
+    can never create/manage employees, and a BROKER is out of scope here."""
+    if user.role not in {UserRole.SUPER_ADMIN, UserRole.ADMIN}:
+        raise InsufficientPermissionsError("Admin role required")
+    return user
+
+
+AdminTier = Annotated[User, Depends(require_admin_tier)]
+
+
 # ── Optional auth (for endpoints that work with or without a token) ───
 async def get_optional_user(
     request: Request,
@@ -145,7 +167,29 @@ _NON_CLIENT_ROLES = [
     UserRole.SUPER_ADMIN.value,
     UserRole.ADMIN.value,
     UserRole.BROKER.value,
+    UserRole.EMPLOYEE.value,
 ]
+
+
+async def effective_scope_actor(admin: User) -> User:
+    """Resolve the actor whose POOL an admin-tier request operates on.
+
+    An EMPLOYEE is staff of its creating admin and must see/act on THAT
+    admin's pool — never its own (an employee owns no clients). So for an
+    employee we return the parent admin (``assigned_admin_id``); for everyone
+    else the actor is itself. All async scope helpers route through this, so a
+    sub-admin's employee gets the sub-admin's pool and a super-admin's employee
+    gets the platform pool — reusing the existing per-role logic unchanged.
+    Falls back to the employee itself if the parent can't be loaded (its own
+    empty pool → sees nothing, fail-safe).
+    """
+    if admin.role != UserRole.EMPLOYEE:
+        return admin
+    parent_id = getattr(admin, "assigned_admin_id", None)
+    if parent_id is None:
+        return admin
+    parent = await User.get(parent_id)
+    return parent if parent is not None else admin
 
 
 def scoped_admin_filter(admin: User) -> dict:
@@ -206,7 +250,12 @@ async def _admin_pool_clause(admin_id: PydanticObjectId) -> dict:
 
 
 async def _pool_clause(admin: User) -> dict:
-    """Assignment clause for any admin-tier actor (no role/status filter)."""
+    """Assignment clause for any admin-tier actor (no role/status filter).
+
+    EMPLOYEE actors resolve to their PARENT admin first (effective_scope_actor)
+    so they operate on the parent's pool.
+    """
+    admin = await effective_scope_actor(admin)
     if admin.role == UserRole.SUPER_ADMIN:
         return {"assigned_admin_id": None}
     if admin.role == UserRole.BROKER:
@@ -321,6 +370,8 @@ async def assert_user_in_scope(
       - ADMIN: target.assigned_admin_id == admin.id
       - BROKER: admin.id in target.broker_ancestry
     """
+    # EMPLOYEE actors operate on their parent admin's pool.
+    admin = await effective_scope_actor(admin)
     try:
         oid = PydanticObjectId(target_user_id)
     except Exception as e:  # pragma: no cover
@@ -413,7 +464,9 @@ def require_perm(perm: str, mode: str = "read"):
     async def _dep(admin: CurrentAdmin) -> User:
         if admin.role == UserRole.SUPER_ADMIN:
             return admin
-        if admin.role == UserRole.ADMIN:
+        # EMPLOYEE reuses the ADMIN boolean check against its own
+        # admin_permissions (granted sections, capped at its parent's perms).
+        if admin.role in {UserRole.ADMIN, UserRole.EMPLOYEE}:
             perms = admin.admin_permissions
             if perms is None or not getattr(perms, perm, False):
                 raise InsufficientPermissionsError(

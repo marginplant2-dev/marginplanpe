@@ -1,4 +1,4 @@
-export type AdminRole = "SUPER_ADMIN" | "ADMIN" | "BROKER";
+export type AdminRole = "SUPER_ADMIN" | "ADMIN" | "BROKER" | "EMPLOYEE";
 
 // Section toggles that gate the admin sidebar for sub-admins. SUPER_ADMIN
 // ignores these and always sees every section. Field names must match
