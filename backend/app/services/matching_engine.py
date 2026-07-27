@@ -359,6 +359,12 @@ async def execute_market_order(
     if is_closing and existing_pos is not None:
         cur_qty = to_decimal(existing_pos.quantity)
         avg = to_decimal(existing_pos.avg_price)
+        # Specific-lot close: realize against the tapped fill's entry price
+        # instead of the position average. Opt-in — set ONLY by the Active-tab
+        # per-fill Exit; every other close leaves _cbo None → avg-price as before.
+        _cbo = getattr(order, "cost_basis_override", None)
+        if _cbo is not None:
+            avg = to_decimal(_cbo)
         closed_qty = min(abs(cur_qty), qty_dec)
         sign = Decimal(1) if cur_qty > 0 else Decimal(-1)
         raw_realized = (ltp - avg) * closed_qty * sign
@@ -413,6 +419,11 @@ async def execute_market_order(
         stop_loss=sl_dec,
         target=tp_dec,
         is_demo=bool(getattr(order, "is_demo", False)),
+        cost_basis_override=(
+            to_decimal(getattr(order, "cost_basis_override", None))
+            if getattr(order, "cost_basis_override", None) is not None
+            else None
+        ),
     )
 
     # ── P&L sharing WS notify on Position close ──────────────────────

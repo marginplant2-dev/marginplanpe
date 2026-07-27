@@ -1576,6 +1576,11 @@ async def close_active_trade(trade_id: str, user: CurrentUser):
             "force_quantity": close_qty,
             "placed_from": "WEB",
             "is_squareoff": True,
+            # Specific-lot close: realize this exit against the TAPPED fill's
+            # own entry price, not the position average (operator: "active me
+            # 105 close karu to 105 ki hi entry close ho, FIFO/avg mat lagao").
+            # Native fill price; only this Active-tab path sets it.
+            "cost_basis_override": str(t.price),
         },
     )
 

@@ -46,6 +46,7 @@ async def apply_fill(
     stop_loss: Decimal | None = None,
     target: Decimal | None = None,
     is_demo: bool = False,
+    cost_basis_override: Decimal | None = None,
     _retry: int = 0,
 ) -> Position:
     """Idempotent-ish: looks up an open position for this instrument+product
@@ -118,6 +119,7 @@ async def apply_fill(
                 stop_loss=stop_loss,
                 target=target,
                 is_demo=is_demo,
+                cost_basis_override=cost_basis_override,
                 _retry=_retry + 1,
             )
     else:
@@ -168,7 +170,12 @@ async def apply_fill(
             # margin proportional to how much of the original was closed.
             closed_qty = min(abs(cur_qty), abs(signed_qty))
             sign = 1 if cur_qty > 0 else -1
-            realized = (price - cur_avg) * to_decimal(closed_qty) * sign
+            # Specific-lot close (Active-tab per-fill Exit): realize against the
+            # tapped fill's entry price, else the position average. Kept in
+            # lockstep with matching_engine's raw_realized so Trade.pnl, the
+            # wallet PNL move and pos.realized_pnl all agree.
+            basis = cost_basis_override if cost_basis_override is not None else cur_avg
+            realized = (price - basis) * to_decimal(closed_qty) * sign
             pos.realized_pnl = Decimal128(str(quantize_money(to_decimal(pos.realized_pnl) + realized)))
             pos.quantity = new_qty
             if new_qty == 0:
@@ -224,6 +231,23 @@ async def apply_fill(
                 # doesn't add new locked margin — it releases existing.)
                 scale = to_decimal(abs(new_qty)) / to_decimal(abs(cur_qty))
                 new_margin_used = to_decimal(pos.margin_used) * scale
+                # Specific-lot close: we removed a SPECIFIC lot (at its own
+                # entry `basis`), not an average-priced slice — so the surviving
+                # lots' cost basis must drop by that lot's actual cost, not by
+                # the average. remaining_avg = (avg·Q − basis·q) / (Q−q). This
+                # keeps total realised over the full close identical to the
+                # avg-price method (money conserved) while attributing each
+                # close to the lot the user actually picked. avg-price closes
+                # (override None) leave the average untouched, as before.
+                if cost_basis_override is not None:
+                    rem = to_decimal(abs(new_qty))
+                    new_basis = (
+                        cur_avg * to_decimal(abs(cur_qty))
+                        - basis * to_decimal(closed_qty)
+                    ) / rem
+                    if new_basis < 0:
+                        new_basis = to_decimal(0)
+                    pos.avg_price = Decimal128(str(quantize_money(new_basis)))
                 # apply_brackets stays False — the surviving position is in
                 # its original direction with its original avg, so existing
                 # SL/TP remain valid (if any). The closing order's bracket

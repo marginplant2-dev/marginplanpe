@@ -1228,9 +1228,12 @@ export default function PositionsPage() {
         // Matches the matching engine's actual fill behaviour so the
         // P&L equals what the user would book on exit, not the LTP-
         // approximated number.
+        // Entry = THIS fill's own entry price (specific-lot close books
+        // against the tapped fill, not the position average), falling back to
+        // the position avg for synthetic rows that carry no per-fill price.
         const side = resolveSide(r);
         const price = liveLtpFor(r, side) || Number(r.ltp ?? 0);
-        const entry = Number(r.avg_price ?? r.price ?? 0);
+        const entry = Number(r.price ?? r.avg_price ?? 0);
         const qty = Number(r.quantity ?? 0);
         const dir = side === "SELL" ? -1 : 1;
         const pnl = (price > 0 && entry > 0 && qty !== 0) ? dir * (price - entry) * qty : 0;

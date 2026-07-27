@@ -299,6 +299,14 @@ async def place_order(
         to_decimal(force_fill_raw) if force_fill_raw not in (None, "", 0, 0.0) else None
     )
 
+    # Specific-lot close basis — the tapped fill's entry price. Set only by the
+    # Active-tab per-fill Exit so its realized P&L books against that exact
+    # entry, not the position average. None everywhere else (avg-price stays).
+    cbo_raw = payload.get("cost_basis_override")
+    cost_basis_override = (
+        to_decimal(cbo_raw) if cbo_raw not in (None, "", 0, 0.0) else None
+    )
+
     # Validate. When validation fails we still want a paper trail —
     # the admin Orders monitor's "Rejected Orders" tab is empty by
     # design without this, because the validator throws BEFORE any
@@ -445,6 +453,9 @@ async def place_order(
         placed_from=str(payload.get("placed_from") or "WEB"),
         bracket_stop_loss=Decimal128(str(bracket_sl)) if bracket_sl is not None else None,
         bracket_target=Decimal128(str(bracket_tp)) if bracket_tp is not None else None,
+        cost_basis_override=(
+            Decimal128(str(cost_basis_override)) if cost_basis_override is not None else None
+        ),
     )
     await order.insert()
     t = _mark("insert_order", t)

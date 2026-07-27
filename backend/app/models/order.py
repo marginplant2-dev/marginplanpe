@@ -127,6 +127,12 @@ class Order(TimestampMixin):
     bracket_target: Money | None = None
     bracket_stop_loss: Money | None = None
 
+    # Specific-lot close: when set, the closing fill realizes P&L against THIS
+    # price (the tapped fill's entry) instead of the position's average price.
+    # Set ONLY by the Active-tab per-fill Exit (positions.close_active_trade);
+    # None on every other order → unchanged avg-price accounting everywhere else.
+    cost_basis_override: Money | None = None
+
     applied_settings: AppliedSettings | None = None
 
     placed_by: PydanticObjectId  # user OR dealer who placed on behalf
