@@ -958,6 +958,7 @@ async def list_active_trades(user: CurrentUser):
     # this handles admin-edited / legacy positions gracefully without
     # the stale `opening_quantity` dependency.
     from datetime import datetime as _datetime
+    from datetime import timedelta as _timedelta
 
     trade_owner: dict[str, Position] = {}
     remaining_qty: dict[str, float] = {}
@@ -994,7 +995,20 @@ async def list_active_trades(user: CurrentUser):
             ):
                 continue
             t_time = t.executed_at or t.created_at
-            if p.opened_at and t_time and t_time < p.opened_at:
+            # Small grace on the lifecycle boundary. `opened_at` is stamped in
+            # apply_fill a few ms AFTER the opening fill's `executed_at` (they
+            # run in the same call, trade insert first). Without the grace the
+            # opening fill can fall a few ms BEFORE opened_at and get dropped —
+            # the lifecycle then under-counts, the fallback below fires, and the
+            # fallback (which grabs the newest N same-side fills) re-surfaces a
+            # fill the user just closed via specific-lot Exit (operator: exited
+            # 107.75 but Active still showed it). 2 s is ~600× the observed skew
+            # yet nowhere near the previous, minutes-old closed lifecycle.
+            if (
+                p.opened_at
+                and t_time
+                and t_time < p.opened_at - _timedelta(seconds=2)
+            ):
                 continue
             lifecycle_trades.append(t)
 
