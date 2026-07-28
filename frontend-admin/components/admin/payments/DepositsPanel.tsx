@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -36,6 +36,17 @@ export function DepositsPanel() {
   // state was confusing on quiet hours -- "No data" suggested the
   // queue was broken when actually all rows had been processed.
   const [status, setStatus] = useState("");
+  // Client-wise search (#5) — debounced so a keystroke doesn't fire a request
+  // each character. Resets to page 1 whenever the term changes.
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
   const [page, setPage] = useState(1);
   const pageSize = 15;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -70,10 +81,11 @@ export function DepositsPanel() {
   }
 
   const { data, isFetching } = useQuery({
-    queryKey: ["admin", "deposits", status, page],
+    queryKey: ["admin", "deposits", status, search, page],
     queryFn: () =>
       PayinOutAPI.deposits({
         status: status || undefined,
+        search: search || undefined,
         page,
         page_size: pageSize,
       }),
@@ -272,16 +284,24 @@ export function DepositsPanel() {
           {meta?.total ?? 0} {status.toLowerCase() || "all"}
           {meta?.total ? ` · page ${meta.page} of ${totalPages}` : ""}
         </div>
-        <select
-          value={status}
-          onChange={(e) => changeStatus(e.target.value)}
-          className="h-9 rounded-md border border-border bg-background px-3 text-sm"
-        >
-          <option value="">All</option>
-          <option value="PENDING">Pending</option>
-          <option value="APPROVED">Approved</option>
-          <option value="REJECTED">Rejected</option>
-        </select>
+        <div className="flex items-center gap-2">
+          <Input
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search client (name / code / mobile)"
+            className="h-9 w-44 text-sm sm:w-64"
+          />
+          <select
+            value={status}
+            onChange={(e) => changeStatus(e.target.value)}
+            className="h-9 rounded-md border border-border bg-background px-3 text-sm"
+          >
+            <option value="">All</option>
+            <option value="PENDING">Pending</option>
+            <option value="APPROVED">Approved</option>
+            <option value="REJECTED">Rejected</option>
+          </select>
+        </div>
       </div>
       {/* Desktop: full table */}
       <div className="hidden md:block">

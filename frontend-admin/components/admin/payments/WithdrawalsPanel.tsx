@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -90,6 +90,16 @@ export function WithdrawalsPanel() {
   // flagged 21-May that landing on an empty PENDING list looked
   // like the queue was broken).
   const [status, setStatus] = useState("");
+  // Client-wise search (#5) — debounced; resets to page 1 on change.
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
   const [page, setPage] = useState(1);
   const pageSize = 15;
   const [approving, setApproving] = useState<{ id: string; utr: string } | null>(null);
@@ -104,10 +114,11 @@ export function WithdrawalsPanel() {
   }
 
   const { data, isFetching } = useQuery({
-    queryKey: ["admin", "withdrawals", status, page],
+    queryKey: ["admin", "withdrawals", status, search, page],
     queryFn: () =>
       PayinOutAPI.withdrawals({
         status: status || undefined,
+        search: search || undefined,
         page,
         page_size: pageSize,
       }),
@@ -298,16 +309,24 @@ export function WithdrawalsPanel() {
           {meta?.total ?? 0} {status.toLowerCase() || "all"}
           {meta?.total ? ` · page ${meta.page} of ${totalPages}` : ""}
         </div>
-        <select
-          value={status}
-          onChange={(e) => changeStatus(e.target.value)}
-          className="h-9 rounded-md border border-border bg-background px-3 text-sm"
-        >
-          <option value="">All</option>
-          <option value="PENDING">Pending</option>
-          <option value="COMPLETED">Completed</option>
-          <option value="REJECTED">Rejected</option>
-        </select>
+        <div className="flex items-center gap-2">
+          <Input
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search client (name / code / mobile)"
+            className="h-9 w-44 text-sm sm:w-64"
+          />
+          <select
+            value={status}
+            onChange={(e) => changeStatus(e.target.value)}
+            className="h-9 rounded-md border border-border bg-background px-3 text-sm"
+          >
+            <option value="">All</option>
+            <option value="PENDING">Pending</option>
+            <option value="COMPLETED">Completed</option>
+            <option value="REJECTED">Rejected</option>
+          </select>
+        </div>
       </div>
       {/* Desktop: full table with destination columns */}
       <div className="hidden md:block">

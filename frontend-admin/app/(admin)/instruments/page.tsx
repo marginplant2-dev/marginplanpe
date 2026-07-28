@@ -48,6 +48,22 @@ export default function AdminInstrumentsPage() {
     { key: "instrument_type", header: "Type" },
     { key: "lot_size", header: "Lot", align: "right" },
     {
+      key: "expiry",
+      header: "Expiry",
+      render: (r) =>
+        r.expiry ? (
+          <span className="whitespace-nowrap text-[11px]">
+            {new Date(r.expiry).toLocaleDateString("en-IN", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+            })}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+    {
       key: "status",
       header: "Status",
       render: (r) => (

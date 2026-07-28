@@ -409,7 +409,7 @@ export const TradingAPI = {
 export const PayinOutAPI = {
   // Deposits / withdrawals are paginated (15 per page by default).
   // Pass `status` empty / undefined to get every status.
-  deposits: (params?: { status?: string; page?: number; page_size?: number }) =>
+  deposits: (params?: { status?: string; search?: string; page?: number; page_size?: number }) =>
     unwrap<{ items: any[]; meta: { page: number; page_size: number; total: number; total_pages: number } }>(
       api.get("/admin/deposits", { params }),
     ),
@@ -427,7 +427,7 @@ export const PayinOutAPI = {
     unwrap<any>(api.post(`/admin/settlement-requests/${id}/approve`)),
   rejectSettlement: (id: string, reason: string) =>
     unwrap<any>(api.post(`/admin/settlement-requests/${id}/reject`, { reason })),
-  withdrawals: (params?: { status?: string; page?: number; page_size?: number }) =>
+  withdrawals: (params?: { status?: string; search?: string; page?: number; page_size?: number }) =>
     unwrap<{ items: any[]; meta: { page: number; page_size: number; total: number; total_pages: number } }>(
       api.get("/admin/withdrawals", { params }),
     ),

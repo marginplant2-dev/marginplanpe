@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 from beanie import PydanticObjectId
@@ -44,11 +45,45 @@ from app.utils.time_utils import now_utc
 router = APIRouter(tags=["admin-payin-out"])
 
 
+async def _user_search_ids(search: str | None) -> list | None:
+    """Resolve a free-text client search to matching user_ids — by user_code,
+    full name, email or mobile (case-insensitive). Returns None when no term is
+    given (caller applies no user filter); otherwise a possibly-empty id list
+    (empty ⇒ the query naturally returns nothing)."""
+    if not search or not search.strip():
+        return None
+    from app.models.user import User as _User
+
+    term = re.escape(search.strip())
+    rx = {"$regex": term, "$options": "i"}
+    matched = await _User.find(
+        {"$or": [
+            {"user_code": rx},
+            {"full_name": rx},
+            {"email": rx},
+            {"mobile": rx},
+        ]}
+    ).to_list()
+    return [u.id for u in matched]
+
+
+def _apply_search_scope(q: dict, search_ids: list | None) -> None:
+    """Fold a client-search id list into query `q`, intersecting with any
+    existing scope filter already on `q["user_id"]`."""
+    if search_ids is None:
+        return
+    if "user_id" in q and isinstance(q["user_id"], dict) and "$in" in q["user_id"]:
+        scope_set = {str(x) for x in q["user_id"]["$in"]}
+        search_ids = [i for i in search_ids if str(i) in scope_set]
+    q["user_id"] = {"$in": search_ids}
+
+
 # ── Deposits ────────────────────────────────────────────────────────
 @router.get("/deposits", response_model=APIResponse[dict])
 async def list_deposits(
     admin: CurrentAdmin,
     status: str | None = None,
+    search: str | None = None,
     page: int = 1,
     page_size: int = 15,
     _: None = Depends(require_perm("deposits", "read")),
@@ -85,6 +120,10 @@ async def list_deposits(
                 }
             )
         q["user_id"] = {"$in": scope}
+
+    # Client-wise search (#5) — narrow to users matching the free-text term,
+    # intersected with the admin's scope above.
+    _apply_search_scope(q, await _user_search_ids(search))
 
     total = await DepositRequest.find(q).count()
     rows = (
@@ -479,6 +518,7 @@ async def reject_settlement(
 async def list_withdrawals(
     admin: CurrentAdmin,
     status: str | None = None,
+    search: str | None = None,
     page: int = 1,
     page_size: int = 15,
     _: None = Depends(require_perm("withdrawals", "read")),
@@ -508,6 +548,9 @@ async def list_withdrawals(
                 }
             )
         q["user_id"] = {"$in": scope}
+
+    # Client-wise search (#5) — same as deposits.
+    _apply_search_scope(q, await _user_search_ids(search))
 
     total = await WithdrawalRequest.find(q).count()
     rows = (
