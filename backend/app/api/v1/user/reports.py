@@ -383,8 +383,13 @@ async def tradebook_full_pdf(
     from app.models.wallet import Wallet
 
     now = now_utc()
-    max_range = timedelta(days=31)
-    if from_date and to_date and (to_date - from_date) > max_range:
+    # Cap at a one-month span. Compare WHOLE days (`.days` floors the
+    # timedelta) so the frontend's end-of-day padding on `to_date`
+    # (…T23:59:59.999) doesn't tip a legitimate 31-calendar-day month
+    # (e.g. 1 Jul → 1 Aug, or 1 Jan → 1 Feb) to 31d 23h59m and trip a raw
+    # `> timedelta(days=31)` check — which rejected every 31-day-month
+    # selection and blocked the download ("Maximum date range is 1 month").
+    if from_date and to_date and (to_date - from_date).days > 31:
         raise HTTPException(status_code=400, detail="Maximum date range is 1 month")
     if not from_date and not to_date:
         from_date = now - timedelta(days=30)
