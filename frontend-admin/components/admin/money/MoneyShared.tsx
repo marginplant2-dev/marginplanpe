@@ -18,7 +18,10 @@ export const PRESETS: { key: string; label: string }[] = [
   { key: "last_month", label: "Last month" },
 ];
 
-export const DEFAULT_PERIOD: Period = { preset: "this_month", from: "", to: "" };
+// Default to the FULL history (#2 — deposit/withdrawal history must be
+// all-time, not a rolling weekly/monthly window). Operators can still narrow
+// it with the preset dropdown / date pickers.
+export const DEFAULT_PERIOD: Period = { preset: "all_time", from: "", to: "" };
 
 /** Preset wins when set; custom dates otherwise (mutually exclusive). */
 export function periodToParams(p: Period): MoneyFilterParams {
