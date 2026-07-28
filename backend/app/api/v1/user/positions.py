@@ -1100,14 +1100,59 @@ async def list_active_trades(user: CurrentUser):
                      (not is_long and t.action == OrderAction.SELL))
             ]
             all_same.sort(key=lambda tr: tr.executed_at or _datetime.min, reverse=True)
+
+            # Specific-lot Exits (opposite-side closing trades carrying a
+            # cost_basis_override) tell us WHICH opening fill the user meant to
+            # close. This recency grab is otherwise override-blind and would
+            # re-surface a just-exited lot (the "exit kiya par Active se hata
+            # nahi" bug) — so consume each override against the matching-price
+            # opening fill first and drop that qty from the view. No override
+            # closes → this list is empty and behaviour is unchanged.
+            cbo_remaining: list[list[float]] = []
+            for ct in trades:
+                if (
+                    ct.instrument.token == p.instrument.token
+                    and (
+                        p.instrument.token not in _multi_pos_tokens
+                        or str(ct.product_type.value) == str(p.product_type.value)
+                    )
+                    and ((is_long and ct.action == OrderAction.SELL) or
+                         (not is_long and ct.action == OrderAction.BUY))
+                ):
+                    _c = getattr(ct, "cost_basis_override", None)
+                    if _c is not None:
+                        try:
+                            cbo_remaining.append([float(str(_c)), float(ct.quantity)])
+                        except Exception:  # noqa: BLE001
+                            pass
+
             accum = 0.0
             for t in all_same:
                 if accum >= need:
                     break
-                tq = min(float(t.quantity), need - accum)
+                tq = float(t.quantity)
+                try:
+                    pr = float(str(t.price))
+                except Exception:  # noqa: BLE001
+                    pr = None
+                # Peel off any part of this fill already closed by a specific-lot
+                # Exit at the same price, so the exited lot doesn't reappear.
+                if pr is not None and cbo_remaining:
+                    for cb in cbo_remaining:
+                        if cb[1] <= 1e-9:
+                            continue
+                        if abs(cb[0] - pr) < 1e-4:
+                            take = min(cb[1], tq)
+                            cb[1] -= take
+                            tq -= take
+                            if tq <= 1e-9:
+                                break
+                if tq <= 1e-9:
+                    continue
+                show = min(tq, need - accum)
                 trade_owner[str(t.id)] = p
-                remaining_qty[str(t.id)] = tq
-                accum += tq
+                remaining_qty[str(t.id)] = show
+                accum += show
 
     rows: list[dict[str, Any]] = []
     for t in trades:

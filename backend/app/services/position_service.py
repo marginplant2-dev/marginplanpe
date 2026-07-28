@@ -1321,11 +1321,21 @@ async def list_closed_trade_events_fifo(
             front = q[idx]
             consume = min(front["qty"], remaining)
 
+            # Effective opening basis for this pairing. With a specific-lot
+            # close (cost_basis_override), the matching engine already booked
+            # realized P&L against the OVERRIDE, not the queued fill — so the
+            # Closed row must show that same basis, otherwise a duplicate
+            # override-close that no longer finds its opening fill silently
+            # pairs with the FIFO front (idx=0) and prints a wrong entry price
+            # (e.g. 867.70 instead of 835.60) that disagrees with the booked
+            # P&L. When there is no override, this is exactly front["price"].
+            eff_basis = _basis if _basis is not None else front["price"]
+
             # Gross P&L for this (opening-fill × closing-fill) pairing
             if front["side"] == "BUY":
-                gross = (price - front["price"]) * consume   # long close
+                gross = (price - eff_basis) * consume   # long close
             else:
-                gross = (front["price"] - price) * consume   # short close
+                gross = (eff_basis - price) * consume   # short close
 
             # Total brokerage = pro-rata open-leg + pro-rata close-leg
             orig_qty = front.get("original_qty") or consume
@@ -1340,7 +1350,7 @@ async def list_closed_trade_events_fifo(
                 "instrument": t.instrument,
                 "product_type": t.product_type,
                 "opened_side": front["side"],
-                "entry_price": front["price"],
+                "entry_price": eff_basis,
                 "close_price": price,
                 "qty": consume,
                 "gross_pnl": gross,
