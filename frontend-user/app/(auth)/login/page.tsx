@@ -57,6 +57,17 @@ function LoginPageInner() {
   const [needs2fa, setNeeds2fa] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
 
+  // Capture a shared referral link's ?ref= BEFORE the user tries the demo,
+  // so admin/broker/sub-broker attribution survives demo-login → logout →
+  // register (the URL query is lost across those hops). Persisted under a key
+  // clearTokens() never touches; the register page consumes it on signup.
+  const urlRef = (searchParams?.get("ref") || "").trim().toUpperCase();
+  useEffect(() => {
+    if (typeof window !== "undefined" && urlRef) {
+      window.localStorage.setItem(STORAGE_KEYS.referralCode, urlRef);
+    }
+  }, [urlRef]);
+
   useEffect(() => {
     if (!hydrated || !currentUser) return;
     const hasRefresh =
@@ -288,7 +299,10 @@ function LoginPageInner() {
       <div className="space-y-3">
         <p className="text-center text-xs text-muted-foreground lg:text-sm">
           Don&apos;t have an account?{" "}
-          <Link href="/register" className="font-semibold text-mp-primary hover:text-mp-primary/80">
+          <Link
+            href={urlRef ? `/register?ref=${encodeURIComponent(urlRef)}` : "/register"}
+            className="font-semibold text-mp-primary hover:text-mp-primary/80"
+          >
             Create one
           </Link>
         </p>

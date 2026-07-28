@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useBranding } from "@/lib/branding-context";
+import { STORAGE_KEYS } from "@/lib/constants";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -86,7 +87,29 @@ export default function RegisterPage() {
 function RegisterPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const refCode = (searchParams?.get("ref") || "").trim().toUpperCase();
+  const urlRef = (searchParams?.get("ref") || "").trim().toUpperCase();
+
+  // Persist the referral code so admin/broker/sub-broker attribution survives
+  // a demo-login → logout → register round-trip (the ?ref= query is dropped
+  // across those hops, and the footer "Sign in" link doesn't carry it). A
+  // fresh ?ref= in the URL always wins and overwrites; otherwise we fall back
+  // to the last captured code. clearTokens() (logout) does NOT touch this key.
+  const [storedRef, setStoredRef] = useState("");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (urlRef) {
+      window.localStorage.setItem(STORAGE_KEYS.referralCode, urlRef);
+      setStoredRef(urlRef);
+    } else {
+      setStoredRef(
+        (window.localStorage.getItem(STORAGE_KEYS.referralCode) || "")
+          .trim()
+          .toUpperCase(),
+      );
+    }
+  }, [urlRef]);
+  const refCode = urlRef || storedRef;
+
   // On a tenant custom domain (e.g. stockcafe.live) the URL has no ?ref=,
   // so fall back to the resolved brand's admin code. Belt-and-suspenders
   // alongside the backend's Origin/Referer detection — covers the case
@@ -114,6 +137,13 @@ function RegisterPageInner() {
         password: values.password,
         referral_code: refCode || branding?.user_code || undefined,
       });
+      // Consumed — drop the persisted code so a later unrelated signup on
+      // this browser isn't mis-attributed to a stale referrer.
+      try {
+        window.localStorage.removeItem(STORAGE_KEYS.referralCode);
+      } catch {
+        /* ignore */
+      }
       toast.success("Account created. Please sign in.");
       router.push(refCode ? `/login?ref=${encodeURIComponent(refCode)}` : "/login");
     } catch (err) {
@@ -298,7 +328,10 @@ function RegisterPageInner() {
       {/* Footer */}
       <p className="text-center text-sm text-muted-foreground">
         Already have an account?{" "}
-        <Link href="/login" className="font-semibold text-primary hover:text-primary/80">
+        <Link
+          href={refCode ? `/login?ref=${encodeURIComponent(refCode)}` : "/login"}
+          className="font-semibold text-primary hover:text-primary/80"
+        >
           Sign in
         </Link>
       </p>

@@ -47,6 +47,12 @@ export const STORAGE_KEYS = {
   accessToken: "nb.accessToken",
   refreshToken: "nb.refreshToken",
   user: "nb.user",
+  // Referral code captured from a shared ?ref= link. Persisted so the
+  // admin/broker/sub-broker attribution survives a demo-login → logout →
+  // register round-trip (the URL query is lost across those hops).
+  // Deliberately NOT cleared by clearTokens() — only after a successful
+  // registration consumes it.
+  referralCode: "nb.ref",
 } as const;
 
 export const ROLES = {
