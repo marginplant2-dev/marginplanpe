@@ -3,9 +3,19 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { X } from "lucide-react";
+import { Pencil, X } from "lucide-react";
 import { OrderAPI } from "@/lib/api";
 import { cn, formatIST, formatPrice } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 // Orders book — Open / Executed / Rejected tabs. Separate from the unified
 // /positions blotter (Position / Active / Closed / Cancelled / Rejected),
@@ -47,6 +57,7 @@ function prettyType(t: string): string {
 export default function OrdersPage() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>("open");
+  const [editOrder, setEditOrder] = useState<any | null>(null);
 
   const { data: orders = [], isLoading } = useQuery<any[]>({
     queryKey: ["orders", "book"],
@@ -139,10 +150,17 @@ export default function OrdersPage() {
               order={o}
               canCancel={tab === "open"}
               onCancel={() => cancelOrder(o.id)}
+              onEdit={() => setEditOrder(o)}
             />
           ))
         )}
       </div>
+
+      <OrderEditDialog
+        order={editOrder}
+        onClose={() => setEditOrder(null)}
+        onSaved={() => qc.invalidateQueries({ queryKey: ["orders"] })}
+      />
     </div>
   );
 }
@@ -151,14 +169,19 @@ function OrderRow({
   order,
   canCancel,
   onCancel,
+  onEdit,
 }: {
   order: any;
   canCancel: boolean;
   onCancel: () => void;
+  onEdit: () => void;
 }) {
   const buy = String(order.action ?? "").toUpperCase() === "BUY";
   const type = String(order.order_type ?? "").toUpperCase();
   const status = String(order.status ?? "").toUpperCase();
+  // Only working LIMIT / SL / SL-M orders carry an editable price or qty; a
+  // MARKET order fills instantly so there's nothing to modify.
+  const canEdit = canCancel && (type === "LIMIT" || type === "SL" || type === "SL_M");
 
   // Most relevant price per state: executed → fill (average), LIMIT → limit,
   // SL / SL-M → trigger, MARKET → "MKT".
@@ -224,6 +247,21 @@ function OrderRow({
         )}
       </div>
 
+      {canEdit ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
+          aria-label="Edit order"
+          title="Edit qty / price"
+          className="grid size-8 shrink-0 place-items-center rounded text-muted-foreground hover:bg-muted/40 hover:text-primary"
+        >
+          <Pencil className="size-4" />
+        </button>
+      ) : null}
+
       {canCancel ? (
         <button
           type="button"
@@ -239,6 +277,167 @@ function OrderRow({
         </button>
       ) : null}
     </div>
+  );
+}
+
+// Edit a still-working LIMIT / SL / SL-M order's qty (lots), limit price and/or
+// trigger. Only sends the fields the user changed to the existing
+// `OrderAPI.modify` (PUT /user/orders/{id}) endpoint. Mirrors the validation
+// the positions-blotter modify dialog uses so behaviour is identical.
+function OrderEditDialog({
+  order,
+  onClose,
+  onSaved,
+}: {
+  order: any | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [price, setPrice] = useState("");
+  const [trigger, setTrigger] = useState("");
+  const [lots, setLots] = useState("");
+  const [synced, setSynced] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Reseed the inputs once per opened order (state-during-render reseed — the
+  // same pattern the positions modify dialog uses).
+  if (order && synced !== order.id) {
+    setPrice(order.price != null && Number(order.price) > 0 ? String(Number(order.price)) : "");
+    setTrigger(
+      order.trigger_price != null && Number(order.trigger_price) > 0
+        ? String(Number(order.trigger_price))
+        : "",
+    );
+    setLots(order.lots != null ? String(Number(order.lots)) : "");
+    setSynced(order.id);
+  }
+  if (!order && synced !== null) {
+    setPrice("");
+    setTrigger("");
+    setLots("");
+    setSynced(null);
+  }
+
+  const type = String(order?.order_type ?? "LIMIT").toUpperCase();
+  const isLimit = type === "LIMIT";
+  const isSlm = type === "SL_M";
+  const isSl = type === "SL";
+  const lotSize = Number(order?.lot_size ?? order?.instrument?.lot_size ?? 1) || 1;
+
+  async function save() {
+    if (!order) return;
+    const priceNum = price ? Number(price) : NaN;
+    const triggerNum = trigger ? Number(trigger) : NaN;
+    const lotsNum = lots ? Number(lots) : NaN;
+
+    if (isLimit && (!Number.isFinite(priceNum) || priceNum <= 0)) {
+      toast.error("Enter a valid limit price");
+      return;
+    }
+    if ((isSl || isSlm) && (!Number.isFinite(triggerNum) || triggerNum <= 0)) {
+      toast.error("Enter a valid trigger price");
+      return;
+    }
+    if (isSl && (!Number.isFinite(priceNum) || priceNum <= 0)) {
+      toast.error("Enter a valid limit price");
+      return;
+    }
+    if (Number.isFinite(lotsNum) && lotsNum > 0) {
+      const filled = Number(order.filled_quantity ?? 0);
+      if (filled > 0 && lotsNum < filled / lotSize) {
+        toast.error(
+          `Already filled ${filled} qty — new lots must be ≥ ${(filled / lotSize).toFixed(2)}.`,
+        );
+        return;
+      }
+    }
+
+    const body: Record<string, number> = {};
+    if (isLimit && Number.isFinite(priceNum)) body.price = priceNum;
+    if ((isSl || isSlm) && Number.isFinite(triggerNum)) body.trigger_price = triggerNum;
+    if (isSl && Number.isFinite(priceNum)) body.price = priceNum;
+    if (Number.isFinite(lotsNum) && lotsNum > 0) body.lots = lotsNum;
+    if (Object.keys(body).length === 0) {
+      toast.error("Nothing to update");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await OrderAPI.modify(order.id, body);
+      toast.success("Order updated");
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to update order");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={!!order} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Edit order{order ? ` · ${order.symbol}` : ""}</DialogTitle>
+        </DialogHeader>
+        {order && (
+          <div className="space-y-3">
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
+              {prettyType(type)} · {String(order.action ?? "").toUpperCase()} · {order.product_type}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-lots">Quantity (lots)</Label>
+              <Input
+                id="edit-lots"
+                inputMode="decimal"
+                value={lots}
+                onChange={(e) => setLots(e.target.value)}
+                placeholder="Lots"
+              />
+              {lotSize > 1 && (
+                <p className="text-[10px] text-muted-foreground">
+                  1 lot = {lotSize} qty
+                  {lots && Number(lots) > 0 ? ` · ${(Number(lots) * lotSize).toFixed(0)} qty` : ""}
+                </p>
+              )}
+            </div>
+            {(isLimit || isSl) && (
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-price">Limit price</Label>
+                <Input
+                  id="edit-price"
+                  inputMode="decimal"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                  placeholder="Limit price"
+                />
+              </div>
+            )}
+            {(isSl || isSlm) && (
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-trigger">Trigger price</Label>
+                <Input
+                  id="edit-trigger"
+                  inputMode="decimal"
+                  value={trigger}
+                  onChange={(e) => setTrigger(e.target.value)}
+                  placeholder="Trigger price"
+                />
+              </div>
+            )}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={save} loading={saving}>
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
