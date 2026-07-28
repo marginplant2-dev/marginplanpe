@@ -220,17 +220,21 @@ export default function AdminUsersPage() {
       },
     },
     {
-      key: "settlement",
-      header: "Settlement",
+      key: "weekly_pnl",
+      header: "Weekly PnL",
       align: "right",
       render: (r) => {
-        const v = Number(r.wallet?.settlement_outstanding ?? 0);
-        return v > 0 ? (
-          <span className="text-sm font-semibold tabular-nums text-destructive">
-            ₹{v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        const v = Number(r.wallet?.weekly_closed_pnl ?? 0);
+        if (!v) return <span className="text-sm text-muted-foreground">—</span>;
+        const up = v > 0;
+        return (
+          <span
+            className={`text-sm font-semibold tabular-nums ${up ? "text-emerald-500" : "text-destructive"}`}
+            title="Realised P&L booked this week (Mon → now)"
+          >
+            {up ? "+" : "−"}₹
+            {Math.abs(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
-        ) : (
-          <span className="text-sm text-muted-foreground">—</span>
         );
       },
     },
@@ -532,7 +536,7 @@ function UserMobileCard({
   onLedger: () => void;
   onStats: () => void;
 }) {
-  const settlement = Number(r.wallet?.settlement_outstanding ?? 0);
+  const weeklyPnl = Number(r.wallet?.weekly_closed_pnl ?? 0);
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-gradient-to-br from-card to-card/60 p-3 shadow-sm transition-shadow hover:shadow-md">
@@ -583,12 +587,19 @@ function UserMobileCard({
         <MoneyTile label="Equity" value={equity} tone="equity" base={balance} />
       </div>
 
-      {/* Settlement outstanding — only render when non-zero */}
-      {settlement > 0 && (
-        <div className="mt-2 flex items-center justify-between rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive">
-          <span>Settlement outstanding</span>
+      {/* Weekly realised P&L (Mon → now) — only render when non-zero */}
+      {weeklyPnl !== 0 && (
+        <div
+          className={`mt-2 flex items-center justify-between rounded-md border px-2.5 py-1.5 text-[11px] ${
+            weeklyPnl > 0
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+              : "border-destructive/30 bg-destructive/10 text-destructive"
+          }`}
+        >
+          <span>Weekly P&L</span>
           <span className="font-semibold tabular-nums">
-            ₹{settlement.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {weeklyPnl > 0 ? "+" : "−"}₹
+            {Math.abs(weeklyPnl).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
         </div>
       )}

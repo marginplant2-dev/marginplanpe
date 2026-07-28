@@ -226,14 +226,50 @@ async def list_users(
     user_ids = [u.id for u in rows]
     wallets = await Wallet.find({"user_id": {"$in": user_ids}}).to_list()
     wallet_map = {str(w.user_id): w for w in wallets}
+
+    # Weekly closed P&L (#6) — net realised P&L booked in the current ISO week
+    # (Monday 00:00 IST → now). Surfaced on the all-users page in place of the
+    # old settlement column. One grouped aggregate over just this page's users.
+    from datetime import timedelta as _td
+
+    from app.models.transaction import TransactionType, WalletTransaction
+    from app.utils.time_utils import now_ist, to_utc
+
+    _now_i = now_ist()
+    _wk_start = to_utc(
+        (_now_i - _td(days=_now_i.weekday())).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+    )
+    wk_pnl_map: dict[str, float] = {}
+    try:
+        _cur = WalletTransaction.get_motor_collection().aggregate(
+            [
+                {
+                    "$match": {
+                        "user_id": {"$in": user_ids},
+                        "transaction_type": TransactionType.PNL.value,
+                        "created_at": {"$gte": _wk_start},
+                    }
+                },
+                {"$group": {"_id": "$user_id", "pnl": {"$sum": {"$toDouble": "$amount"}}}},
+            ]
+        )
+        async for _row in _cur:
+            wk_pnl_map[str(_row["_id"])] = float(_row.get("pnl") or 0.0)
+    except Exception:  # noqa: BLE001
+        wk_pnl_map = {}
+
     for item in items:
         w = wallet_map.get(item["id"])
+        _wk = round(wk_pnl_map.get(item["id"], 0.0), 2)
         item["wallet"] = (
             {
                 "available_balance": str(w.available_balance),
                 "used_margin": str(w.used_margin),
                 "credit_limit": str(w.credit_limit),
                 "settlement_outstanding": str(w.settlement_outstanding),
+                "weekly_closed_pnl": str(_wk),
             }
             if w is not None
             else {
@@ -241,6 +277,7 @@ async def list_users(
                 "used_margin": "0",
                 "credit_limit": "0",
                 "settlement_outstanding": "0",
+                "weekly_closed_pnl": str(_wk),
             }
         )
 
