@@ -369,6 +369,37 @@ async def my_deposits(user: CurrentUser):
     )
 
 
+@router.delete("/deposits/{deposit_id}", response_model=APIResponse[dict])
+async def delete_deposit(deposit_id: str, user: CurrentUser):
+    """Delete the user's OWN still-PENDING deposit request. Once an admin has
+    approved/rejected it the request is immutable (money moved / audit trail),
+    so only `PENDING` can be removed."""
+    try:
+        oid = PydanticObjectId(deposit_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Deposit request not found")
+    req = await DepositRequest.find_one(
+        DepositRequest.id == oid, DepositRequest.user_id == user.id
+    )
+    if req is None:
+        raise HTTPException(status_code=404, detail="Deposit request not found")
+    if req.status != DepositStatus.PENDING:
+        raise HTTPException(
+            status_code=400, detail="Only a pending request can be deleted"
+        )
+    await req.delete()
+    try:
+        from app.services.admin_events import publish_admin_event
+
+        await publish_admin_event(
+            "deposit_update",
+            {"event": "deleted", "user_id": str(user.id), "deposit_id": deposit_id},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return APIResponse(data={"deleted": True})
+
+
 @router.post("/withdrawals", response_model=APIResponse[dict])
 async def create_withdrawal(payload: WithdrawalCreate, user: CurrentUser):
     if getattr(user, "is_demo", False):
@@ -598,6 +629,38 @@ async def my_withdrawals(user: CurrentUser):
             for r in rows
         ]
     )
+
+
+@router.delete("/withdrawals/{withdrawal_id}", response_model=APIResponse[dict])
+async def delete_withdrawal(withdrawal_id: str, user: CurrentUser):
+    """Delete the user's OWN still-PENDING withdrawal request. A pending
+    request hasn't touched the balance yet (funds are debited only at admin
+    approval), so removal is money-neutral; approved/rejected requests are
+    immutable."""
+    try:
+        oid = PydanticObjectId(withdrawal_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Withdrawal request not found")
+    req = await WithdrawalRequest.find_one(
+        WithdrawalRequest.id == oid, WithdrawalRequest.user_id == user.id
+    )
+    if req is None:
+        raise HTTPException(status_code=404, detail="Withdrawal request not found")
+    if req.status != WithdrawalStatus.PENDING:
+        raise HTTPException(
+            status_code=400, detail="Only a pending request can be deleted"
+        )
+    await req.delete()
+    try:
+        from app.services.admin_events import publish_admin_event
+
+        await publish_admin_event(
+            "withdrawal_update",
+            {"event": "deleted", "user_id": str(user.id), "withdrawal_id": withdrawal_id},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return APIResponse(data={"deleted": True})
 
 
 @router.get("/wd-rules", response_model=APIResponse[dict])

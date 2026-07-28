@@ -360,6 +360,9 @@ export const WalletAPI = {
   myDeposits: () => unwrap<any[]>(api.get("/user/wallet/deposits")),
   createWithdrawal: (body: any) => unwrap<any>(api.post("/user/wallet/withdrawals", body)),
   myWithdrawals: () => unwrap<any[]>(api.get("/user/wallet/withdrawals")),
+  // Delete a still-PENDING request (approved/rejected ones are immutable).
+  deleteDeposit: (id: string) => unwrap<any>(api.delete(`/user/wallet/deposits/${id}`)),
+  deleteWithdrawal: (id: string) => unwrap<any>(api.delete(`/user/wallet/withdrawals/${id}`)),
   // Effective deposit + withdrawal rules for this user — already resolved
   // through the broker → admin → super-admin → global cascade by the
   // backend. Used by the deposit/withdraw dialogs to render the inline

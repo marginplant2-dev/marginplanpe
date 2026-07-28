@@ -17,6 +17,7 @@ import {
   MessageCircle,
   Plus,
   QrCode,
+  Trash2,
   Upload,
   Wallet as WalletIcon,
   X,
@@ -791,6 +792,9 @@ type FeedRow = {
   status: "completed" | "pending" | "rejected";
   narration: string;
   balance_after?: number | null;
+  // Raw DepositRequest / WithdrawalRequest id — set only for a still-PENDING
+  // request so the row can offer a delete action (approved/rejected are final).
+  reqId?: string;
 };
 
 function TransactionsFeed({
@@ -855,6 +859,7 @@ function TransactionsFeed({
             ? `Deposit rejected${d.admin_remark ? ` — ${d.admin_remark}` : ""}`
             : `Deposit request · ${d.payment_mode ?? "manual"}`,
         balance_after: null,
+        reqId: status === "PENDING" ? String(d.id) : undefined,
       });
     }
 
@@ -873,6 +878,7 @@ function TransactionsFeed({
             ? `Withdrawal rejected${w.admin_remark ? ` — ${w.admin_remark}` : ""}`
             : `Withdrawal request · ${w.mode ?? "bank"}`,
         balance_after: null,
+        reqId: status === "PENDING" ? String(w.id) : undefined,
       });
     }
 
@@ -943,8 +949,29 @@ function TransactionsFeed({
 }
 
 function FeedRowItem({ row }: { row: FeedRow }) {
+  const qc = useQueryClient();
+  const [deleting, setDeleting] = useState(false);
   const isIn = row.kind === "deposit" || row.kind === "admin_add";
   const Icon = isIn ? ArrowDownToLine : ArrowUpToLine;
+
+  // Only a still-PENDING request carries `reqId` and can be withdrawn by the
+  // user; once approved/rejected the backend rejects the delete.
+  async function onDelete() {
+    if (!row.reqId) return;
+    if (typeof window !== "undefined" && !window.confirm("Delete this pending request?")) return;
+    setDeleting(true);
+    try {
+      if (row.kind === "deposit") await WalletAPI.deleteDeposit(row.reqId);
+      else await WalletAPI.deleteWithdrawal(row.reqId);
+      toast.success("Request deleted");
+      qc.invalidateQueries({ queryKey: ["my-deposits"] });
+      qc.invalidateQueries({ queryKey: ["my-withdrawals"] });
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't delete the request");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   const iconBg = isIn
     ? "bg-emerald-500/15 text-emerald-500 ring-emerald-500/20"
@@ -1011,6 +1038,17 @@ function FeedRowItem({ row }: { row: FeedRow }) {
           <div className="mt-0.5 text-[10px] text-muted-foreground">
             Bal {formatINR(row.balance_after)}
           </div>
+        )}
+        {row.reqId && (
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={deleting}
+            className="mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-rose-500 transition-colors hover:bg-rose-500/10 disabled:opacity-50"
+          >
+            {deleting ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
+            Delete
+          </button>
         )}
       </div>
     </li>

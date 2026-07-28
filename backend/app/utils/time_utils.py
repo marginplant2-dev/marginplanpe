@@ -249,11 +249,10 @@ def iso_week_key(at: datetime | None = None) -> str:
 
 
 def is_saturday_settlement_window(at: datetime | None = None) -> bool:
-    """True during the weekly-settlement firing window: Saturday 23:00–23:59
-    IST (Saturday 11 PM — operator-chosen so it runs at the end of the trading
-    week, after the day's activity). The settlement loop wakes every minute, so
-    a one-hour window gives ample slack for the leader to pick up and fire
-    exactly once per week (the unique ``week_key`` batch guards against a
-    double fire). Saturday is weekday() == 5."""
+    """True during the weekly-settlement firing window: Saturday 11:00–11:59
+    IST (Saturday 11 AM — operator-chosen). The settlement loop wakes every
+    minute, so a one-hour window gives ample slack for the leader to pick up
+    and fire exactly once per week (the unique ``week_key`` batch guards
+    against a double fire). Saturday is weekday() == 5."""
     now = to_ist(at) if at else now_ist()
-    return now.weekday() == 5 and now.hour == 23
+    return now.weekday() == 5 and now.hour == 11
