@@ -895,6 +895,49 @@ async def list_active_trades(user: CurrentUser):
         }
         trades = await Trade.find(trade_q_fallback).sort("-executed_at").to_list()
 
+    # ── Weekly-settlement carry seed ─────────────────────────────────────
+    # A position REOPENED by weekly settlement carries its qty at the
+    # SETTLEMENT price — its pre-settlement P&L was already realised to the
+    # wallet and the old lot CLOSED. That carried lot has NO Trade row, so the
+    # per-fill reconstruction below would miss it and value the open lots at
+    # raw PRE-settlement trade prices — double-counting the already-banked P&L
+    # and diverging from the (correct) netted Position M2M. Inject a synthetic
+    # opening fill at the settlement price for each settlement-reopened
+    # position so Σ(Active per-fill P&L) == Position M2M. Display-only: no new
+    # Trade doc, no money movement. Best-effort — never break the tab.
+    try:
+        from types import SimpleNamespace as _NS
+
+        from app.models.position_settlement import PositionSettlement as _PSett
+
+        _pos_by_id = {p.id: p for p in open_positions}
+        _setts = await _PSett.find(
+            {"new_position_id": {"$in": list(_pos_by_id.keys())}}
+        ).to_list()
+        for _s in _setts:
+            _p = _pos_by_id.get(_s.new_position_id)
+            if _p is None or not _s.quantity or _s.quantity <= 0:
+                continue
+            _side = str(getattr(_s, "side", "") or "").upper()
+            trades.append(
+                _NS(
+                    id=_s.id,
+                    trade_number=f"CARRY-{str(_s.id)[-6:]}",
+                    executed_at=_p.opened_at,
+                    action=OrderAction.BUY if _side == "BUY" else OrderAction.SELL,
+                    quantity=float(_s.quantity),
+                    price=_s.settlement_price,
+                    product_type=_p.product_type,
+                    instrument=_p.instrument,
+                    brokerage=None,
+                    cost_basis_override=None,
+                )
+            )
+    except Exception:  # noqa: BLE001
+        import logging as _lg
+
+        _lg.getLogger(__name__).exception("active_trades_carry_seed_failed")
+
     # Live LTP per token — parallelised with gather so N tokens cost ~1
     # network round-trip instead of N sequential awaits (was ~50 ms × N).
     unique_toks = list(set(tokens))
