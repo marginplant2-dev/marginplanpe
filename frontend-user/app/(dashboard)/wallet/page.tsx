@@ -116,6 +116,9 @@ export default function WalletPage() {
   });
   const { data: companyBanks } = useQuery({ queryKey: ["company-banks"], queryFn: () => WalletAPI.companyBanks() });
   const { data: myBanks } = useQuery({ queryKey: ["my-banks"], queryFn: () => WalletAPI.myBankAccounts() });
+  // Effective withdrawal rules — drives whether bank details are mandatory.
+  const { data: wdRulesData } = useQuery({ queryKey: ["user", "wd-rules"], queryFn: () => WalletAPI.wdRules() });
+  const requireBank = !!wdRulesData?.withdrawal?.require_bank_details;
 
   // ── Dialogs ─────────────────────────────────────────────────────
   const [depositOpen, setDepositOpen] = useState(false);
@@ -236,15 +239,24 @@ export default function WalletPage() {
     if (wdSubmitting) return; // guard against double / triple clicks
     if (!wd.amount || Number(wd.amount) <= 0) return toast.error("Amount required");
 
+    // Unified payment details: UPI and bank on one page. Bank is optional
+    // unless the admin's WITHDRAWAL rule turns `require_bank_details` on;
+    // either way at least one payout method must be provided.
     const bank: Record<string, string> = {};
-    if (wd.mode === "UPI") {
-      const vpa = wd.upi_id.trim();
-      if (!vpa || !vpa.includes("@")) return toast.error("Enter a valid UPI ID (e.g. name@bank)");
-      bank.upi_id = vpa;
-    } else {
+    const vpa = wd.upi_id.trim();
+    const hasUpi = !!vpa;
+    const hasBank = !!(wd.account_number.trim() && wd.ifsc_code.trim());
+
+    if (requireBank) {
+      if (!wd.account_holder.trim()) return toast.error("Account holder name required");
       if (!wd.account_number.trim()) return toast.error("Account number required");
       if (!wd.ifsc_code.trim()) return toast.error("IFSC required");
-      if (!wd.account_holder.trim()) return toast.error("Account holder name required");
+    }
+    if (hasUpi && !vpa.includes("@")) return toast.error("Enter a valid UPI ID (e.g. name@bank)");
+    if (!hasUpi && !hasBank) return toast.error("Enter a UPI ID or bank details");
+
+    if (hasUpi) bank.upi_id = vpa;
+    if (hasBank || requireBank) {
       bank.name = wd.bank_name.trim();
       bank.account_number = wd.account_number.trim();
       bank.ifsc = wd.ifsc_code.trim().toUpperCase();
@@ -638,9 +650,6 @@ export default function WalletPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Withdraw funds</DialogTitle>
-            <DialogDescription>
-              Enter your UPI ID or bank details. Admin approves before payout.
-            </DialogDescription>
           </DialogHeader>
           {/* Rules banner — withdraw is the more-restricted side
               (day + time window + mandatory-remark typically matter). */}
@@ -655,67 +664,68 @@ export default function WalletPage() {
               />
             </Field>
 
-            {/* Mode toggle */}
-            <div className="grid grid-cols-2 gap-1 rounded-md border border-border p-1">
-              {(["UPI", "BANK"] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setWd((d) => ({ ...d, mode: m }))}
-                  className={
-                    "h-9 rounded text-sm font-medium transition-colors " +
-                    (wd.mode === m
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent")
-                  }
-                >
-                  {m === "UPI" ? "UPI" : "Bank transfer"}
-                </button>
-              ))}
-            </div>
+            {/* Unified payment details — UPI + bank on one page. Bank is
+                optional unless the admin turned "Bank details required" on. */}
+            <div className="space-y-3 rounded-md border border-border p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold">Payment details</span>
+                {requireBank && (
+                  <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-500">
+                    Bank required
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {requireBank
+                  ? "Bank details are required. UPI is optional."
+                  : "Enter your UPI ID and/or bank details (either works)."}
+              </p>
 
-            {wd.mode === "UPI" ? (
-              <>
-                <Field label="UPI ID">
-                  <Input
-                    placeholder="name@bank"
-                    value={wd.upi_id}
-                    onChange={(e) => setWd((d) => ({ ...d, upi_id: e.target.value }))}
-                  />
-                </Field>
-              </>
-            ) : (
-              <>
-                <Field label="Account holder name">
+              <Field label="UPI ID (optional)">
+                <Input
+                  placeholder="name@bank"
+                  value={wd.upi_id}
+                  onChange={(e) => setWd((d) => ({ ...d, upi_id: e.target.value }))}
+                />
+              </Field>
+
+              <div className="border-t border-border/60 pt-3">
+                <Field label={requireBank ? "Account holder name *" : "Account holder name"}>
                   <Input
                     value={wd.account_holder}
                     onChange={(e) => setWd((d) => ({ ...d, account_holder: e.target.value }))}
                   />
                 </Field>
-                <Field label="Account number">
-                  <Input
-                    value={wd.account_number}
-                    onChange={(e) => setWd((d) => ({ ...d, account_number: e.target.value }))}
-                  />
-                </Field>
-                <Field label="IFSC code">
-                  <Input
-                    className="uppercase"
-                    maxLength={11}
-                    value={wd.ifsc_code}
-                    onChange={(e) =>
-                      setWd((d) => ({ ...d, ifsc_code: e.target.value.toUpperCase() }))
-                    }
-                  />
-                </Field>
-                <Field label="Bank name (optional)">
-                  <Input
-                    value={wd.bank_name}
-                    onChange={(e) => setWd((d) => ({ ...d, bank_name: e.target.value }))}
-                  />
-                </Field>
-              </>
-            )}
+                <div className="mt-3">
+                  <Field label={requireBank ? "Account number *" : "Account number"}>
+                    <Input
+                      value={wd.account_number}
+                      onChange={(e) => setWd((d) => ({ ...d, account_number: e.target.value }))}
+                    />
+                  </Field>
+                </div>
+                <div className="mt-3">
+                  <Field label={requireBank ? "IFSC code *" : "IFSC code"}>
+                    <Input
+                      className="uppercase"
+                      maxLength={11}
+                      value={wd.ifsc_code}
+                      onChange={(e) =>
+                        setWd((d) => ({ ...d, ifsc_code: e.target.value.toUpperCase() }))
+                      }
+                    />
+                  </Field>
+                </div>
+                <div className="mt-3">
+                  <Field label="Bank name (optional)">
+                    <Input
+                      value={wd.bank_name}
+                      onChange={(e) => setWd((d) => ({ ...d, bank_name: e.target.value }))}
+                    />
+                  </Field>
+                </div>
+              </div>
+            </div>
 
             <Field label="Remarks (optional)">
               <Input value={wd.remarks} onChange={(e) => setWd((d) => ({ ...d, remarks: e.target.value }))} />

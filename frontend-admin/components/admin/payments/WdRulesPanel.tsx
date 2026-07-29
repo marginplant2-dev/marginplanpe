@@ -36,6 +36,7 @@ type RuleFields = {
   block_withdrawal_with_open_positions: boolean | null;
   block_duplicate_pending: boolean | null;
   max_requests_per_day: number | null;
+  require_bank_details: boolean | null;
 };
 
 const WEEKDAYS = [
@@ -121,6 +122,7 @@ function WdRuleCard({
       block_withdrawal_with_open_positions:
         o?.block_withdrawal_with_open_positions ?? null,
       block_duplicate_pending: o?.block_duplicate_pending ?? null,
+      require_bank_details: o?.require_bank_details ?? null,
       max_requests_per_day:
         o?.max_requests_per_day === null || o?.max_requests_per_day === undefined
           ? null
@@ -153,6 +155,9 @@ function WdRuleCard({
         // Applies to BOTH cards — a pending deposit blocks a new deposit,
         // a pending withdrawal blocks a new withdrawal.
         block_duplicate_pending: form.block_duplicate_pending,
+        // WITHDRAWAL-only: make full bank details mandatory on withdrawals.
+        require_bank_details:
+          rule.rule_type === "WITHDRAWAL" ? form.require_bank_details : null,
         // Per-day request cap (both cards). null = inherit, 0 = no limit.
         max_requests_per_day: form.max_requests_per_day,
         allowed_days: form.allowed_days,
@@ -417,6 +422,52 @@ function WdRuleCard({
                     {rule.sources.block_withdrawal_with_open_positions ||
                       "default"}
                     )
+                  </p>
+                )}
+              </div>
+            );
+          })()}
+
+        {rule.rule_type === "WITHDRAWAL" &&
+          (() => {
+            const isOn =
+              form.require_bank_details === null
+                ? !!rule.effective.require_bank_details
+                : !!form.require_bank_details;
+            return (
+              <div className="rounded-lg border border-border bg-muted/20 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">
+                      Bank details required
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      When ON, users MUST enter full bank details (holder,
+                      account number, IFSC) to withdraw — UPI stays optional.
+                      Default OFF (UPI or bank, either works).
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={isOn}
+                    onClick={() =>
+                      setForm((f) => ({ ...f, require_bank_details: !isOn }))
+                    }
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                      isOn ? "bg-primary" : "bg-muted-foreground/30"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block size-4 transform rounded-full bg-white shadow transition-transform ${
+                        isOn ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+                {form.require_bank_details === null && (
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    (inherited from {rule.sources.require_bank_details || "default"})
                   </p>
                 )}
               </div>

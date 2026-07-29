@@ -1069,6 +1069,7 @@ async def list_wd_rules(admin: CurrentAdmin):
                 "mandatory_remark",
                 "block_withdrawal_with_open_positions",
                 "block_duplicate_pending",
+                "require_bank_details",
             ):
                 d[f] = bool(v)
             elif f == "max_requests_per_day":
@@ -1095,6 +1096,7 @@ async def list_wd_rules(admin: CurrentAdmin):
                 "mandatory_remark",
                 "block_withdrawal_with_open_positions",
                 "block_duplicate_pending",
+                "require_bank_details",
             ):
                 d[f] = bool(v)
             elif f == "max_requests_per_day":

@@ -283,6 +283,11 @@ class WdRule(TimestampMixin):
     # Counts ALL requests created today (any status). Enforced in the user
     # deposit/withdrawal create paths.
     max_requests_per_day: int = 0
+    # WITHDRAWAL-only: when True, the user MUST supply full bank details
+    # (account holder / number / IFSC) on a withdrawal request — UPI stays
+    # optional. Default False (bank optional; UPI or bank either works).
+    # Enforced in the user withdrawal create path + the withdrawal UI.
+    require_bank_details: bool = False
 
     class Settings:
         name = "wd_rules"
@@ -324,6 +329,7 @@ class _WdRuleOverrideBase(TimestampMixin):
     block_withdrawal_with_open_positions: bool | None = None
     block_duplicate_pending: bool | None = None
     max_requests_per_day: int | None = None
+    require_bank_details: bool | None = None
 
 
 class SuperAdminWdRule(_WdRuleOverrideBase):

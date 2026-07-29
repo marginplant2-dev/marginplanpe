@@ -349,6 +349,7 @@ export interface WdRule {
   charges_percent: number;
   auto_approve_under: string | null;
   mandatory_remark: boolean;
+  require_bank_details?: boolean;
 }
 
 export const WalletAPI = {

@@ -66,6 +66,7 @@ _RULE_FIELDS = (
     "block_withdrawal_with_open_positions",
     "block_duplicate_pending",
     "max_requests_per_day",
+    "require_bank_details",
 )
 
 
@@ -271,6 +272,7 @@ def _coerce_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "mandatory_remark",
             "block_withdrawal_with_open_positions",
             "block_duplicate_pending",
+            "require_bank_details",
         ):
             out[f] = bool(v) if v is not None else None
         elif f == "max_requests_per_day":

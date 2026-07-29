@@ -507,6 +507,17 @@ async def create_withdrawal(payload: WithdrawalCreate, user: CurrentUser):
             detail="Provide either a UPI ID or full bank details (account number + IFSC).",
         )
 
+    # Bank-required gate (admin-configurable, per-pool, default OFF). When the
+    # user's effective WITHDRAWAL rule turns `require_bank_details` on, full bank
+    # details are MANDATORY — a UPI ID alone won't do. `_wd_rule` resolved above.
+    if _wd_rule.get("require_bank_details") and not (
+        account_number and (b.get("ifsc") or "").strip()
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Bank details (account holder, account number + IFSC) are required for withdrawals.",
+        )
+
     snap = BankSnapshot(
         name=(b.get("name") or "").strip() or None,
         account_number=account_number or None,
@@ -696,6 +707,7 @@ async def my_wd_rules(user: CurrentUser):
                 "mandatory_remark",
                 "block_withdrawal_with_open_positions",
                 "block_duplicate_pending",
+                "require_bank_details",
             ):
                 out[k] = bool(v)
             else:
