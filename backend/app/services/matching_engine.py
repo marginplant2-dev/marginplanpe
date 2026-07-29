@@ -616,6 +616,88 @@ def _should_fill(order_type: OrderType, action: OrderAction, ltp: Decimal,
     return False
 
 
+async def _exit_order_fill_open_qty(order) -> float:
+    """For a per-fill SL/TP exit order, the still-open qty of the opening fill it
+    protects (FIFO over the token's trades). Returns -1 when `order` isn't such an
+    exit order (skip the guard), 0 when the fill is gone/already consumed."""
+    tid = getattr(order, "sl_tp_source_trade_id", None)
+    if tid is None:
+        return -1.0
+    from datetime import datetime as _d, timezone as _tz
+
+    from app.models.trade import Trade as _Trade
+
+    src = await _Trade.get(tid)
+    if src is None:
+        return 0.0
+    trades = await _Trade.find(
+        _Trade.user_id == order.user_id,
+        _Trade.instrument.token == order.instrument.token,
+    ).to_list()
+    is_long = str(getattr(src.action, "value", src.action)).upper() == "BUY"
+
+    def _aw(dt):
+        if dt is None:
+            return _d.min.replace(tzinfo=_tz.utc)
+        return dt if dt.tzinfo is not None else dt.replace(tzinfo=_tz.utc)
+
+    trades.sort(key=lambda tr: _aw(tr.executed_at))
+    fifo: list[list] = []
+    for tr in trades:
+        act = str(getattr(tr.action, "value", tr.action)).upper()
+        same = (is_long and act == "BUY") or (not is_long and act == "SELL")
+        if same:
+            fifo.append([str(tr.id), float(tr.quantity)])
+        else:
+            remain = float(tr.quantity)
+            for pair in fifo:
+                if remain <= 0:
+                    break
+                c = min(pair[1], remain)
+                pair[1] -= c
+                remain -= c
+    for _tid, lo in fifo:
+        if _tid == str(tid):
+            return max(0.0, lo)
+    return 0.0
+
+
+async def _cancel_exit_order(o, reason: str) -> None:
+    """Cancel a parked per-fill exit order in place. These are is_squareoff
+    closing orders with no blocked margin, so there's nothing to release."""
+    try:
+        o.status = OrderStatus.CANCELLED
+        if hasattr(o, "cancelled_at"):
+            o.cancelled_at = now_utc()
+        if hasattr(o, "close_reason") and not o.close_reason:
+            o.close_reason = reason
+        await o.save()
+    except Exception:  # noqa: BLE001
+        logger.exception("exit_order_cancel_failed", extra={"order_id": str(getattr(o, "id", None))})
+
+
+async def _cancel_oco_siblings(fired_order) -> None:
+    """After a per-fill SL/TP exit fires, cancel the OTHER leg (and any other
+    still-open orders) in its OCO group so the stop can't later fire on the
+    remaining book and close a DIFFERENT fill."""
+    grp = getattr(fired_order, "oco_group_id", None)
+    if not grp:
+        return
+    try:
+        sibs = await Order.find(
+            {
+                "oco_group_id": grp,
+                "status": {"$in": [OrderStatus.OPEN.value, OrderStatus.PARTIAL.value, OrderStatus.TRIGGERED.value]},
+            }
+        ).to_list()
+    except Exception:  # noqa: BLE001
+        return
+    for s in sibs:
+        if str(s.id) == str(fired_order.id):
+            continue
+        await _cancel_exit_order(s, "OCO_CANCELLED")
+
+
 async def trigger_pending_orders() -> int:
     """One pass over all OPEN/PARTIAL non-MARKET orders. Returns how many
     orders fired this pass. Logs but never raises — a single bad order
@@ -788,8 +870,31 @@ async def trigger_pending_orders() -> int:
                     "fill_at": str(fill_at),
                 },
             )
+            # Per-fill SL/TP exit guard: if the opening fill this exit protects
+            # is already gone (manually closed, or consumed by its sibling),
+            # firing would close a DIFFERENT fill's qty on the netted book —
+            # cancel it instead. -1 ⇒ not an exit order (normal fire). Fail-open
+            # on any error so a genuine stop still fires.
+            try:
+                _open_qty = await _exit_order_fill_open_qty(o)
+            except Exception:  # noqa: BLE001
+                _open_qty = -1.0
+            if _open_qty == 0.0:
+                await _cancel_exit_order(o, "SL_TP_FILL_GONE")
+                logger.info(
+                    "exit_order_cancelled_fill_gone",
+                    extra={"order_id": str(o.id), "symbol": o.instrument.symbol},
+                )
+                continue
+
             await execute_market_order(o, cached_ltp=ltp, expected_price=fill_at)
             triggered += 1
+            # OCO: this per-fill exit fired → cancel its paired stop/target so it
+            # can't later fire on the remaining book.
+            try:
+                await _cancel_oco_siblings(o)
+            except Exception:  # noqa: BLE001
+                logger.exception("oco_cancel_failed", extra={"order_id": str(o.id)})
         except Exception:
             logger.exception(
                 "pending_order_trigger_failed",

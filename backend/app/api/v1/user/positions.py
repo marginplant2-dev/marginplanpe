@@ -1154,6 +1154,31 @@ async def list_active_trades(user: CurrentUser):
                 remaining_qty[str(t.id)] = show
                 accum += show
 
+    # Per-fill SL/TP (pending-order model): map each opening fill → its parked
+    # exit orders' stop / target so the Active tab shows the SL/TP that belongs
+    # to THAT fill only, not the whole position's bracket.
+    from app.models.order import Order as _OrderM, OrderStatus as _OSM
+
+    _fill_sltp: dict[str, dict] = {}
+    try:
+        _exit_orders = await _OrderM.find(
+            {
+                "user_id": user.id,
+                "sl_tp_source_trade_id": {"$ne": None},
+                "status": {"$in": [_OSM.OPEN.value, _OSM.PARTIAL.value, _OSM.PENDING.value, _OSM.TRIGGERED.value]},
+            }
+        ).to_list()
+        for _eo in _exit_orders:
+            _k = str(_eo.sl_tp_source_trade_id)
+            _d = _fill_sltp.setdefault(_k, {"stop_loss": None, "target": None})
+            _ot = str(getattr(_eo.order_type, "value", _eo.order_type) or "").upper()
+            if _ot == "LIMIT":
+                _d["target"] = str(_eo.price) if _eo.price is not None else None
+            elif _ot in ("SL", "SL_M"):
+                _d["stop_loss"] = str(_eo.trigger_price) if _eo.trigger_price is not None else None
+    except Exception:  # noqa: BLE001
+        _fill_sltp = {}
+
     rows: list[dict[str, Any]] = []
     for t in trades:
         # Per-position attribution from the windowed-FIFO pass above.
@@ -1264,8 +1289,16 @@ async def list_active_trades(user: CurrentUser):
             "price": f"{price:.4f}" if is_usd else f"{price:.2f}",
             "avg_price": f"{avg_price:.4f}" if is_usd else f"{avg_price:.2f}",
             "ltp": f"{ltp:.4f}" if is_usd else f"{ltp:.2f}",
-            "stop_loss": str(p.stop_loss) if p.stop_loss is not None else None,
-            "target": str(p.target) if p.target is not None else None,
+            # Per-fill exit-order SL/TP wins; fall back to the position bracket
+            # (legacy / synthetic pos- rows that have no per-fill exit order).
+            "stop_loss": (
+                _fill_sltp.get(str(t.id), {}).get("stop_loss")
+                or (str(p.stop_loss) if p.stop_loss is not None else None)
+            ),
+            "target": (
+                _fill_sltp.get(str(t.id), {}).get("target")
+                or (str(p.target) if p.target is not None else None)
+            ),
             "pnl": f"{pnl_inr:.2f}",
             "brokerage": str(t.brokerage),
             # Per-fill margin (INR). `used_margin` = currently locked;
@@ -1714,6 +1747,107 @@ async def close_active_trade(trade_id: str, user: CurrentUser):
     )
 
 
+async def _fill_open_qty(user_id, t) -> float:
+    """Best-effort open (un-closed) qty of the opening fill `t`, via FIFO over
+    the token's trades. The exit order's fire-time guard re-checks anyway, so
+    an approximate value here is safe."""
+    from datetime import datetime as _d, timezone as _tz
+
+    trades = await Trade.find(
+        Trade.user_id == user_id, Trade.instrument.token == t.instrument.token
+    ).to_list()
+    is_long = t.action == OrderAction.BUY
+
+    def _aw(dt):
+        if dt is None:
+            return _d.min.replace(tzinfo=_tz.utc)
+        return dt if dt.tzinfo is not None else dt.replace(tzinfo=_tz.utc)
+
+    trades.sort(key=lambda tr: _aw(tr.executed_at))
+    fifo: list[list] = []
+    for tr in trades:
+        same = (is_long and tr.action == OrderAction.BUY) or (
+            not is_long and tr.action == OrderAction.SELL
+        )
+        if same:
+            fifo.append([str(tr.id), float(tr.quantity)])
+        else:
+            remain = float(tr.quantity)
+            for pair in fifo:
+                if remain <= 0:
+                    break
+                c = min(pair[1], remain)
+                pair[1] -= c
+                remain -= c
+    for tid, lo in fifo:
+        if tid == str(t.id):
+            return max(0.0, lo)
+    return 0.0
+
+
+async def _ensure_fill_sl_tp(user, p, t, sl_val, tp_val, set_sl: bool, set_tp: bool) -> None:
+    """Per-fill SL/TP as REAL pending exit orders (one per leg) that close ONLY
+    this fill's qty via cost_basis_override. Replaces the leg(s) the payload
+    addressed: cancels any existing exit order for that leg, then parks a fresh
+    LIMIT (target) / SL-M (stop) exit. Clears the position-level SL/TP so the
+    risk enforcer never double-fires the whole position."""
+    from app.models._base import OrderAction as _OA, OrderType as _OT
+    from app.models.order import Order, OrderStatus
+    from app.services import order_service as _os
+
+    exit_action = _OA.SELL if p.quantity > 0 else _OA.BUY
+    qty = await _fill_open_qty(user.id, t)
+    if qty <= 1e-9:
+        qty = abs(float(t.quantity))
+    lot_size = max(1, int(p.instrument.lot_size or 1))
+    lots = qty / lot_size if lot_size else qty
+    basis = float(str(t.price))
+    group = str(t.id)
+
+    existing = await Order.find(
+        Order.user_id == user.id,
+        Order.sl_tp_source_trade_id == t.id,
+        {"status": {"$in": [OrderStatus.OPEN.value, OrderStatus.PENDING.value, OrderStatus.TRIGGERED.value]}},
+    ).to_list()
+    for o in existing:
+        ot = str(getattr(o.order_type, "value", o.order_type) or "").upper()
+        is_tp_leg = ot == "LIMIT"
+        is_sl_leg = ot in ("SL", "SL_M")
+        if (is_tp_leg and set_tp) or (is_sl_leg and set_sl):
+            try:
+                await _os.cancel(user.id, str(o.id))
+            except Exception:  # noqa: BLE001
+                pass
+
+    base = {
+        "token": p.instrument.token,
+        "action": exit_action.value,
+        "product_type": str(getattr(p.product_type, "value", p.product_type)),
+        "lots": lots,
+        "force_quantity": qty,
+        "is_squareoff": True,
+        "cost_basis_override": str(basis),
+        "sl_tp_source_trade_id": str(t.id),
+        "oco_group_id": group,
+        "placed_from": "WEB",
+    }
+    if set_tp and tp_val is not None:
+        await _os.place_order(
+            user=user, payload={**base, "order_type": _OT.LIMIT.value, "price": tp_val}
+        )
+    if set_sl and sl_val is not None:
+        await _os.place_order(
+            user=user, payload={**base, "order_type": _OT.SL_M.value, "trigger_price": sl_val}
+        )
+
+    # Per-fill mode owns SL/TP now — drop any whole-position bracket so the
+    # risk enforcer can't ALSO fire it and double-close.
+    if p.stop_loss is not None or p.target is not None:
+        p.stop_loss = None
+        p.target = None
+        await p.save()
+
+
 @router.put("/active-trades/{trade_id}/sl-tp", response_model=APIResponse[dict])
 async def update_active_trade_sl_tp(trade_id: str, payload: dict, user: CurrentUser):
     """SL/TP lives at the position level (FIFO/avg accounting — we don't track
@@ -1729,6 +1863,7 @@ async def update_active_trade_sl_tp(trade_id: str, payload: dict, user: CurrentU
     from bson import Decimal128
 
     p: Position | None = None
+    t: Trade | None = None
     if trade_id.startswith("pos-"):
         # Synthetic row from list_active_trades — operate on the parent
         # position directly. The id payload after the prefix is the real
@@ -1791,6 +1926,32 @@ async def update_active_trade_sl_tp(trade_id: str, payload: dict, user: CurrentU
             raise HTTPException(status_code=400, detail="Stop Loss is disabled for this segment.")
         if _setting_tp and not _eff.get("tp_enabled", True):
             raise HTTPException(status_code=400, detail="Target (Take Profit) is disabled for this segment.")
+
+    # ── Per-fill SL/TP via pending exit orders ────────────────────────────
+    # A REAL fill gets its own exit order(s) that close ONLY its qty, so an
+    # SL/TP set on one lot no longer applies to every lot of the symbol. A
+    # synthetic `pos-` row has no backing fill, so it falls back to the
+    # whole-position bracket (the only meaningful target there).
+    def _to_f(v: Any) -> float | None:
+        if v in (None, "", 0, "0"):
+            return None
+        try:
+            return float(str(v))
+        except (TypeError, ValueError):
+            return None
+
+    if t is not None:
+        await _ensure_fill_sl_tp(
+            user,
+            p,
+            t,
+            sl_val=_to_f(payload.get("stop_loss")) if "stop_loss" in payload else None,
+            tp_val=_to_f(payload.get("target")) if "target" in payload else None,
+            set_sl="stop_loss" in payload,
+            set_tp="target" in payload,
+        )
+        _fresh = await Position.get(p.id)
+        return APIResponse(data=_pos(_fresh or p))
 
     if "stop_loss" in payload:
         sl = payload["stop_loss"]

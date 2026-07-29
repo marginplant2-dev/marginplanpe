@@ -133,6 +133,16 @@ class Order(TimestampMixin):
     # None on every other order → unchanged avg-price accounting everywhere else.
     cost_basis_override: Money | None = None
 
+    # Per-fill SL/TP (pending exit order). When a user attaches an SL or TP to a
+    # SINGLE active-trade fill, we park a real exit order (LIMIT for target, SL-M
+    # for stop) that closes ONLY that fill's qty (via cost_basis_override). These
+    # tie the exit order back to its source fill + pair the SL and TP as OCO.
+    #   • sl_tp_source_trade_id — the opening fill (Trade) this exit protects.
+    #   • oco_group_id — shared by the fill's SL and TP so one firing cancels the
+    #     other (and the poller self-cancels if the fill no longer has open qty).
+    sl_tp_source_trade_id: PydanticObjectId | None = None
+    oco_group_id: str | None = None
+
     applied_settings: AppliedSettings | None = None
 
     placed_by: PydanticObjectId  # user OR dealer who placed on behalf

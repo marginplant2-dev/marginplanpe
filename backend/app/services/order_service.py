@@ -456,6 +456,12 @@ async def place_order(
         cost_basis_override=(
             Decimal128(str(cost_basis_override)) if cost_basis_override is not None else None
         ),
+        sl_tp_source_trade_id=(
+            PydanticObjectId(str(payload["sl_tp_source_trade_id"]))
+            if payload.get("sl_tp_source_trade_id")
+            else None
+        ),
+        oco_group_id=(str(payload.get("oco_group_id")) if payload.get("oco_group_id") else None),
     )
     await order.insert()
     t = _mark("insert_order", t)
