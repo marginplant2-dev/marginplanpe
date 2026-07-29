@@ -687,7 +687,7 @@ async def _cancel_oco_siblings(fired_order) -> None:
         sibs = await Order.find(
             {
                 "oco_group_id": grp,
-                "status": {"$in": [OrderStatus.OPEN.value, OrderStatus.PARTIAL.value, OrderStatus.TRIGGERED.value]},
+                "status": {"$in": [OrderStatus.OPEN.value, OrderStatus.PARTIAL.value, OrderStatus.PENDING.value]},
             }
         ).to_list()
     except Exception:  # noqa: BLE001

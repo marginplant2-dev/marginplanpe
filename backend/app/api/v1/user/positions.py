@@ -1165,7 +1165,7 @@ async def list_active_trades(user: CurrentUser):
             {
                 "user_id": user.id,
                 "sl_tp_source_trade_id": {"$ne": None},
-                "status": {"$in": [_OSM.OPEN.value, _OSM.PARTIAL.value, _OSM.PENDING.value, _OSM.TRIGGERED.value]},
+                "status": {"$in": [_OSM.OPEN.value, _OSM.PARTIAL.value, _OSM.PENDING.value]},
             }
         ).to_list()
         for _eo in _exit_orders:
@@ -1807,7 +1807,7 @@ async def _ensure_fill_sl_tp(user, p, t, sl_val, tp_val, set_sl: bool, set_tp: b
     existing = await Order.find(
         Order.user_id == user.id,
         Order.sl_tp_source_trade_id == t.id,
-        {"status": {"$in": [OrderStatus.OPEN.value, OrderStatus.PENDING.value, OrderStatus.TRIGGERED.value]}},
+        {"status": {"$in": [OrderStatus.OPEN.value, OrderStatus.PENDING.value, OrderStatus.PARTIAL.value]}},
     ).to_list()
     for o in existing:
         ot = str(getattr(o.order_type, "value", o.order_type) or "").upper()
