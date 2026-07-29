@@ -1751,6 +1751,15 @@ class ZerodhaService:
         options: list[dict[str, Any]] = []
         expiry_set: set = set()
         ex_matches = 0
+        # Prefix-collision guard: some index names are a strict prefix of a
+        # DIFFERENT index. "SENSEX" is a prefix of "SENSEX50" (BSE Sensex 50,
+        # a separate index that trades ~24–25k). The symbol match below keys
+        # on "starts with und_key + a digit", and "SENSEX50…" satisfies that
+        # (the digit is the '5'), so the SENSEX chain used to swallow SENSEX50
+        # legs — dragging the ATM/spot proxy down to ~25k and hiding the real
+        # ~77k strikes. Reject any leg that actually belongs to a longer sibling.
+        _SIBLING_PREFIXES = {"SENSEX": ("SENSEX50",)}
+        _siblings = _SIBLING_PREFIXES.get(und_key, ())
         for inst in catalog:
             it = (inst.get("instrumentType") or "").upper()
             if it not in ("CE", "PE"):
@@ -1764,6 +1773,12 @@ class ZerodhaService:
                 and sym[len(und_key)].isdigit()
             )
             if not name_match and not sym_match:
+                continue
+            # Belongs to a longer sibling index (e.g. SENSEX50) → not this chain.
+            if _siblings and any(
+                sym.startswith(s) and len(sym) > len(s) and sym[len(s)].isdigit()
+                for s in _siblings
+            ):
                 continue
             exp_str = inst.get("expiry")
             exp_d = None
@@ -1868,9 +1883,19 @@ class ZerodhaService:
                         "$or": [{"name": und_key}, {"symbol": {"$regex": _pat}}],
                     }
                 ).to_list()
+                # Same sibling-prefix guard as the catalog scan: "SENSEX" also
+                # regex-matches "SENSEX50…" legs (BSE Sensex 50, a distinct
+                # ~25k index) — drop them so they don't pollute the SENSEX chain.
+                _siblings = {"SENSEX": ("SENSEX50",)}.get(und_key, ())
                 for d in docs:
                     ot = str(getattr(d.option_type, "value", d.option_type) or "").upper()
                     if ot not in ("CE", "PE"):
+                        continue
+                    _sym = (d.symbol or "").upper().replace(" ", "")
+                    if _siblings and any(
+                        _sym.startswith(s) and len(_sym) > len(s) and _sym[len(s)].isdigit()
+                        for s in _siblings
+                    ):
                         continue
                     exp_d = d.expiry
                     if hasattr(exp_d, "date"):  # datetime → date
