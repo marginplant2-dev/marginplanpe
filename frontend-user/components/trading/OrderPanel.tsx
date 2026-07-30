@@ -265,6 +265,11 @@ export function OrderPanel({ instrument, ltp, bid, ask, open, high, low, close, 
   const entryInsideRange =
     orderType !== "MARKET" &&
     (insideDayRange(Number(price)) || insideDayRange(Number(trigger)));
+
+  // "Pending orders blocked" (per-segment): this segment accepts only MARKET
+  // entries + exits, so a LIMIT / SL / SL-M order is refused server-side.
+  const pendingBlocked =
+    Boolean(effSettings?.block_pending_orders) && orderType !== "MARKET";
   // FX conversion has been disabled platform-wide — Infoway-fed prices
   // (crypto / forex / metals / energy / international equities) are now
   // treated as INR directly, so margin math runs against the raw feed
@@ -1346,7 +1351,13 @@ export function OrderPanel({ instrument, ltp, bid, ask, open, high, low, close, 
             )}
           </div>
         )}
-        {entryInsideRange && (
+        {pendingBlocked && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
+            Pending orders (LIMIT / SL) are blocked for this segment. Use a
+            Market order instead.
+          </div>
+        )}
+        {entryInsideRange && !pendingBlocked && (
           <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
             Price is inside today&apos;s range (₹{fmtPrice(dayLo)} – ₹{fmtPrice(dayHi)}).
             This segment only accepts a limit ABOVE the high or BELOW the low.
@@ -1357,7 +1368,7 @@ export function OrderPanel({ instrument, ltp, bid, ask, open, high, low, close, 
           variant={side === "BUY" ? "buy" : "sell"}
           className="h-11 w-full text-sm font-semibold"
           loading={submitting}
-          disabled={sidePriceMissing || circBlockedNow || entryInsideRange}
+          disabled={sidePriceMissing || circBlockedNow || entryInsideRange || pendingBlocked}
           onClick={submit}
         >
           {side} {fmtLots(lots)} {isCrypto || isForex ? "lots" : `lot${lots === 1 ? "" : "s"}`}

@@ -134,7 +134,17 @@ export const CATEGORY_FIELDS: Record<string, FieldDef[]> = {
     },
   ],
   limitPoint: [
-    { key: "limitAwayPercent", label: "Max % away from market", type: "number" },
+    {
+      // When Yes, this segment refuses parked/pending orders (LIMIT / SL /
+      // SL-M) — only market entries + exits go through. Default No.
+      key: "blockPendingOrders",
+      label: "Pending orders blocked",
+      type: "select",
+      options: [
+        { v: false, l: "No" },
+        { v: true, l: "Yes" },
+      ],
+    },
     {
       // Per-segment Stop-Loss toggle. Yes = users may attach an SL and the
       // risk enforcer auto-fires it. No = SL blocked for this segment (order

@@ -2224,6 +2224,7 @@ def _to_legacy_dict(
         "selling_overnight": bool(pick("allowOvernight", True)),
         "limit_percentage": float(pick("limitAwayPercent", 0.0) or 0.0),
         "limit_within_day_range": bool(pick("limitWithinDayRange", False) or False),
+        "block_pending_orders": bool(pick("blockPendingOrders", False) or False),
         # Per-segment bracket toggles. Default True so untouched segments
         # keep the historical "SL & TP always allowed" behaviour. When an
         # admin turns one OFF: the order validator + update-SL/TP endpoint

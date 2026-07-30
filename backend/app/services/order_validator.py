@@ -632,6 +632,21 @@ async def validate(
         _check_sl_tp("stop loss", bracket_ref, bracket_sl)
         _check_sl_tp("target", bracket_ref, bracket_tp)
 
+    # ── Block parked/pending orders for this segment ──────────────────
+    # When on, the segment accepts only MARKET entries + exits — every
+    # LIMIT / SL / SL-M (parked) order is refused. Square-off is exempt so a
+    # position can always be closed.
+    if (
+        s.get("block_pending_orders")
+        and order_type != OrderType.MARKET
+        and not is_squareoff
+    ):
+        raise OrderRejectedError(
+            "Pending orders (LIMIT / SL) are blocked for this segment. "
+            "Only market orders are accepted here.",
+            code="PENDING_ORDERS_BLOCKED",
+        )
+
     # ── Block a parked LIMIT/SL resting INSIDE today's traded range ────
     # When on, a parked order must sit ABOVE the day high or BELOW the day
     # low — never between (a level the instrument already traded through, so

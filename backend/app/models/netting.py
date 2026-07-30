@@ -191,6 +191,9 @@ class NettingFieldsBase(BaseModel):
     # range (between session high & low). NULL = inherit. Independent of
     # limitAwayPercent (a % band around the current price) — both apply.
     limitWithinDayRange: bool | None = None
+    # When True, this segment does NOT accept parked/pending orders at all
+    # (LIMIT / SL / SL-M) — only MARKET entries and exits. NULL = inherit.
+    blockPendingOrders: bool | None = None
     # Per-segment enable/disable for bracket Stop-Loss and Take-Profit.
     # NULL = inherit from the layer below (segment default is True). When
     # False the segment does NOT allow users to attach an SL / TP and the
@@ -276,6 +279,9 @@ class NettingFieldsRequired(BaseModel):
     # Block a parked LIMIT/SL order from resting inside the day's traded
     # range. Default OFF — nothing changes until an admin turns it on.
     limitWithinDayRange: bool = False
+    # Block parked/pending orders (LIMIT / SL / SL-M) for this segment —
+    # only MARKET entries + exits allowed. Default OFF.
+    blockPendingOrders: bool = False
     # SL / TP allowed by default on every segment — preserves the existing
     # behaviour until an admin explicitly turns one off for a segment.
     slEnabled: bool = True

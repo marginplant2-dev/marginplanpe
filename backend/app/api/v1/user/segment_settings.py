@@ -220,6 +220,7 @@ async def get_effective_for_instrument(
         # Risk gates
         "limit_percentage": s.get("limit_percentage"),
         "limit_within_day_range": s.get("limit_within_day_range"),
+        "block_pending_orders": s.get("block_pending_orders"),
         "stop_loss_mandatory": s.get("stop_loss_mandatory"),
         # Per-segment bracket toggles — let the OrderPanel hide / disable
         # the SL / TP inputs when the admin has turned a leg off for this
