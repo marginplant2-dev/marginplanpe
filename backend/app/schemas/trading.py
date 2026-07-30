@@ -14,6 +14,12 @@ class PlaceOrderRequest(BaseModel):
     order_type: str  # MARKET / LIMIT / SL / SL_M
     product_type: str  # MIS / CNC / NRML
     lots: float = Field(ge=0.001, le=100000)  # fractional for crypto/forex
+    # Exact contract quantity, used when the client's order panel is in
+    # QTY (units) mode. When > 0 it wins over `lots × lot_size` in
+    # order_service so a typed "1 qty" is stored verbatim instead of being
+    # round-tripped qty→lots→qty (1/30 × 30 = 0.99). Validation still runs
+    # on the derived lots, so it can't bypass min-lot / margin / max caps.
+    force_quantity: float | None = Field(default=None, ge=0, le=1_000_000_000)
     price: float | None = 0
     trigger_price: float | None = 0
     validity: str = "DAY"

@@ -517,20 +517,33 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
     // result locally; the order body below also uses this local so a
     // typed 0.1 lot can't be silently replaced by the stale 1.
     let lotsToUse = lots;
+    // Exact contract quantity when the trader is in QTY (units) mode. We
+    // preserve it verbatim instead of round-tripping qty→lots→qty, which
+    // lost precision: 1 qty on a 30-unit lot became 1/30→0.033→0.99. When
+    // set it's sent as `force_quantity` so the backend stores the exact
+    // number and derives lots itself. Null in LOTS mode (lots is clean).
+    let qtyOverride: number | null = null;
     {
       const pending = Number(lotInput);
       if (Number.isFinite(pending) && pending > 0) {
-        const asLots = unit === "LOTS" ? pending : pending / lotSize;
-        const rounded = +asLots.toFixed(3);
-        // DO NOT silently clamp to maxLotPerOrder here — the admin's
-        // per-order cap must be surfaced as a clear rejection toast
-        // (next block below), not as a silent reduction of the user's
-        // typed quantity. Without this fix, typing 10 lots when the
-        // admin cap is 5 used to silently submit 5 — the user thought
-        // their full 10-lot order had been split / executed, when
-        // really the platform had quietly truncated the request.
-        lotsToUse = rounded;
-        if (rounded !== lots) setLots(rounded);
+        if (unit === "QTY") {
+          qtyOverride = +pending.toFixed(3);
+          // Full precision — do NOT round to 3dp here or lots × lot_size
+          // stops round-tripping to the typed qty.
+          lotsToUse = lotSize > 0 ? pending / lotSize : pending;
+        } else {
+          // DO NOT silently clamp to maxLotPerOrder here — the admin's
+          // per-order cap must be surfaced as a clear rejection toast
+          // (next block below), not as a silent reduction of the user's
+          // typed quantity. Without this, typing 10 lots when the admin
+          // cap is 5 used to silently submit 5.
+          lotsToUse = +pending.toFixed(3);
+        }
+        if (lotsToUse !== lots) setLots(lotsToUse);
+      } else if (unit === "QTY") {
+        // No fresh input in the box (stepper-only change) — pin the
+        // committed qty so it's still sent exactly.
+        qtyOverride = +(lots * lotSize).toFixed(3);
       }
     }
     if (!lotsToUse || lotsToUse < minLot) {
@@ -620,7 +633,11 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
     // entry/exit and ₹0 P&L (the "buy-sell same price" reports).
     const actionQuote = action === "BUY" ? buyPrice : sellPrice;
     const fillPrice = orderType === "MARKET" ? actionQuote : Number(limitPrice || ltp) || ltp;
-    const signedQty = (action === "BUY" ? 1 : -1) * lotsToUse * lotSize;
+    // Exact quantity: the typed qty in QTY mode, else lots × lot_size
+    // (rounded to strip float dust). Drives the optimistic rows so the
+    // instant UI shows exactly what the trader entered, not 0.99.
+    const absQty = qtyOverride != null ? qtyOverride : +(lotsToUse * lotSize).toFixed(3);
+    const signedQty = (action === "BUY" ? 1 : -1) * absQty;
     const isImmediate = orderType === "MARKET";
 
     if (isImmediate) {
@@ -745,9 +762,9 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
             product_type: productType,
             validity: "DAY",
             lots: lotsToUse,
-            quantity: lotsToUse * lotSize,
+            quantity: absQty,
             filled_quantity: 0,
-            pending_quantity: lotsToUse * lotSize,
+            pending_quantity: absQty,
             price: String(limitPriceNum),
             trigger_price: "0",
             average_price: "0",
@@ -784,6 +801,9 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
       trigger_price: 0,
       validity: "DAY",
       is_amo: false,
+      // In QTY mode send the exact typed quantity; the backend stores it
+      // verbatim and derives lots, preventing the 1 → 0.99 rounding.
+      force_quantity: qtyOverride ?? undefined,
       stop_loss: slTpEnabled && Number(stopLoss) > 0 ? Number(stopLoss) : null,
       target: slTpEnabled && Number(target) > 0 ? Number(target) : null,
       expected_price: orderType === "MARKET" ? actionQuote : null,
@@ -834,8 +854,11 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
       });
   }
 
-  // Qty ↔ Lots conversion. Stepper always stores `lots`.
-  const qty = lots * lotSize;
+  // Qty ↔ Lots conversion. Stepper always stores `lots`. Round to 3dp to
+  // strip float dust so QTY mode shows a clean integer — with full-precision
+  // lots from a QTY entry, 1/30 × 30 = 0.9999999… must render as "1", not
+  // "0.99" / "0.9999999".
+  const qty = +(lots * lotSize).toFixed(3);
   const displayValue = unit === "LOTS" ? fmtLots(lots) : String(qty);
   function bumpLots(delta: number) {
     const next = +(lots + delta).toFixed(3);
@@ -876,9 +899,11 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
       setLotInput(fmtLots(minLot));
       return;
     }
+    // LOTS mode: round to clean 3dp lot granularity. QTY mode: keep FULL
+    // precision so qty = lots × lot_size renders back as the exact integer
+    // the trader typed (1/30 × 30 → 1, not 0.99).
     const asLots = unit === "LOTS" ? n : n / lotSize;
-    const rounded = +asLots.toFixed(3);
-    setLots(rounded);
+    setLots(unit === "LOTS" ? +asLots.toFixed(3) : asLots);
   }
 
   return (
