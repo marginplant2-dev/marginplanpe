@@ -187,6 +187,10 @@ class NettingFieldsBase(BaseModel):
     chargeOn: Literal["open", "close", "both"] | None = None
     # Limit away
     limitAwayPercent: float | None = None
+    # Block a parked LIMIT/SL order from resting INSIDE the day's traded
+    # range (between session high & low). NULL = inherit. Independent of
+    # limitAwayPercent (a % band around the current price) — both apply.
+    limitWithinDayRange: bool | None = None
     # Per-segment enable/disable for bracket Stop-Loss and Take-Profit.
     # NULL = inherit from the layer below (segment default is True). When
     # False the segment does NOT allow users to attach an SL / TP and the
@@ -269,6 +273,9 @@ class NettingFieldsRequired(BaseModel):
     chargeOn: Literal["open", "close", "both"] = "both"
     # Limit away
     limitAwayPercent: float = 10.0
+    # Block a parked LIMIT/SL order from resting inside the day's traded
+    # range. Default OFF — nothing changes until an admin turns it on.
+    limitWithinDayRange: bool = False
     # SL / TP allowed by default on every segment — preserves the existing
     # behaviour until an admin explicitly turns one off for a segment.
     slEnabled: bool = True

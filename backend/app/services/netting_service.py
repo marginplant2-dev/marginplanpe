@@ -2211,6 +2211,7 @@ def _to_legacy_dict(
         "holding_lot_limit": float(pick("maxExchangeLots", 0.0) or 0.0) if lot_applies else 0.0,
         "selling_overnight": bool(pick("allowOvernight", True)),
         "limit_percentage": float(pick("limitAwayPercent", 0.0) or 0.0),
+        "limit_within_day_range": bool(pick("limitWithinDayRange", False) or False),
         # Per-segment bracket toggles. Default True so untouched segments
         # keep the historical "SL & TP always allowed" behaviour. When an
         # admin turns one OFF: the order validator + update-SL/TP endpoint

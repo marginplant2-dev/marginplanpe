@@ -252,6 +252,19 @@ export function OrderPanel({ instrument, ltp, bid, ask, open, high, low, close, 
             ? 0.05
             : 1.0;
   const serverLeverage = Number(effSettings?.leverage ?? 1) || 1;
+
+  // "Block limit inside day High/Low" (per-segment). A parked LIMIT/SL must
+  // rest ABOVE the day high or BELOW the day low, never between. The server
+  // already refuses these (INSIDE_DAY_RANGE) — this just lets the trader see
+  // why before sending. MARKET is exempt; an unknown range stands aside.
+  const dayRangeOn = Boolean(effSettings?.limit_within_day_range);
+  const dayHi = Number(high ?? 0);
+  const dayLo = Number(low ?? 0);
+  const dayRangeKnown = dayRangeOn && dayHi > 0 && dayLo > 0 && dayHi >= dayLo;
+  const insideDayRange = (v: number) => dayRangeKnown && v > 0 && v >= dayLo && v <= dayHi;
+  const entryInsideRange =
+    orderType !== "MARKET" &&
+    (insideDayRange(Number(price)) || insideDayRange(Number(trigger)));
   // FX conversion has been disabled platform-wide — Infoway-fed prices
   // (crypto / forex / metals / energy / international equities) are now
   // treated as INR directly, so margin math runs against the raw feed
@@ -1333,12 +1346,18 @@ export function OrderPanel({ instrument, ltp, bid, ask, open, high, low, close, 
             )}
           </div>
         )}
+        {entryInsideRange && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
+            Price is inside today&apos;s range (₹{fmtPrice(dayLo)} – ₹{fmtPrice(dayHi)}).
+            This segment only accepts a limit ABOVE the high or BELOW the low.
+          </div>
+        )}
         <Button
           type="button"
           variant={side === "BUY" ? "buy" : "sell"}
           className="h-11 w-full text-sm font-semibold"
           loading={submitting}
-          disabled={sidePriceMissing || circBlockedNow}
+          disabled={sidePriceMissing || circBlockedNow || entryInsideRange}
           onClick={submit}
         >
           {side} {fmtLots(lots)} {isCrypto || isForex ? "lots" : `lot${lots === 1 ? "" : "s"}`}

@@ -158,6 +158,18 @@ export const CATEGORY_FIELDS: Record<string, FieldDef[]> = {
         { v: false, l: "No" },
       ],
     },
+    {
+      // Block a parked LIMIT/SL order from resting INSIDE the day's traded
+      // range (between session high & low). Independent of "Max % away".
+      // Default No — nothing changes until an admin turns it on.
+      key: "limitWithinDayRange",
+      label: "Block limit inside day High/Low",
+      type: "select",
+      options: [
+        { v: false, l: "No" },
+        { v: true, l: "Yes" },
+      ],
+    },
   ],
   spread: [
     {

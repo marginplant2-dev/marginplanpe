@@ -632,6 +632,38 @@ async def validate(
         _check_sl_tp("stop loss", bracket_ref, bracket_sl)
         _check_sl_tp("target", bracket_ref, bracket_tp)
 
+    # ── Block a parked LIMIT/SL resting INSIDE today's traded range ────
+    # When on, a parked order must sit ABOVE the day high or BELOW the day
+    # low — never between (a level the instrument already traded through, so
+    # it fills on the next wobble rather than a real move). Independent of
+    # limitAwayPercent (a % band around the current price) — both apply.
+    # Exemptions are deliberate: a MARKET order fills at the touch; a
+    # square-off must always be able to exit (else the stop-out hot-loops
+    # retrying a blocked order); and an unknown range (pre-open / no OHLC)
+    # stands aside rather than refusing everything.
+    if (
+        s.get("limit_within_day_range")
+        and order_type != OrderType.MARKET
+        and not is_squareoff
+    ):
+        try:
+            _dq = await market_data_service.get_quote(instrument.token)
+            _hi_raw, _lo_raw = _dq.get("high"), _dq.get("low")
+            _hi = to_decimal(_hi_raw) if _hi_raw not in (None, 0, "0") else None
+            _lo = to_decimal(_lo_raw) if _lo_raw not in (None, 0, "0") else None
+        except Exception:  # noqa: BLE001
+            _hi = _lo = None
+        if _hi and _lo and _hi > 0 and _lo > 0 and _hi >= _lo:
+            for _name, _cand in (("Limit price", price), ("Trigger price", trigger_price)):
+                if _cand is None or _cand <= 0:
+                    continue
+                if _lo <= _cand <= _hi:
+                    raise OrderRejectedError(
+                        f"{_name} ₹{_cand} is inside today's range (₹{_lo} – ₹{_hi}). "
+                        f"This segment only accepts orders above the high or below the low.",
+                        code="INSIDE_DAY_RANGE",
+                    )
+
     # ── Per-segment SL / TP enable gate ───────────────────────────────
     # Admin can turn OFF SL and/or TP for a segment (Limit away → SL/TP
     # on-off). Reject an order that tries to attach the disabled leg so a
