@@ -2192,17 +2192,14 @@ def _to_legacy_dict(
     lot_applies = getattr(seg, "lotApplies", True)
     qty_applies = getattr(seg, "qtyApplies", False)
 
-    # F&O (options / futures) trade in WHOLE lots. A fractional min-lot — e.g.
-    # a stray 0.01 override left by the NSE F&O segment split — would let a user
-    # place a sub-1-lot option/future order (admin-reported "min 1 lot ignored").
-    # Floor the effective min-lot to 1 for option/future segments; FOREX/CRYPTO
-    # (which legitimately allow 0.01 / 0.001) keep their fractional min.
-    _is_fno_lot = bool(
-        getattr(seg, "optionApplies", False) or getattr(seg, "futureApplies", False)
-    )
-    _min_lot = float(pick("minLots", 1.0) or 1.0) if lot_applies else 0.0
-    if _is_fno_lot and _min_lot < 1.0:
-        _min_lot = 1.0
+    # Min-lot is whatever the admin resolved for the segment (per-user → script
+    # → broker → admin → super-admin → global). We do NOT floor it: this is a
+    # B-book, so an admin may deliberately allow a fractional lot (e.g. MCX FUT
+    # min 0.1). The earlier stray-0.01 problem from the NSE F&O segment split is
+    # handled by the one-shot data cleanup (scripts/fix_fno_min_lot), not by
+    # overriding the admin's explicit choice here. Falls back to 1.0 only when
+    # the value is genuinely unset (0 / None).
+    _min_lot = float(pick("minLots", 1.0) if pick("minLots", 1.0) else 1.0) if lot_applies else 0.0
 
     return {
         # legacy 22-field shape (and a few netting-only extras)
