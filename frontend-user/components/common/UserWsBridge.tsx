@@ -157,6 +157,28 @@ export function UserWsBridge() {
           case "wallet_update":
             qc.invalidateQueries({ queryKey: ["wallet"] });
             break;
+          case "stop_out_warning": {
+            // Risk enforcer pings this when floating loss crosses the admin's
+            // "Stop-out warning" % of wallet balance (once per crossing). The
+            // switch previously had NO case for it, so the ping was silently
+            // dropped and the user never saw the margin warning. Show a loud
+            // in-app toast + OS notification so they can add funds / reduce
+            // risk before the auto square-off at the stop-out %.
+            const p = (msg as any).payload || msg || {};
+            const lossPct = Number(p.loss_pct ?? 0);
+            const thr = Number(p.threshold_pct ?? 0);
+            const title = "⚠️ Margin warning";
+            const body =
+              `Floating loss is ${lossPct.toFixed(1)}% of your balance` +
+              (thr > 0 ? ` (warning at ${thr.toFixed(0)}%)` : "") +
+              `. Add funds or reduce positions to avoid auto square-off.`;
+            toast.warning(title, { description: body, duration: 10000 });
+            if (userNotificationsEnabled()) {
+              playNotifyPing();
+              showNativeNotification(title, body, { tag: "mp-risk-warning" });
+            }
+            break;
+          }
           case "wallet":
             // Backend `_publish_wallet_event` uses type="wallet" (not
             // "wallet_update") and ships a {reason, amount, balance_after}

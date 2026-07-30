@@ -400,7 +400,7 @@ class UserChannelHub(_BaseHub):
     # clients. Adding it is purely additive: existing topics behave
     # identically, and new clients listening for ``marketwatch`` now
     # actually receive the event.
-    _ALLOWED_TOPICS = frozenset({"positions", "orders", "wallet", "kyc", "marketwatch"})
+    _ALLOWED_TOPICS = frozenset({"positions", "orders", "wallet", "kyc", "marketwatch", "risk"})
 
     async def _do_subscribe(self, ps: Any) -> None:
         await ps.psubscribe("user:*")
