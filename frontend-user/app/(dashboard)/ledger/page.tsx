@@ -150,7 +150,7 @@ function LedgerRowView({ row }: { row: LedgerRow }) {
       )}
     >
       <td className="whitespace-nowrap px-3 py-2 font-tabular text-xs text-muted-foreground">
-        {new Date(row.date).toLocaleString()}
+        {new Date(row.date).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })}{" "}IST
       </td>
       <td className="px-3 py-2">
         <CategoryPill label={row.label} isSettlement={isSettlement} />
@@ -195,7 +195,7 @@ function LedgerCardMobile({ row }: { row: LedgerRow }) {
       <div className="flex items-center justify-between gap-2">
         <CategoryPill label={row.label} isSettlement={isSettlement} />
         <span className="shrink-0 font-tabular text-[10px] text-muted-foreground">
-          {new Date(row.date).toLocaleString()}
+          {new Date(row.date).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })}{" "}IST
         </span>
       </div>
 

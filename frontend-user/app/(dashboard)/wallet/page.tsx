@@ -99,7 +99,9 @@ export default function WalletPage() {
   });
   const { data: txns } = useQuery({
     queryKey: ["wallet-txns"],
-    queryFn: () => WalletAPI.transactions(50),
+    // 200 (not 50) so a heavy trader's recent deposits still fall inside
+    // the window alongside all the trade P&L / charge rows now shown.
+    queryFn: () => WalletAPI.transactions(200),
     refetchInterval: 5000,
   });
   const { data: deposits } = useQuery({
@@ -793,7 +795,19 @@ export default function WalletPage() {
  * on the right. Filter chips (All / Deposits / Withdrawals) work on
  * both layouts.
  */
-type FeedKind = "deposit" | "withdrawal" | "admin_add" | "admin_deduct";
+type FeedKind =
+  | "deposit"
+  | "withdrawal"
+  | "admin_add"
+  | "admin_deduct"
+  | "pnl_in"
+  | "pnl_out"
+  | "charge"
+  | "shortfall";
+
+// Which kinds ADD money (green / "in"). Single source of truth so the
+// filter chips and the row colour never drift apart.
+const IN_KINDS = new Set<FeedKind>(["deposit", "admin_add", "pnl_in"]);
 type FeedRow = {
   id: string;
   kind: FeedKind;
@@ -821,8 +835,12 @@ function TransactionsFeed({
   const rows: FeedRow[] = (() => {
     const out: FeedRow[] = [];
 
-    // 1) Ledger txns — DEPOSIT / WITHDRAWAL / ADJUSTMENT. Anything
-    //    else (brokerage, settlement, pnl) is ignored on this page.
+    // 1) Ledger txns — the FULL money story so the timeline is never
+    //    ambiguous: deposits, trade P&L (incl. stop-out losses),
+    //    brokerage/charges and any stop-out shortfall, each with its own
+    //    IST timestamp + running balance. Hiding P&L/charges was exactly
+    //    what made users think "I deposited, so how did I get liquidated" —
+    //    they couldn't see the loss that hit *before* their top-up.
     for (const t of txns) {
       const tt = String(t?.transaction_type ?? "").toUpperCase();
       const amt = Number(t?.amount ?? 0);
@@ -838,6 +856,18 @@ function TransactionsFeed({
       } else if (tt === "ADJUSTMENT") {
         kind = amt >= 0 ? "admin_add" : "admin_deduct";
         if (!narration) narration = amt >= 0 ? "Admin credited funds" : "Admin debited funds";
+      } else if (tt === "PNL") {
+        kind = amt >= 0 ? "pnl_in" : "pnl_out";
+        if (!narration) narration = amt >= 0 ? "Trade profit" : "Trade loss";
+      } else if (tt === "CHARGES") {
+        kind = "charge";
+        if (!narration) narration = "Brokerage & charges";
+      } else if (tt === "SETTLEMENT_OUTSTANDING_BOOKED") {
+        kind = "shortfall";
+        if (!narration) narration = "Loss exceeded your balance — recorded as outstanding (owed)";
+      } else if (tt === "SETTLEMENT_OUTSTANDING_RECOVERY") {
+        kind = "charge";
+        if (!narration) narration = "Outstanding recovered from deposit";
       }
       if (!kind) continue;
       out.push({
@@ -899,8 +929,8 @@ function TransactionsFeed({
 
   const filtered = rows.filter((r) => {
     if (filter === "all") return true;
-    if (filter === "in") return r.kind === "deposit" || r.kind === "admin_add";
-    return r.kind === "withdrawal" || r.kind === "admin_deduct";
+    if (filter === "in") return IN_KINDS.has(r.kind);
+    return !IN_KINDS.has(r.kind);
   });
 
   return (
@@ -910,7 +940,7 @@ function TransactionsFeed({
         <div>
           <h2 className="text-base font-semibold">Transactions</h2>
           <p className="mt-0.5 text-[11px] text-muted-foreground">
-            Every deposit, withdrawal and admin adjustment on your wallet.
+            Every deposit, trade P&amp;L, brokerage, withdrawal and adjustment — in order, with time.
           </p>
         </div>
         <div className="flex gap-1.5">
@@ -961,7 +991,7 @@ function TransactionsFeed({
 function FeedRowItem({ row }: { row: FeedRow }) {
   const qc = useQueryClient();
   const [deleting, setDeleting] = useState(false);
-  const isIn = row.kind === "deposit" || row.kind === "admin_add";
+  const isIn = IN_KINDS.has(row.kind);
   const Icon = isIn ? ArrowDownToLine : ArrowUpToLine;
 
   // Only a still-PENDING request carries `reqId` and can be withdrawn by the
@@ -995,6 +1025,10 @@ function FeedRowItem({ row }: { row: FeedRow }) {
     withdrawal: "Withdrawal",
     admin_add: "Admin credit",
     admin_deduct: "Admin debit",
+    pnl_in: "Trade profit",
+    pnl_out: "Trade loss",
+    charge: "Brokerage & charges",
+    shortfall: "Stop-out shortfall",
   };
 
   const statusPill = (() => {
@@ -1038,7 +1072,11 @@ function FeedRowItem({ row }: { row: FeedRow }) {
             year: "numeric",
             hour: "2-digit",
             minute: "2-digit",
-          })}
+            // Force IST so the timestamp never shifts with the device
+            // timezone — the whole point is an unambiguous timeline.
+            timeZone: "Asia/Kolkata",
+          })}{" "}
+          IST
         </div>
       </div>
 
