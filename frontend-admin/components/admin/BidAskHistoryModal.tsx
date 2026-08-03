@@ -49,20 +49,29 @@ function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-// ISO string → value for <input type="datetime-local"> (LOCAL time parts).
+// Snapshots are stored in UTC and this is an India-markets app, so the whole
+// modal works in IST explicitly — NEVER the viewer's device timezone. Relying
+// on device time made a phone/emulator set to UTC send a window shifted +5:30,
+// so the query looked 5.5 h ahead of the real ticks → "No recorded rates"
+// even though the data existed (the reported bug).
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+// UTC ISO → "YYYY-MM-DDThh:mm" wall-clock in IST for <input type="datetime-local">.
 function isoToLocalInput(iso?: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
-    d.getHours(),
-  )}:${pad(d.getMinutes())}`;
+  const ist = new Date(d.getTime() + IST_OFFSET_MS); // read UTC parts = IST wall-clock
+  return `${ist.getUTCFullYear()}-${pad(ist.getUTCMonth() + 1)}-${pad(ist.getUTCDate())}T${pad(
+    ist.getUTCHours(),
+  )}:${pad(ist.getUTCMinutes())}`;
 }
 
-// <input type="datetime-local"> local value → ISO (UTC) for the API.
+// IST wall-clock from <input type="datetime-local"> → UTC ISO for the API.
 function localInputToIso(v: string): string | undefined {
   if (!v) return undefined;
-  const d = new Date(v);
+  const withSecs = v.length === 16 ? `${v}:00` : v; // datetime-local omits seconds
+  const d = new Date(`${withSecs}+05:30`); // interpret AS IST, not device-local
   return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
 }
 
@@ -73,11 +82,13 @@ function fmtRowTime(iso: string): string {
     day: "2-digit",
     month: "short",
     year: "numeric",
+    timeZone: "Asia/Kolkata",
   });
   const time = d.toLocaleTimeString("en-IN", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: true,
+    timeZone: "Asia/Kolkata",
   });
   return `${date}, ${time}`;
 }
