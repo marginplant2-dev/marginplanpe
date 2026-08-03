@@ -427,29 +427,15 @@ async def tradebook_full_pdf(
         tx_q["created_at"] = q_time
     money_txs = await WalletTransaction.find(tx_q).sort("+created_at").to_list()
 
-    closed_rows: list[dict[str, Any]] = []
-    sum_brokerage = 0.0
+    # Closed rows come from the SAME FIFO reconstruction the app's Closed tab
+    # renders, so the PDF matches the Closed tab entry-by-entry (FIFO entry
+    # price → close price → gross P&L) — not the netted-average pnl_inr, which
+    # attributed per-row P&L differently and never lined up with the Closed tab.
+    from app.services.tradebook_builder import fifo_closed_rows
 
-    for t in trades:
-        pnl = _d128(t.pnl_inr) if t.pnl_inr else 0.0
-        brokerage = _d128(t.brokerage)
-        trade_price = _d128(t.price)
-        sum_brokerage += brokerage
-        closed_rows.append({
-            "time": _fmt_dt(t.executed_at),
-            "type": "Close",
-            "ticket_id": t.trade_number,
-            "script": t.instrument.symbol,
-            "amount": f"{t.quantity:,.2f}",
-            "type_detail": t.action.value,
-            "open_price": f"{trade_price:,.2f}",
-            "close_price": f"{trade_price:,.2f}",
-            "dp_wd_aj": "",
-            "brokerage": brokerage,
-            "commission": _d128(t.total_charges),
-            "total_pnl": pnl,
-            "comment": "",
-        })
+    closed_rows, _fifo_net_pnl, sum_brokerage = await fifo_closed_rows(
+        uid, from_date, to_date
+    )
 
     for tx in money_txs:
         amt = _d128(tx.amount)
