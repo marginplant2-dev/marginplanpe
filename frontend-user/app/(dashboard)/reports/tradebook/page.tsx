@@ -1,15 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { ReportPdfButton } from "@/components/common/ReportPdfButton";
 import { DateRangeBar, toIsoFrom, toIsoTo, type DateRange } from "@/components/common/DateRangeBar";
 import { Card } from "@/components/ui/card";
 
 // Reports = ONE deliverable: pick a date range and download the tradebook.
-// The operator removed every other report section (P&L / Brokerage / Margin)
-// and the on-page trade list/table/pagination — this page is intentionally
-// just the range picker + the download buttons, identical on mobile and web.
+// A SINGLE "Full Tradebook" download. Its net P&L is the canonical
+// Σ Trade.pnl_inr — byte-for-byte the same figure as the /pnl report AND the
+// admin-side download (both call build_full_tradebook_pdf). The old
+// "Simple PDF" was removed on purpose: it listed raw trades and derived its
+// total from sell−buy value, so its P&L never matched the canonical number —
+// the "tradebook aur pdf alag P&L" bug.
 export default function TradebookPage() {
   const [range, setRange] = useState<DateRange>(() => {
     const to = new Date();
@@ -19,14 +22,6 @@ export default function TradebookPage() {
       `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     return { from: iso(from), to: iso(to) };
   });
-
-  // limit=2000 (the endpoint's max) so the Simple PDF never truncates to the
-  // server default of 500 rows now that the on-screen table (which used to send
-  // limit) is gone. Full Tradebook fetches its own rows and needs no limit.
-  const params = useMemo(
-    () => ({ from_date: toIsoFrom(range.from), to_date: toIsoTo(range.to), limit: 2000 }),
-    [range],
-  );
 
   return (
     <div className="space-y-4">
@@ -43,8 +38,7 @@ export default function TradebookPage() {
         <div className="mt-1 text-xs text-muted-foreground">
           For the selected period ({range.from} → {range.to}).
         </div>
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-          <ReportPdfButton kind="tradebook" params={{ ...params }} label="Simple PDF" />
+        <div className="mt-3">
           <ReportPdfButton
             kind="tradebook/full"
             params={{ from_date: toIsoFrom(range.from), to_date: toIsoTo(range.to) }}
