@@ -14,7 +14,9 @@ import {
   Upload,
   MessageCircle,
   Camera,
+  Bitcoin,
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { WalletAPI } from "@/lib/api";
 import { API_URL } from "@/lib/constants";
 import { useAuthStore } from "@/stores/authStore";
@@ -180,6 +182,20 @@ export function AddFundsWizard({
   // banks; the user picks the one they actually transfer to so the deposit
   // request references the correct account. Defaults to the default/first.
   const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
+  // Crypto: only offered when the user's admin enabled it (null → hidden, so
+  // the INR flow stays exactly as-is for everyone else).
+  const [chooseMethod, setChooseMethod] = useState(false);
+  const [cryptoMode, setCryptoMode] = useState(false);
+  const [cryptoTx, setCryptoTx] = useState("");
+  const { data: cryptoCfg } = useQuery({
+    queryKey: ["wallet-crypto-config"],
+    queryFn: () => WalletAPI.cryptoConfig(),
+    staleTime: 60_000,
+  });
+  const cryptoManual = cryptoCfg?.manual as
+    | { wallet_address: string; network?: string; asset?: string }
+    | undefined;
+  const cryptoAvailable = !!cryptoCfg && (!!cryptoManual || !!cryptoCfg?.gateway);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const support = useSupportContacts();
@@ -292,6 +308,40 @@ export function AddFundsWizard({
     }
   }
 
+  async function submitCrypto() {
+    if (amount < minAmount) return toast.error(`Minimum deposit is ${formatINR(minAmount)}`);
+    if (!cryptoTx.trim() && !screenshotUrl)
+      return toast.error("Enter the transaction hash or upload a screenshot");
+    if (submitting) return;
+    if (!idemRef.current) {
+      idemRef.current =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+    setSubmitting(true);
+    try {
+      await WalletAPI.createDeposit({
+        amount,
+        payment_mode: "CRYPTO",
+        screenshot_url: screenshotUrl || undefined,
+        crypto_asset: cryptoManual?.asset,
+        crypto_network: cryptoManual?.network,
+        crypto_address: cryptoManual?.wallet_address,
+        crypto_tx_hash: cryptoTx.trim(),
+        idempotency_key: idemRef.current,
+      } as any);
+      toast.success("Crypto deposit submitted — awaiting admin approval");
+      idemRef.current = "";
+      onSuccess?.();
+      onClose();
+    } catch (e: any) {
+      toast.error(e?.message || "Could not submit");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   function copy(text: string, label: string) {
     navigator.clipboard.writeText(text).then(
       () => toast.success(`${label} copied`),
@@ -365,7 +415,7 @@ export function AddFundsWizard({
               </div>
 
               <button
-                onClick={() => setStep(2)}
+                onClick={() => (cryptoAvailable ? setChooseMethod(true) : setStep(2))}
                 disabled={amount < minAmount}
                 className="mt-7 flex h-12 w-full items-center justify-center gap-1.5 rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -384,6 +434,85 @@ export function AddFundsWizard({
               </div>
 
               <PoweredFooter />
+            </div>
+          </div>
+        )}
+
+        {/* ─────────────── Payment method choice (only when crypto is on) ─────────────── */}
+        {chooseMethod && (
+          <div className="absolute inset-0 z-20 flex flex-col justify-end">
+            <button className="absolute inset-0 bg-black/40" onClick={() => setChooseMethod(false)} aria-label="Close" />
+            <div className="relative animate-in slide-in-from-bottom-4 rounded-t-2xl border-t border-border bg-card p-5 shadow-2xl">
+              <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-muted-foreground/30" />
+              <div className="mb-3 text-base font-semibold">Payment options</div>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => { setChooseMethod(false); setStep(2); }}
+                  className="flex flex-col items-start gap-2 rounded-2xl bg-gradient-to-br from-[#2563eb] to-[#1e40af] p-4 text-left text-white shadow-md transition active:scale-[0.98]"
+                >
+                  <Building2 className="size-6" />
+                  <span className="text-sm font-bold leading-tight">UPI / Bank</span>
+                  <span className="text-[10px] opacity-80">INR — instant</span>
+                </button>
+                <button
+                  onClick={() => { setChooseMethod(false); setCryptoMode(true); }}
+                  className="flex flex-col items-start gap-2 rounded-2xl bg-gradient-to-br from-[#f7931a] to-[#e2761b] p-4 text-left text-white shadow-md transition active:scale-[0.98]"
+                >
+                  <Bitcoin className="size-6" />
+                  <span className="text-sm font-bold leading-tight">Crypto Payment</span>
+                  <span className="text-[10px] opacity-80">USDT / BTC &amp; more</span>
+                </button>
+              </div>
+              <p className="mt-3 text-[11px] text-muted-foreground">UPI/Bank is instant; crypto confirms once the network verifies your payment.</p>
+            </div>
+          </div>
+        )}
+
+        {/* ─────────────── Crypto: address + QR + tx-hash ─────────────── */}
+        {cryptoMode && cryptoManual && (
+          <div className="absolute inset-0 z-30 flex flex-col bg-background">
+            <Header onBack={() => setCryptoMode(false)} />
+            <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 pt-4">
+              <div className="text-center">
+                <div className="text-sm text-muted-foreground">Send</div>
+                <div className="text-2xl font-bold">
+                  {formatINR(amount)}{" "}
+                  <span className="text-sm font-medium text-muted-foreground">worth of {cryptoManual.asset || "crypto"}</span>
+                </div>
+              </div>
+              <div className="mx-auto rounded-2xl border border-border bg-white p-3">
+                <QRCodeSVG value={cryptoManual.wallet_address} size={168} />
+              </div>
+              <div className="flex flex-wrap justify-center gap-2 text-xs">
+                {cryptoManual.asset && <span className="rounded-full bg-muted px-2.5 py-1 font-semibold">{cryptoManual.asset}</span>}
+                {cryptoManual.network && <span className="rounded-full bg-muted px-2.5 py-1 font-semibold">{cryptoManual.network}</span>}
+              </div>
+              <div className="rounded-xl border border-border bg-muted/30 p-3">
+                <div className="text-[11px] text-muted-foreground">Wallet address</div>
+                <div className="mt-1 flex items-center gap-2">
+                  <code className="min-w-0 flex-1 break-all text-xs font-semibold">{cryptoManual.wallet_address}</code>
+                  <button onClick={() => copy(cryptoManual.wallet_address, "Address")} className="shrink-0 rounded-md border border-border p-1.5">
+                    <Copy className="size-3.5" />
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-sm font-medium">Transaction hash (after you pay)</div>
+                <input
+                  value={cryptoTx}
+                  onChange={(e) => setCryptoTx(e.target.value)}
+                  placeholder="Paste your on-chain tx hash"
+                  className="h-11 w-full rounded-lg border border-border bg-muted/20 px-3 text-sm outline-none focus:border-primary"
+                />
+              </div>
+              <button
+                onClick={submitCrypto}
+                disabled={submitting || !cryptoTx.trim()}
+                className="mt-1 flex h-12 w-full items-center justify-center gap-1.5 rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {submitting ? <Loader2 className="size-4 animate-spin" /> : "Submit for approval"}
+              </button>
+              <p className="pb-6 text-center text-[11px] text-muted-foreground">Admin verifies the transaction and credits your wallet.</p>
             </div>
           </div>
         )}

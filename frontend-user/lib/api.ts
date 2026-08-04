@@ -357,6 +357,8 @@ export const WalletAPI = {
   transactions: (limit = 100, skip = 0) =>
     unwrap<any[]>(api.get("/user/wallet/transactions", { params: { limit, skip } })),
   companyBanks: () => unwrap<any[]>(api.get("/user/wallet/company-banks")),
+  // null when the user's admin hasn't enabled crypto → hide the Crypto option.
+  cryptoConfig: () => unwrap<any | null>(api.get("/user/wallet/crypto-config")),
   createDeposit: (body: any) => unwrap<any>(api.post("/user/wallet/deposits", body)),
   myDeposits: () => unwrap<any[]>(api.get("/user/wallet/deposits")),
   createWithdrawal: (body: any) => unwrap<any>(api.post("/user/wallet/withdrawals", body)),
