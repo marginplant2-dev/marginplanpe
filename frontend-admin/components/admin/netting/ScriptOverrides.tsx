@@ -277,9 +277,20 @@ export function ScriptOverrides({ categoryId }: { categoryId: string }) {
       <div className="flex flex-wrap items-end gap-2 rounded-md border border-border bg-muted/10 p-3 text-sm">
         <div className="space-y-1">
           <Label>Segment</Label>
+          {/* ONE segment selector — drives BOTH the row filter AND the
+              "add symbol" target. Picking a segment filters the list and
+              enables the symbol box; "All segments" only views (can't add). */}
           <select
             value={segmentName}
-            onChange={(e) => setSegmentName(e.target.value)}
+            onChange={(e) => {
+              const name = e.target.value;
+              setSegmentName(name);
+              const seg = segments?.find((s: any) => s.name === name);
+              setNewSegId(seg?.id || "");
+              // Switching segment invalidates the previously-picked symbol.
+              setNewSym("");
+              setPicked(false);
+            }}
             className="h-9 rounded-md border border-border bg-background px-2 text-xs"
           >
             <option value="">— All segments —</option>
@@ -291,26 +302,6 @@ export function ScriptOverrides({ categoryId }: { categoryId: string }) {
           </select>
         </div>
         <div className="ml-auto flex items-end gap-2">
-          <div className="space-y-1">
-            <Label>Add symbol to</Label>
-            <select
-              value={newSegId}
-              onChange={(e) => {
-                setNewSegId(e.target.value);
-                // Switching segment invalidates the previously-picked symbol.
-                setNewSym("");
-                setPicked(false);
-              }}
-              className="h-9 rounded-md border border-border bg-background px-2 text-xs"
-            >
-              <option value="">— Pick segment —</option>
-              {segments?.map((s: any) => (
-                <option key={s.id} value={s.id}>
-                  {s.displayName}
-                </option>
-              ))}
-            </select>
-          </div>
           <div className="relative space-y-1">
             <Label>Symbol</Label>
             <Input
@@ -325,8 +316,9 @@ export function ScriptOverrides({ categoryId }: { categoryId: string }) {
                 // Delay close so click on a suggestion lands first.
                 setTimeout(() => setTypeaheadOpen(false), 150);
               }}
-              placeholder="SBIN  or  NIFTYFUT (all NIFTY futs)"
-              className="h-9 w-64 uppercase"
+              disabled={!newSegId}
+              placeholder={newSegId ? "SBIN  or  NIFTYFUT (all NIFTY futs)" : "Pick a segment first"}
+              className="h-9 w-64 uppercase disabled:cursor-not-allowed disabled:opacity-50"
             />
             {/* Typeahead popover — content depends on the segment kind:
                 • EQ segments  →  real stock symbols (SBIN, RELIANCE, …)
