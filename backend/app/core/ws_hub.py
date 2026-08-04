@@ -347,14 +347,14 @@ class MarketTickHub(_BaseHub):
         meta = self._ws_meta.get(ws)
         if not meta:
             return default_frame
-        spreads: dict = meta.get("spreads") or {}
-        if not spreads:
+        # Per-TOKEN (symbol) spread, resolved via the full cascade at subscribe
+        # time — so each script's own spread shows (BTCUSD 30, ETHUSD 3), not
+        # one segment-wide value applied to every symbol.
+        token_spread: dict = meta.get("token_spread") or {}
+        if not token_spread:
             return default_frame
         token = str(payload.get("token", ""))
-        segment = (meta.get("token_segments") or {}).get(token)
-        if not segment:
-            return default_frame
-        spread_cfg = spreads.get(segment)
+        spread_cfg = token_spread.get(token)
         if not spread_cfg:
             return default_frame
         pips = float(spread_cfg.get("pips") or 0)

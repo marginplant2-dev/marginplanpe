@@ -54,40 +54,21 @@ async def _resolve_user_id(token: str | None) -> str | None:
 
 
 async def _load_spread_meta(user_id: str | None) -> dict[str, Any] | None:
-    """Load a user's per-segment spread overrides from DB.
-
-    Returns ``None`` for anonymous sessions (no per-user spread). For
-    authenticated users returns a meta dict with structure::
+    """Per-user spread meta. Spread is resolved PER-TOKEN (symbol) lazily in
+    ``_register_token_segment`` via the FULL cascade — not one value per
+    segment. The old per-segment map made every symbol in a segment show the
+    SAME spread, so per-script overrides were invisible (BTCUSD 30 vs ETHUSD 3
+    both showed the user's segment spread). Returns ``None`` for anonymous.
 
         {
-            "spreads": {segment_name: {"pips": float, "type": str}},
-            "token_segments": {},   # populated lazily at subscribe time
+            "user_id": str,
+            "token_spread": {token: {"pips": float, "type": str}},  # lazy
+            "token_segments": {token: admin_row},                    # lazy
         }
-
-    Only segments that have ``spreadPips > 0`` are included so the
-    ``_frame_for_ws`` hot-path never does useless work.
     """
     if not user_id:
         return None
-    meta: dict[str, Any] = {"spreads": {}, "token_segments": {}}
-    try:
-        from beanie import PydanticObjectId
-        from app.models.netting import UserSegmentOverride
-        uid = PydanticObjectId(user_id)
-        overrides = await UserSegmentOverride.find(
-            UserSegmentOverride.user_id == uid
-        ).to_list()
-        for o in overrides:
-            pips = getattr(o, "spreadPips", None)
-            stype = getattr(o, "spreadType", None)
-            if pips is not None and float(pips) > 0:
-                meta["spreads"][o.segment_name] = {
-                    "pips": float(pips),
-                    "type": str(stype or "fixed"),
-                }
-    except Exception:
-        logger.debug("spread_meta_load_failed uid=%s", user_id, exc_info=True)
-    return meta
+    return {"user_id": str(user_id), "token_spread": {}, "token_segments": {}}
 
 
 async def _register_token_segment(tok: str, meta: dict[str, Any]) -> None:
@@ -99,10 +80,30 @@ async def _register_token_segment(tok: str, meta: dict[str, Any]) -> None:
     try:
         seg_info = await market_data_service.get_segment_for_token(tok)
         if seg_info:
-            from app.services.netting_service import resolve_admin_row
+            from app.services.netting_service import (
+                get_effective_settings,
+                resolve_admin_row,
+            )
             seg_type, _sym = seg_info
             admin_row = resolve_admin_row(seg_type, _sym)
             meta.setdefault("token_segments", {})[tok] = admin_row
+            # Resolve THIS user's effective spread for THIS symbol via the full
+            # cascade (user-script > user-segment > broker > admin > global-
+            # script > base), so per-script overrides show per-symbol. Cached
+            # in netting_eff → runs ~once per token, not per tick.
+            uid = meta.get("user_id")
+            if uid and _sym:
+                try:
+                    eff = await get_effective_settings(uid, seg_type, symbol=_sym)
+                    s = (eff or {}).get("settings", {})
+                    pips = float(s.get("spread_pips") or 0)
+                    if pips > 0:
+                        meta.setdefault("token_spread", {})[tok] = {
+                            "pips": pips,
+                            "type": str(s.get("spread_type") or "fixed"),
+                        }
+                except Exception:
+                    logger.debug("token_spread_resolve_failed token=%s", tok, exc_info=True)
     except Exception:
         logger.debug("token_segment_lookup_failed token=%s", tok, exc_info=True)
 
@@ -113,15 +114,13 @@ def _apply_user_spread(quotes: list[dict], meta: dict[str, Any] | None) -> list[
     list with per-user adjusted bid/ask where applicable."""
     if not meta:
         return quotes
-    spreads = meta.get("spreads") or {}
-    token_segments = meta.get("token_segments") or {}
-    if not spreads or not token_segments:
+    token_spread = meta.get("token_spread") or {}
+    if not token_spread:
         return quotes
     out: list[dict] = []
     for q in quotes:
         tok = str(q.get("token", ""))
-        segment = token_segments.get(tok)
-        spread_cfg = spreads.get(segment) if segment else None
+        spread_cfg = token_spread.get(tok)
         if not spread_cfg:
             out.append(q)
             continue
