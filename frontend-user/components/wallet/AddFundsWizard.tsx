@@ -468,7 +468,24 @@ export function AddFundsWizard({
           </div>
         )}
 
-        {/* ─────────────── Crypto: address + QR + tx-hash ─────────────── */}
+        {/* ─────────────── Crypto: gateway-only (no manual address) ─────────────── */}
+        {cryptoMode && !cryptoManual && (
+          <div className="absolute inset-0 z-30 flex flex-col bg-background">
+            <Header onBack={() => setCryptoMode(false)} />
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
+              <Bitcoin className="size-10 text-[#f7931a]" />
+              <div className="text-base font-semibold">Crypto gateway is being set up</div>
+              <p className="text-sm text-muted-foreground">
+                Automatic crypto checkout isn&apos;t live yet. Please use UPI / Bank for now, or ask support.
+              </p>
+              <button onClick={() => setCryptoMode(false)} className="mt-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground">
+                Back
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ─────────────── Crypto: manual address + QR + tx-hash ─────────────── */}
         {cryptoMode && cryptoManual && (
           <div className="absolute inset-0 z-30 flex flex-col bg-background">
             <Header onBack={() => setCryptoMode(false)} />
