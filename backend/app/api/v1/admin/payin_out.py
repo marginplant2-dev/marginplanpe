@@ -103,8 +103,13 @@ async def list_deposits(
     page = max(1, page)
     page_size = max(1, min(200, page_size))
     q: dict[str, Any] = {}
-    if status:
+    # Gateway-initiated (unpaid) and failed/abandoned crypto deposits are never
+    # shown to the admin — only real, paid/pending money enters the queue.
+    _hidden = ["INITIATED", "FAILED"]
+    if status and status not in _hidden:
         q["status"] = status
+    else:
+        q["status"] = {"$nin": _hidden}
     scope = await scoped_user_ids(admin)
     if scope is not None:
         if not scope:

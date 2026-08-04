@@ -481,28 +481,20 @@ export function AddFundsWizard({
               <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => { setChooseMethod(false); setStep(2); }}
-                  className="relative flex flex-col items-start gap-2 overflow-hidden rounded-2xl bg-gradient-to-br from-[#2563eb] to-[#1e40af] p-4 text-left text-white shadow-md transition active:scale-[0.98]"
+                  className="overflow-hidden rounded-2xl shadow-md transition active:scale-[0.98]"
+                  aria-label="Pay with UPI / Bank"
                 >
-                  {/* Brand art behind the label; scrim keeps the text readable. */}
-                  <img src="/inr_pay.png" alt="" aria-hidden className="pointer-events-none absolute inset-0 size-full object-cover opacity-70" />
-                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/10" />
-                  <Building2 className="relative size-6" />
-                  <span className="relative text-sm font-bold leading-tight">UPI / Bank</span>
-                  <span className="relative text-[10px] opacity-80">INR — instant</span>
+                  <img src="/inr_pay.png" alt="UPI / Bank" className="aspect-[16/10] size-full object-cover" />
                 </button>
                 <button
                   onClick={startCrypto}
                   disabled={submitting}
-                  className="relative flex flex-col items-start gap-2 overflow-hidden rounded-2xl bg-gradient-to-br from-[#f7931a] to-[#e2761b] p-4 text-left text-white shadow-md transition active:scale-[0.98] disabled:opacity-60"
+                  className="overflow-hidden rounded-2xl shadow-md transition active:scale-[0.98] disabled:opacity-60"
+                  aria-label="Pay with crypto"
                 >
-                  <img src="/usdt_pay.png" alt="" aria-hidden className="pointer-events-none absolute inset-0 size-full object-cover opacity-70" />
-                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/10" />
-                  <Bitcoin className="relative size-6" />
-                  <span className="relative text-sm font-bold leading-tight">Crypto Payment</span>
-                  <span className="relative text-[10px] opacity-80">USDT / BTC &amp; more</span>
+                  <img src="/usdt_pay.png" alt="Crypto Payment" className="aspect-[16/10] size-full object-cover" />
                 </button>
               </div>
-              <p className="mt-3 text-[11px] text-muted-foreground">UPI/Bank is instant; crypto confirms once the network verifies your payment.</p>
             </div>
           </div>
         )}

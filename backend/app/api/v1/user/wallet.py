@@ -226,13 +226,17 @@ async def create_oxapay_deposit(payload: DepositCreate, user: CurrentUser):
     if not owner_code:
         raise HTTPException(status_code=400, detail="Crypto gateway owner not found.")
 
-    # PENDING row first — its id is the oxapay order_id (webhook finds it back).
+    # INITIATED row first — its id is the oxapay order_id (webhook finds it
+    # back). INITIATED is invisible to the admin and to the user's pending
+    # count: if the user backs out without paying it stays INITIATED (later
+    # flipped to FAILED). The webhook promotes it to APPROVED (auto-credit) on
+    # 'paid', or FAILED on 'expired'/'failed'.
     req = DepositRequest(
         user_id=user.id,
         amount=to_decimal128(payload.amount),
         payment_mode=PaymentMode.CRYPTO,
         gateway="oxapay",
-        status=DepositStatus.PENDING,
+        status=DepositStatus.INITIATED,
         idempotency_key=uuid.uuid4().hex,
     )
     await req.insert()

@@ -92,3 +92,8 @@ def verify_webhook_signature(api_key: str | None, raw_body: bytes, received_hmac
 
 def is_paid(status: str | None) -> bool:
     return str(status or "").strip().lower() == "paid"
+
+
+def is_dead(status: str | None) -> bool:
+    """Terminal non-paid states — the invoice will never be paid now."""
+    return str(status or "").strip().lower() in ("expired", "failed", "cancelled", "canceled")

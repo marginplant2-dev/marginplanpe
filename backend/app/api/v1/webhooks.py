@@ -45,53 +45,65 @@ async def oxapay_webhook(admin_code: str, request: Request):
     track_id = payload.get("track_id") or payload.get("trackId")
     logger.info("oxapay_webhook code=%s order=%s status=%s", admin_code, order_id, status)
 
-    # Only a fully-'paid' invoice credits. waiting/confirming/expired/failed →
-    # nothing to do (idempotent no-op).
-    if not order_id or not oxapay_service.is_paid(status):
+    if not order_id:
         return {"status": "ok"}
     try:
         oid = ObjectId(str(order_id))
     except Exception:
         return {"status": "ok"}
 
-    # Atomic claim PENDING→APPROVED (double-credit / replay guard): a repeat
-    # webhook finds no PENDING row and no-ops. Same pattern as manual approval.
+    # 'expired'/'failed'/'cancelled' → mark the INITIATED row FAILED so the user
+    # sees "payment not completed" and it never shows up on the admin side.
+    if oxapay_service.is_dead(status):
+        await DepositRequest.get_motor_collection().update_one(
+            {"_id": oid, "payment_mode": "CRYPTO", "status": DepositStatus.INITIATED.value},
+            {"$set": {"status": DepositStatus.FAILED.value, "gateway_status": str(status).lower(),
+                      "gateway_ref": str(track_id) if track_id else None, "updated_at": now_utc()}},
+        )
+        return {"status": "ok"}
+
+    # Only a fully-'paid' invoice credits. waiting/confirming → no-op.
+    if not oxapay_service.is_paid(status):
+        return {"status": "ok"}
+
+    # Operator policy: oxapay is a VERIFIED gateway → AUTO-CREDIT, no admin
+    # approval. Atomic claim INITIATED→APPROVED (same double-credit guard as the
+    # admin approve path); only the winner credits the wallet. A repeat 'paid'
+    # webhook matches zero docs and no-ops.
     now = now_utc()
     claimed = await DepositRequest.get_motor_collection().find_one_and_update(
-        {"_id": oid, "status": DepositStatus.PENDING.value, "payment_mode": "CRYPTO"},
-        {
-            "$set": {
-                "status": DepositStatus.APPROVED.value,
-                "processed_at": now,
-                "updated_at": now,
-                "gateway_status": str(status),
-                "gateway_ref": str(track_id) if track_id else None,
-                "admin_remark": "Auto-credited via oxapay",
-            }
-        },
+        {"_id": oid, "payment_mode": "CRYPTO", "status": DepositStatus.INITIATED.value},
+        {"$set": {"status": DepositStatus.APPROVED.value, "gateway_status": "paid",
+                  "gateway_ref": str(track_id) if track_id else None, "processed_at": now,
+                  "updated_at": now, "admin_remark": "oxapay: auto-credited (gateway verified)"}},
     )
     if claimed is None:
-        return {"status": "ok"}  # already processed / not a pending crypto row
-
+        return {"status": "ok"}
     try:
         await wallet_service.adjust(
             claimed["user_id"],
             to_decimal(claimed["amount"]),
             transaction_type=TransactionType.DEPOSIT,
-            narration=f"Crypto deposit via oxapay ({track_id})",
+            narration=f"Crypto deposit (oxapay ref {track_id or oid})",
             reference_type="DEPOSIT",
             reference_id=str(oid),
-            actor_id=None,
         )
     except Exception:
-        # Credit failed after the claim — revert to PENDING so the deposit
-        # isn't lost (shows APPROVED with no money). Re-raise so oxapay retries.
+        # Credit failed after the claim — revert to INITIATED so a webhook retry
+        # can credit it instead of leaving APPROVED with no money moved.
         await DepositRequest.get_motor_collection().update_one(
             {"_id": oid},
-            {"$set": {"status": DepositStatus.PENDING.value, "processed_at": None, "updated_at": now_utc()}},
+            {"$set": {"status": DepositStatus.INITIATED.value, "processed_at": None, "updated_at": now_utc()}},
         )
-        logger.exception("oxapay_webhook_credit_failed order=%s", order_id)
-        raise HTTPException(status_code=500, detail="credit failed")
+        raise
+    logger.info("oxapay_webhook_paid_credited order=%s", order_id)
+    try:
+        from app.services.admin_events import publish_admin_event
 
-    logger.info("oxapay_webhook_credited order=%s amount=%s", order_id, claimed.get("amount"))
+        await publish_admin_event(
+            "deposit_update",
+            {"event": "approved", "user_id": str(claimed["user_id"]), "deposit_id": str(oid)},
+        )
+    except Exception:  # pragma: no cover
+        pass
     return {"status": "ok"}

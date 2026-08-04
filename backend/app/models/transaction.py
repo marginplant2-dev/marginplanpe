@@ -78,10 +78,12 @@ class WalletTransaction(TimestampMixin):
 
 # ── 17. deposit_requests ─────────────────────────────────────────────
 class DepositStatus(StrEnum):
+    INITIATED = "INITIATED"  # gateway invoice created, user hasn't paid yet — hidden from admin
     PENDING = "PENDING"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     CANCELLED = "CANCELLED"
+    FAILED = "FAILED"  # gateway expired/failed or user abandoned — shown to user, hidden from admin
 
 
 class PaymentMode(StrEnum):

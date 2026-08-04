@@ -887,6 +887,21 @@ function TransactionsFeed({
     //    them here too — skip.
     for (const d of deposits) {
       const status = String(d?.status ?? "").toUpperCase();
+      // Crypto invoice the user opened but never completed (backed out / expired).
+      // Show it as "not completed", NEVER as pending. A completed one flips to
+      // APPROVED and surfaces via the ledger above instead.
+      if (status === "INITIATED" || status === "FAILED") {
+        out.push({
+          id: `dep-${d.id}`,
+          kind: "deposit",
+          amount: Math.abs(Number(d.amount ?? 0)),
+          date: d.created_at,
+          status: "rejected",
+          narration: "Payment not completed — crypto payment wasn't finished",
+          balance_after: null,
+        });
+        continue;
+      }
       if (status !== "PENDING" && status !== "REJECTED") continue;
       out.push({
         id: `dep-${d.id}`,
