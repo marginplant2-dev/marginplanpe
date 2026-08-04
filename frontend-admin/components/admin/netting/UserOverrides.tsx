@@ -20,7 +20,9 @@ import { CATEGORY_FIELDS, isFieldNA, type SegmentRow } from "@/lib/nettingMatrix
 import { Cell } from "./Cell";
 import { CategoryChips } from "./CategoryChips";
 
-export function UserOverrides() {
+export function UserOverrides({
+  mode = "both",
+}: { mode?: "segment" | "script" | "both" } = {}) {
   const qc = useQueryClient();
   const sp = useSearchParams();
   const deepLinkUser = sp.get("user");
@@ -447,6 +449,8 @@ export function UserOverrides() {
                 </Button>
               </div>
 
+              {mode !== "script" && (
+              <>
               <div className="flex items-center gap-2 px-1 pt-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 <span>Segment-wide overrides</span>
                 <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] normal-case tracking-normal text-foreground/70">
@@ -510,7 +514,10 @@ export function UserOverrides() {
                   </tbody>
                 </table>
               </div>
+              </>
+              )}
 
+              {mode !== "segment" && (
               <UserScriptOverrides
                 user={user}
                 segments={segments ?? []}
@@ -519,6 +526,7 @@ export function UserOverrides() {
                 overrides={overrides ?? []}
                 inherited={inherited}
               />
+              )}
             </>
           )}
         </div>
