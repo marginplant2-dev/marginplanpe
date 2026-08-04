@@ -87,6 +87,7 @@ class DepositStatus(StrEnum):
 class PaymentMode(StrEnum):
     BANK_TRANSFER = "BANK_TRANSFER"
     UPI = "UPI"
+    CRYPTO = "CRYPTO"
     NEFT = "NEFT"
     RTGS = "RTGS"
     IMPS = "IMPS"
@@ -98,6 +99,14 @@ class DepositRequest(TimestampMixin):
     payment_mode: PaymentMode = PaymentMode.UPI
     utr_number: str | None = None
     screenshot_url: str | None = None
+    # ── Crypto deposit fields (payment_mode == CRYPTO) ────────────────
+    crypto_asset: str | None = None       # USDT / BTC …
+    crypto_network: str | None = None     # TRC20 / ERC20 …
+    crypto_address: str | None = None     # the address shown to the user
+    crypto_tx_hash: str | None = None     # user-submitted on-chain tx id
+    gateway: str | None = None            # "oxapay" for gateway-routed deposits
+    gateway_ref: str | None = None        # oxapay invoice/track id
+    gateway_status: str | None = None     # raw provider status (paid / expired …)
     bank_account_id: PydanticObjectId | None = None  # company bank used
 
     user_remark: str | None = None
