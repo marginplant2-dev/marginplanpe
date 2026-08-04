@@ -578,16 +578,42 @@ function UserScriptOverrides({
     const t = setTimeout(() => setAddSymbolDebounced(addSymbol), 250);
     return () => clearTimeout(t);
   }, [addSymbol]);
-  const { data: symHits } = useQuery({
-    queryKey: ["admin", "netting", "user-script-symhits", addSegment, addSymbolDebounced],
+  // IDENTICAL picker to Script · Global: FUT/OPT segments search deduped
+  // UNDERLYINGS and a pick fills the every-expiry pattern (SILVERFUT / <UND>CE),
+  // NOT a single expiry contract; everything else searches real symbols.
+  const _segU = (addSegment || "").toUpperCase();
+  const { exchange: exchangeForSeg, mode: pickerMode } = (() => {
+    if (_segU === "NSE_STK_FUT" || _segU === "NSE_IDX_FUT" || _segU === "NSE_FUT")
+      return { exchange: "NFO", mode: "fut" as const };
+    if (_segU === "NSE_STK_OPT" || _segU === "NSE_IDX_OPT" || _segU === "NSE_OPT")
+      return { exchange: "NFO", mode: "opt" as const };
+    if (_segU === "BSE_FUT") return { exchange: "BFO", mode: "fut" as const };
+    if (_segU === "BSE_OPT") return { exchange: "BFO", mode: "opt" as const };
+    if (_segU === "MCX_FUT") return { exchange: "MCX", mode: "fut" as const };
+    if (_segU === "MCX_OPT") return { exchange: "MCX", mode: "opt" as const };
+    if (_segU) return { exchange: undefined, mode: "eq" as const };
+    return { exchange: undefined, mode: undefined };
+  })();
+  const { data: eqHits } = useQuery({
+    queryKey: ["admin", "netting", "usw-eq", _segU, addSymbolDebounced],
     queryFn: () =>
-      InstrumentAdminAPI.list({
-        q: addSymbolDebounced.trim(),
-        netting_segment: addSegment,
-        page_size: 12,
-      }),
-    enabled: !!addSegment && addSymbolDebounced.trim().length >= 1,
+      InstrumentAdminAPI.list({ q: addSymbolDebounced.trim(), netting_segment: _segU, page_size: 12 }),
+    enabled: pickerMode === "eq" && !!_segU && addSymbolDebounced.trim().length >= 1,
     staleTime: 30_000,
+    placeholderData: (prev: any) => prev,
+  });
+  const _futEx = pickerMode === "fut" || pickerMode === "opt" ? exchangeForSeg : undefined;
+  const { data: undHits } = useQuery({
+    queryKey: ["admin", "netting", "usw-und", _futEx, pickerMode, addSymbolDebounced],
+    queryFn: () =>
+      InstrumentAdminAPI.underlyings({
+        exchange: _futEx!,
+        contract_type: pickerMode === "fut" ? "FUT" : "CE",
+        q: addSymbolDebounced.trim(),
+        limit: 12,
+      }),
+    enabled: !!_futEx && addSymbolDebounced.trim().length >= 1,
+    staleTime: 60_000,
     placeholderData: (prev: any) => prev,
   });
 
@@ -760,32 +786,66 @@ function UserScriptOverrides({
                 }
               }}
             />
-            {symOpen &&
-              addSymbolDebounced.trim().length >= 1 &&
-              (symHits?.items?.length ?? 0) > 0 && (
-                <div className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-border bg-popover shadow-lg scrollbar-thin">
-                  {(symHits?.items ?? []).map((it: any) => {
-                    const sym = it.trading_symbol || it.symbol;
-                    return (
+            {symOpen && pickerMode && addSymbolDebounced.trim().length >= 1 && (
+              <div className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-border bg-popover shadow-lg scrollbar-thin">
+                {pickerMode === "eq" ? (
+                  (eqHits?.items ?? []).length === 0 ? (
+                    <div className="px-3 py-3 text-[11px] text-muted-foreground">No matching instruments.</div>
+                  ) : (
+                    (eqHits!.items as any[]).map((r) => {
+                      const sym = r.trading_symbol || r.symbol;
+                      return (
+                        <button
+                          key={r.id || sym}
+                          type="button"
+                          onMouseDown={(e) => { e.preventDefault(); setAddSymbol(sym); setSymOpen(false); }}
+                          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-muted/60"
+                        >
+                          <span className="truncate font-semibold">{sym}</span>
+                          <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{r.exchange || ""}</span>
+                        </button>
+                      );
+                    })
+                  )
+                ) : pickerMode === "fut" ? (
+                  (undHits ?? []).length === 0 ? (
+                    <div className="px-3 py-3 text-[11px] text-muted-foreground">No matching underlyings.</div>
+                  ) : (
+                    (undHits as string[]).map((u) => (
                       <button
-                        key={it.id || sym}
+                        key={u}
                         type="button"
-                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-muted/60"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          setAddSymbol(sym);
-                          setSymOpen(false);
-                        }}
+                        onMouseDown={(e) => { e.preventDefault(); setAddSymbol(`${u}FUT`); setSymOpen(false); }}
+                        className="flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-muted/60"
                       >
-                        <span className="truncate font-semibold">{sym}</span>
-                        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                          {it.exchange || it.segment || ""}
+                        <span className="font-mono font-semibold">{u}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          saves as <span className="font-mono">{u}FUT</span> — every expiry
                         </span>
                       </button>
-                    );
-                  })}
-                </div>
-              )}
+                    ))
+                  )
+                ) : (undHits ?? []).length === 0 ? (
+                  <div className="px-3 py-3 text-[11px] text-muted-foreground">No matching underlyings.</div>
+                ) : (
+                  (undHits as string[]).flatMap((u) =>
+                    (["CE", "PE"] as const).map((side) => (
+                      <button
+                        key={`${u}-${side}`}
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); setAddSymbol(`${u}${side}`); setSymOpen(false); }}
+                        className="flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-muted/60"
+                      >
+                        <span className="font-mono font-semibold">{u} <span className="text-muted-foreground">({side})</span></span>
+                        <span className="text-[10px] text-muted-foreground">
+                          saves as <span className="font-mono">{u}{side}</span> — every strike + expiry
+                        </span>
+                      </button>
+                    ))
+                  )
+                )}
+              </div>
+            )}
           </div>
           <div className="flex items-end">
             <Button onClick={addRow} className="h-9">
