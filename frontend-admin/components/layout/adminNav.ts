@@ -9,6 +9,7 @@
  */
 
 import {
+  Bitcoin,
   Activity,
   Banknote,
   Calendar,
@@ -75,6 +76,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     title: "Payments",
     items: [
       { href: "/payments", label: "Payments", icon: Banknote, perm: "deposits" },
+      { href: "/crypto-payments", label: "Crypto Payments", icon: Bitcoin, perm: "deposits" },
     ],
   },
   {

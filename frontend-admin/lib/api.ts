@@ -552,6 +552,30 @@ export const NotificationsAPI = {
     unwrap<{ marked: number }>(api.post("/admin/notifications/mark-all-read")),
 };
 
+export type CryptoConfig = {
+  enabled: boolean;
+  mode: "manual" | "gateway" | "both";
+  wallet_address: string | null;
+  network: string | null;
+  asset: string | null;
+  gateway: "oxapay" | "none";
+  has_gateway_key: boolean;
+  webhook_url: string;
+};
+
+export const CryptoConfigAPI = {
+  get: () => unwrap<CryptoConfig>(api.get("/admin/crypto-config")),
+  update: (body: {
+    enabled?: boolean;
+    mode?: string;
+    wallet_address?: string | null;
+    network?: string | null;
+    asset?: string | null;
+    gateway?: string;
+    oxapay_api_key?: string;
+  }) => unwrap<CryptoConfig>(api.put("/admin/crypto-config", body)),
+};
+
 export const SupportAPI = {
   get: () => unwrap<{ whatsapp: string; role: string }>(api.get("/admin/support")),
   set: (whatsapp: string) =>
