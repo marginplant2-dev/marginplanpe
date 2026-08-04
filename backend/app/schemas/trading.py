@@ -283,6 +283,12 @@ class DepositCreate(BaseModel):
     screenshot_url: str | None = None
     user_remark: str | None = None
     bank_account_id: str | None = None
+    # Crypto deposit (payment_mode == "CRYPTO"). The on-chain tx hash is the
+    # proof the admin approves on (screenshot optional in that mode).
+    crypto_asset: str | None = None
+    crypto_network: str | None = None
+    crypto_address: str | None = None
+    crypto_tx_hash: str | None = None
     # Client-supplied idempotency token — the server dedups on it so a
     # double / triple click or a retried-after-timeout request creates only
     # ONE deposit. Optional; the server falls back to a fresh UUID.

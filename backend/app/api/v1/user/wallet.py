@@ -179,6 +179,20 @@ async def company_banks(user: CurrentUser):
     return APIResponse(data=[])
 
 
+@router.get("/crypto-config", response_model=APIResponse[dict | None])
+async def wallet_crypto_config(user: CurrentUser):
+    """Resolved crypto-deposit config for THIS user (their admin cascade).
+
+    Returns ``null`` when crypto isn't enabled for them — the app then hides
+    the Crypto option and shows only the plain INR flow. Never leaks any key:
+    manual gives the address/network/asset; gateway only says it's available.
+    """
+    from app.services import crypto_config_service
+
+    cfg = await crypto_config_service.resolve_for_user(user)
+    return APIResponse(data=crypto_config_service.to_user_dict(cfg))
+
+
 @router.post("/deposits", response_model=APIResponse[dict])
 async def create_deposit(payload: DepositCreate, user: CurrentUser):
     if getattr(user, "is_demo", False):
@@ -236,9 +250,17 @@ async def create_deposit(payload: DepositCreate, user: CurrentUser):
                 ),
             )
 
-    # Payment screenshot is mandatory — the admin approves a deposit on the
-    # uploaded proof, so a request without one can't be verified.
-    if not (payload.screenshot_url or "").strip():
+    # Proof is mandatory so the admin can verify before approving. For a
+    # CRYPTO deposit the on-chain tx hash IS the proof (screenshot optional);
+    # for INR the payment screenshot is required as before.
+    _is_crypto = str(payload.payment_mode or "").upper() == "CRYPTO"
+    if _is_crypto:
+        if not ((payload.crypto_tx_hash or "").strip() or (payload.screenshot_url or "").strip()):
+            raise HTTPException(
+                status_code=400,
+                detail="Enter the transaction hash (or upload a screenshot) for your crypto payment.",
+            )
+    elif not (payload.screenshot_url or "").strip():
         raise HTTPException(status_code=400, detail="Payment screenshot is required.")
 
     # Idempotency: a client-supplied key dedups double / triple clicks and
@@ -265,6 +287,10 @@ async def create_deposit(payload: DepositCreate, user: CurrentUser):
         bank_account_id=PydanticObjectId(payload.bank_account_id) if payload.bank_account_id else None,
         status=DepositStatus.PENDING,
         idempotency_key=idem,
+        crypto_asset=payload.crypto_asset if _is_crypto else None,
+        crypto_network=payload.crypto_network if _is_crypto else None,
+        crypto_address=payload.crypto_address if _is_crypto else None,
+        crypto_tx_hash=payload.crypto_tx_hash if _is_crypto else None,
     )
     await req.insert()
     # Scope-aware push fan-out — survives PWA force-stop / locked phone
