@@ -1007,6 +1007,49 @@ async def _fetch_binance_klines(
     return out
 
 
+async def _align_candles_to_live(token: str, candles: list[dict]) -> list[dict]:
+    """Shift Yahoo candles onto the price scale we actually trade.
+
+    Spot metals / energies chart off Yahoo FUTURES symbols (XAUUSD → the
+    COMEX contract), which trade ~50 pts away from the SPOT feed the user
+    buys and sells. The chart then showed one scale while BUY/SELL showed
+    another, and injecting the live spot LTP into a futures-scaled candle
+    made the last bar flick ~50 pts back and forth between the two feeds.
+
+    Offsetting every candle by (live - last_close) keeps the real intraday
+    SHAPE but puts it on the tradeable scale. No-ops when the two feeds are
+    already the same scale (forex "=X" pairs) so we don't smear normal drift.
+
+    NOTE: must stay ABOVE the ``/{token}/history`` decorator — defined
+    between the decorator and its coroutine, FastAPI would bind the route to
+    this helper and every history call would 422.
+    """
+    if not candles:
+        return candles
+    try:
+        quote = await market_data_service.get_quote(token)
+        live = float((quote or {}).get("ltp") or 0)
+        last_close = float(candles[-1]["close"])
+    except (TypeError, ValueError, KeyError, AttributeError):
+        return candles
+    except Exception:  # pragma: no cover — never break the chart over this
+        logger.debug("align_candles_quote_failed token=%s", token, exc_info=True)
+        return candles
+    if live <= 0 or last_close <= 0:
+        return candles
+    off = live - last_close
+    # Same-scale feed (forex) or ordinary staleness → leave it alone.
+    if abs(off) / last_close < 0.0015:
+        return candles
+    for c in candles:
+        for k in ("open", "high", "low", "close"):
+            try:
+                c[k] = float(c[k]) + off
+            except (TypeError, ValueError, KeyError):
+                pass
+    return candles
+
+
 @router.get("/{token}/history", response_model=APIResponse[list[dict]])
 async def history(
     token: str,
@@ -1059,6 +1102,11 @@ async def history(
     if ya_symbol is not None:
         candles = await _fetch_yahoo_chart(ya_symbol, interval, days)
         if candles:
+            # Yahoo serves the FUTURES contract for spot metals/energy —
+            # shift onto the live tradeable scale before caching so the
+            # chart matches the BUY/SELL buttons (and the live tick the
+            # datafeed injects into the last bar doesn't flick ~50 pts).
+            candles = await _align_candles_to_live(token, candles)
             _history_cache[cache_key] = (now_ms, candles)
             return APIResponse(data=candles)
         # Yahoo failed (block / rate limit) — fall through. For forex we
