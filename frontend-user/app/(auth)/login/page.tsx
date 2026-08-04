@@ -7,7 +7,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Eye, EyeOff, Loader2, Mail, Lock, ShieldCheck, Smartphone, Zap } from "lucide-react";
+import { Eye, EyeOff, Loader2, Mail, Lock, Send, ShieldCheck, Smartphone, Zap } from "lucide-react";
+import { useBranding } from "@/lib/branding-context";
 import { useAuthStore } from "@/stores/authStore";
 import { ApiError, AuthAPI, ProfileAPI, setTokens } from "@/lib/api";
 import { STORAGE_KEYS } from "@/lib/constants";
@@ -308,8 +309,34 @@ function LoginPageInner() {
         </p>
 
         <InstallAppBanner />
+        <TelegramBanner />
       </div>
     </div>
+  );
+}
+
+/** Per-admin Telegram button — shows ONLY when the resolved brand (this
+ *  admin's referral / custom domain) has a telegram_link set. Renders http(s)
+ *  links only so a stored value can never become a javascript: href. */
+function TelegramBanner() {
+  const { branding } = useBranding();
+  const link = (branding?.telegram_link ?? "").trim();
+  if (!link || !/^https?:\/\//i.test(link)) return null;
+  return (
+    <a
+      href={link}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-2.5 rounded-xl border border-[#229ED9]/30 bg-[#229ED9]/10 px-3 py-2.5 transition-colors hover:bg-[#229ED9]/20"
+    >
+      <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-[#229ED9]/15 text-[#229ED9]">
+        <Send className="size-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold leading-tight text-foreground">Join us on Telegram</p>
+        <p className="hidden text-[11px] text-muted-foreground lg:block">Updates, support &amp; help.</p>
+      </div>
+    </a>
   );
 }
 

@@ -419,10 +419,12 @@ export default function BrandingPage() {
 
   // ── Local form state ──────────────────────────────────────────────
   const [brandName, setBrandName] = useState("");
+  const [telegramLink, setTelegramLink] = useState("");
   const [domain, setDomain] = useState("");
   useEffect(() => {
     if (meQuery.data) {
       setBrandName(meQuery.data.brand_name ?? "");
+      setTelegramLink((meQuery.data as any).telegram_link ?? "");
       setDomain(meQuery.data.custom_domain ?? "");
     }
   }, [meQuery.data]);
@@ -449,8 +451,11 @@ export default function BrandingPage() {
 
   // ── Mutations ─────────────────────────────────────────────────────
   const saveBranding = useMutation({
-    mutationFn: (body: { brand_name?: string | null; custom_domain?: string | null }) =>
-      BrandingAPI.update(body),
+    mutationFn: (body: {
+      brand_name?: string | null;
+      telegram_link?: string | null;
+      custom_domain?: string | null;
+    }) => BrandingAPI.update(body),
     onSuccess: (data) => {
       qc.setQueryData(["admin", "branding", "me"], data);
       // Sidebar <BrandLogo> reads brand_name from the auth store, so
@@ -669,6 +674,28 @@ export default function BrandingPage() {
               disabled={brandName.trim() === (meQuery.data?.brand_name ?? "")}
             >
               Save brand name
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="telegram_link">Telegram link</Label>
+            <Input
+              id="telegram_link"
+              placeholder="https://t.me/yourchannel"
+              value={telegramLink}
+              onChange={(e) => setTelegramLink(e.target.value)}
+              maxLength={300}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Shown as a Telegram button on your login page. Must start with https://. Leave blank to hide it.
+            </p>
+            <Button
+              size="sm"
+              onClick={() => saveBranding.mutate({ telegram_link: telegramLink.trim() })}
+              loading={saveBranding.isPending}
+              disabled={telegramLink.trim() === (((meQuery.data as any)?.telegram_link) ?? "")}
+            >
+              Save Telegram link
             </Button>
           </div>
         </CardContent>

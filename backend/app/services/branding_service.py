@@ -137,6 +137,7 @@ def to_branding_payload(admin: User) -> dict:
         "user_code": admin.user_code,
         "brand_name": admin.brand_name,
         "logo_url": admin.logo_url,
+        "telegram_link": admin.telegram_link,
         "custom_domain": admin.custom_domain,
         "custom_domain_status": admin.custom_domain_status,
         "custom_domain_last_error": admin.custom_domain_last_error,
@@ -346,6 +347,7 @@ async def update_branding(
     *,
     admin: User,
     brand_name: str | None = None,
+    telegram_link: str | None = None,
     custom_domain: str | None = None,
     clear_custom_domain: bool = False,
 ) -> User:
@@ -365,6 +367,20 @@ async def update_branding(
         # Empty string clears the brand name (frontend falls back to
         # the platform default), which is a deliberate user action.
         admin.brand_name = brand_name.strip() or None
+
+    if telegram_link is not None:
+        # Only accept a real https Telegram/http(s) URL so a stored value
+        # can never inject a javascript: href on the public login page.
+        # Empty string clears it (nothing shown).
+        _tl = telegram_link.strip()
+        if not _tl:
+            admin.telegram_link = None
+        elif _tl.lower().startswith(("https://", "http://")):
+            admin.telegram_link = _tl[:300]
+        else:
+            raise ValidationFailedError(
+                "Telegram link must start with https:// (e.g. https://t.me/yourchannel)"
+            )
 
     if clear_custom_domain:
         admin.custom_domain = None

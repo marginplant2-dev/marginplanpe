@@ -47,6 +47,7 @@ export type Branding = {
   user_code: string;
   brand_name: string | null;
   logo_url: string | null;
+  telegram_link: string | null;
   custom_domain: string | null;
   custom_domain_status: string | null;
 };

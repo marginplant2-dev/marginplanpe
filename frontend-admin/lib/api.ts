@@ -996,6 +996,7 @@ export const BrandingAPI = {
   me: () => unwrap<BrandingPayload>(api.get("/admin/branding/me")),
   update: (body: {
     brand_name?: string | null;
+    telegram_link?: string | null;
     custom_domain?: string | null;
     clear_custom_domain?: boolean;
   }) => unwrap<BrandingPayload>(api.put("/admin/branding", body)),

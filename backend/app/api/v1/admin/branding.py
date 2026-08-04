@@ -58,6 +58,8 @@ def _require_admin_role(admin) -> None:
 # ── Schemas ──────────────────────────────────────────────────────────
 class BrandingUpdateRequest(BaseModel):
     brand_name: str | None = Field(default=None, max_length=64)
+    # Per-admin Telegram link shown on that admin's login page. "" clears it.
+    telegram_link: str | None = Field(default=None, max_length=300)
     # Pass empty-string or null to clear; pass a hostname to set/replace.
     custom_domain: str | None = Field(default=None, max_length=253)
     # Set true to explicitly disconnect — preferred over relying on
@@ -87,6 +89,7 @@ async def update_branding(payload: BrandingUpdateRequest, admin: CurrentAdmin):
     updated = await branding_service.update_branding(
         admin=admin,
         brand_name=payload.brand_name,
+        telegram_link=payload.telegram_link,
         custom_domain=payload.custom_domain,
         clear_custom_domain=payload.clear_custom_domain,
     )

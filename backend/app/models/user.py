@@ -328,6 +328,10 @@ class User(TimestampMixin):
     #     ship.
     brand_name: str | None = None
     logo_url: str | None = None  # "/uploads/logos/logo-<admin_id>-<ts>.png"
+    # Per-admin Telegram invite link (e.g. https://t.me/mychannel). Surfaced
+    # via branding on THIS admin's login page (referral / custom-domain
+    # resolved) as a Telegram button. null / empty → nothing shown.
+    telegram_link: str | None = None
 
     # Custom domain (sparse-unique — see Settings.indexes). Stored
     # lowercased, no scheme: "mybroker.com".
