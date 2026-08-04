@@ -343,7 +343,10 @@ export const NettingAPI = {
     ),
   copy: (body: { source_user_id: string; target_user_ids: string[]; overwrite?: boolean }) =>
     unwrap<any>(api.post("/admin/netting/copy", body)),
-  usersWithOverrides: () => unwrap<any[]>(api.get("/admin/netting/users-with-overrides")),
+  usersWithOverrides: (kind?: "segment" | "script") =>
+    unwrap<any[]>(
+      api.get("/admin/netting/users-with-overrides", { params: kind ? { kind } : {} }),
+    ),
 };
 
 export const TradingAPI = {

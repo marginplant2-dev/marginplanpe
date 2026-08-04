@@ -668,33 +668,44 @@ async def clear_all_user_overrides(
 async def list_users_with_overrides(
     admin: CurrentAdmin,
     _: None = Depends(require_perm("segment_settings", "read")),
+    kind: str | None = Query(
+        default=None,
+        description="segment = segment-wide only (symbol null); script = per-symbol only; null = both",
+    ),
 ):
-    """Distinct users who currently have at least one segment / script
-    override doc. Used to render a quick-pick list on the admin Users tab
-    so admins don't have to remember names."""
+    """Distinct users who have at least one override of the requested KIND.
+
+    ``kind=segment`` lists only users with a SEGMENT-wide override (symbol
+    null) — for the Segment · User-wise tab. ``kind=script`` lists only users
+    with a per-symbol (script) override — for the Script · User-wise tab. So
+    each tab shows ONLY the users relevant to it, not every overridden user.
+    ``null`` = any (legacy)."""
     from app.models.netting import UserSegmentOverride
     from app.models.user import User
     from beanie import PydanticObjectId
 
-    user_ids = await UserSegmentOverride.distinct("user_id")
-    if not user_ids:
-        return APIResponse(data=[])
+    symbol_filter: dict = {}
+    if kind == "segment":
+        symbol_filter = {"symbol": None}
+    elif kind == "script":
+        symbol_filter = {"symbol": {"$ne": None}}
+
+    match: dict = dict(symbol_filter)
     scope = await scoped_user_ids(admin)
     if scope is not None:
-        scope_set = {str(s) for s in scope}
-        user_ids = [u for u in user_ids if str(u) in scope_set]
-        if not user_ids:
-            return APIResponse(data=[])
-    # Count overrides per user so the UI can show "5 overrides".
-    match_stage: dict = {"$match": {"user_id": {"$in": user_ids}}} if user_ids else {"$match": {}}
+        match["user_id"] = {"$in": [PydanticObjectId(str(s)) for s in scope]}
     pipeline = [
-        match_stage,
+        {"$match": match},
         {"$group": {"_id": "$user_id", "count": {"$sum": 1}}},
     ]
     counts: dict[str, int] = {}
     async for row in UserSegmentOverride.aggregate(pipeline):
         counts[str(row["_id"])] = int(row["count"])
-    users = await User.find({"_id": {"$in": [PydanticObjectId(str(u)) for u in user_ids]}}).to_list()
+    if not counts:
+        return APIResponse(data=[])
+    users = await User.find(
+        {"_id": {"$in": [PydanticObjectId(u) for u in counts]}}
+    ).to_list()
     return APIResponse(
         data=[
             {

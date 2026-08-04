@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ClipboardCopy, EraserIcon, Plus, RotateCcw, Save, Search, Trash2, X } from "lucide-react";
-import { NettingAPI, UsersAPI } from "@/lib/api";
+import { InstrumentAdminAPI, NettingAPI, UsersAPI } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -48,9 +48,13 @@ export function UserOverrides({
 
   // Quick-pick: every user who already has at least one segment override.
   // Refetches after every save / reset / copy so the count stays current.
+  // Only list users relevant to THIS tab: segment mode → users with a
+  // segment-wide override; script mode → users with a per-symbol override.
+  const overrideKind =
+    mode === "script" ? "script" : mode === "segment" ? "segment" : undefined;
   const { data: usersWithOverrides } = useQuery({
-    queryKey: ["admin", "netting", "users-with-overrides"],
-    queryFn: () => NettingAPI.usersWithOverrides(),
+    queryKey: ["admin", "netting", "users-with-overrides", overrideKind ?? "all"],
+    queryFn: () => NettingAPI.usersWithOverrides(overrideKind),
     refetchOnWindowFocus: false,
   });
 
@@ -307,12 +311,12 @@ export function UserOverrides({
                       {/* Name + code */}
                       <div className="min-w-0 flex-1">
                         <div className={
-                          "truncate text-xs font-semibold " +
+                          "truncate text-sm font-bold " +
                           (active ? "text-primary" : "text-foreground")
                         }>
-                          {u.full_name || "—"}
+                          {u.full_name || u.user_code}
                         </div>
-                        <div className="font-mono text-[10px] text-muted-foreground">{u.user_code}</div>
+                        <div className="font-mono text-[11px] font-semibold text-foreground/70">{u.user_code}</div>
                       </div>
                       {/* Count badge + Remove text — stacked on right */}
                       <div className="flex shrink-0 flex-col items-end gap-0.5">
@@ -565,6 +569,27 @@ function UserScriptOverrides({
   const [addOpen, setAddOpen] = useState(false);
   const [addSegment, setAddSegment] = useState<string>(segments[0]?.name ?? "");
   const [addSymbol, setAddSymbol] = useState("");
+  // Symbol typeahead — search real instruments scoped to the picked segment
+  // (same source the Script · Global tab uses), so admins don't have to know
+  // exact symbols. Debounced so it doesn't hammer the endpoint per keystroke.
+  const [symOpen, setSymOpen] = useState(false);
+  const [addSymbolDebounced, setAddSymbolDebounced] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setAddSymbolDebounced(addSymbol), 250);
+    return () => clearTimeout(t);
+  }, [addSymbol]);
+  const { data: symHits } = useQuery({
+    queryKey: ["admin", "netting", "user-script-symhits", addSegment, addSymbolDebounced],
+    queryFn: () =>
+      InstrumentAdminAPI.list({
+        q: addSymbolDebounced.trim(),
+        netting_segment: addSegment,
+        page_size: 12,
+      }),
+    enabled: !!addSegment && addSymbolDebounced.trim().length >= 1,
+    staleTime: 30_000,
+    placeholderData: (prev: any) => prev,
+  });
 
   // Per-(segment, symbol) edit drafts — same shape as the segment
   // table's `edits`, but the OUTER key includes the symbol so two
@@ -716,12 +741,17 @@ function UserScriptOverrides({
               ))}
             </select>
           </div>
-          <div>
+          <div className="relative">
             <Label className="text-[11px]">Symbol</Label>
             <Input
               value={addSymbol}
-              onChange={(e) => setAddSymbol(e.target.value)}
-              placeholder="e.g. SBIN, NIFTYFUT, BTCUSD"
+              onChange={(e) => {
+                setAddSymbol(e.target.value);
+                setSymOpen(true);
+              }}
+              onFocus={() => setSymOpen(true)}
+              onBlur={() => setTimeout(() => setSymOpen(false), 150)}
+              placeholder="Type to search — e.g. silver, nifty, btc"
               className="mt-1"
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -730,6 +760,32 @@ function UserScriptOverrides({
                 }
               }}
             />
+            {symOpen &&
+              addSymbolDebounced.trim().length >= 1 &&
+              (symHits?.items?.length ?? 0) > 0 && (
+                <div className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-border bg-popover shadow-lg scrollbar-thin">
+                  {(symHits?.items ?? []).map((it: any) => {
+                    const sym = it.trading_symbol || it.symbol;
+                    return (
+                      <button
+                        key={it.id || sym}
+                        type="button"
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-muted/60"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setAddSymbol(sym);
+                          setSymOpen(false);
+                        }}
+                      >
+                        <span className="truncate font-semibold">{sym}</span>
+                        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                          {it.exchange || it.segment || ""}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
           </div>
           <div className="flex items-end">
             <Button onClick={addRow} className="h-9">
