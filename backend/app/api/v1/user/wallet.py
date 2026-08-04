@@ -193,6 +193,73 @@ async def wallet_crypto_config(user: CurrentUser):
     return APIResponse(data=crypto_config_service.to_user_dict(cfg))
 
 
+@router.get("/crypto-quote", response_model=APIResponse[dict | None])
+async def wallet_crypto_quote(user: CurrentUser, amount: float, asset: str):
+    """Live ₹→crypto conversion for the deposit screen — how much of `asset`
+    to send for ₹`amount`. null when no live rate (frontend shows ₹ only)."""
+    from app.services import crypto_price_service
+
+    return APIResponse(data=await crypto_price_service.convert_inr_to_asset(amount, asset))
+
+
+@router.post("/deposits/crypto/oxapay", response_model=APIResponse[dict])
+async def create_oxapay_deposit(payload: DepositCreate, user: CurrentUser):
+    """Start an oxapay-gateway crypto deposit: create a PENDING deposit, open an
+    oxapay invoice with the owning admin's key (amount in INR — oxapay converts
+    to crypto), and return the hosted payment URL. The webhook auto-credits on
+    'paid'. Only the ₹ amount is used from the payload."""
+    if getattr(user, "is_demo", False):
+        raise HTTPException(status_code=403, detail="Demo accounts cannot deposit funds.")
+    from app.core.config import settings as _settings
+    from app.services import crypto_config_service, oxapay_service, wd_rules_service
+
+    # Same deposit-rule gate as INR/manual (min/max/daily limits).
+    await wd_rules_service.validate_request(
+        user_id=user.id, rule_type="DEPOSIT", amount=float(payload.amount), user_remark=None
+    )
+    cfg = await crypto_config_service.resolve_for_user(user)
+    key = crypto_config_service.decrypted_oxapay_key(cfg) if cfg else None
+    if not cfg or not cfg.enabled or cfg.mode not in ("gateway", "both") or not key:
+        raise HTTPException(status_code=400, detail="Crypto gateway isn't available for your account.")
+    owner = await crypto_config_service.owner_user_for_config(cfg)
+    owner_code = owner.user_code if owner else None
+    if not owner_code:
+        raise HTTPException(status_code=400, detail="Crypto gateway owner not found.")
+
+    # PENDING row first — its id is the oxapay order_id (webhook finds it back).
+    req = DepositRequest(
+        user_id=user.id,
+        amount=to_decimal128(payload.amount),
+        payment_mode=PaymentMode.CRYPTO,
+        gateway="oxapay",
+        status=DepositStatus.PENDING,
+        idempotency_key=uuid.uuid4().hex,
+    )
+    await req.insert()
+
+    base = (_settings.BACKEND_PUBLIC_URL or "http://localhost:8000").rstrip("/")
+    callback_url = f"{base}/api/v1/webhooks/oxapay/{owner_code}"
+    dom = owner.custom_domain if (owner and owner.custom_domain) else "marginplant.com"
+    return_url = f"https://{dom}/wallet"
+    try:
+        inv = await oxapay_service.create_invoice(
+            api_key=key,
+            amount=float(payload.amount),
+            currency="INR",
+            callback_url=callback_url,
+            return_url=return_url,
+            order_id=str(req.id),
+            description=f"Deposit for {user.user_code}",
+        )
+    except Exception as e:
+        # Roll back the pending row so a failed invoice doesn't linger.
+        await req.delete()
+        raise HTTPException(status_code=400, detail=f"Could not start crypto payment: {e}")
+    req.gateway_ref = inv["track_id"]
+    await req.save()
+    return APIResponse(data={"payment_url": inv["payment_url"], "deposit_id": str(req.id)})
+
+
 @router.post("/deposits", response_model=APIResponse[dict])
 async def create_deposit(payload: DepositCreate, user: CurrentUser):
     if getattr(user, "is_demo", False):

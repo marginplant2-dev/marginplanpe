@@ -359,6 +359,16 @@ export const WalletAPI = {
   companyBanks: () => unwrap<any[]>(api.get("/user/wallet/company-banks")),
   // null when the user's admin hasn't enabled crypto → hide the Crypto option.
   cryptoConfig: () => unwrap<any | null>(api.get("/user/wallet/crypto-config")),
+  // Start an oxapay-gateway deposit → returns a hosted payment_url to redirect to.
+  createOxapayDeposit: (body: { amount: number }) =>
+    unwrap<{ payment_url: string; deposit_id: string }>(
+      api.post("/user/wallet/deposits/crypto/oxapay", body),
+    ),
+  // Live ₹→crypto quote for the manual deposit screen (null if no rate).
+  cryptoQuote: (amount: number, asset: string) =>
+    unwrap<{ asset: string; inr_amount: number; inr_per_unit: number; crypto_amount: number } | null>(
+      api.get("/user/wallet/crypto-quote", { params: { amount, asset } }),
+    ),
   createDeposit: (body: any) => unwrap<any>(api.post("/user/wallet/deposits", body)),
   myDeposits: () => unwrap<any[]>(api.get("/user/wallet/deposits")),
   createWithdrawal: (body: any) => unwrap<any>(api.post("/user/wallet/withdrawals", body)),

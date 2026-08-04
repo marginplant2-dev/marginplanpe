@@ -137,3 +137,22 @@ def to_user_dict(cfg: AdminCryptoConfig | None) -> dict[str, Any] | None:
 def decrypted_oxapay_key(cfg: AdminCryptoConfig | None) -> str | None:
     """Backend-only accessor for the gateway call. Never expose the result."""
     return decrypt_secret(cfg.oxapay_api_key_enc) if cfg else None
+
+
+async def owner_user_for_config(cfg: AdminCryptoConfig) -> User | None:
+    """The admin/broker/super-admin who owns a config — used to build the
+    per-owner webhook path (their user_code) and the per-admin return domain."""
+    if cfg.owner_admin_id:
+        return await User.get(cfg.owner_admin_id)
+    if cfg.owner_broker_id:
+        return await User.get(cfg.owner_broker_id)
+    return await User.find_one(User.role == UserRole.SUPER_ADMIN)
+
+
+async def get_by_owner_code(user_code: str) -> AdminCryptoConfig | None:
+    """Resolve a config from its owner's user_code — the reverse of the
+    webhook path. Returns None for unknown codes / non-owner users."""
+    owner = await User.find_one(User.user_code == user_code)
+    if owner is None or owner.role not in (UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.BROKER):
+        return None
+    return await get_for_admin(owner)

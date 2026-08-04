@@ -238,6 +238,14 @@ export function AddFundsWizard({
 
   const payee = payeeName || bank?.account_holder || "Merchant";
   const amount = Number(amtStr) || 0;
+  // Live ₹→crypto quote so the manual screen shows the exact crypto amount to send.
+  const cryptoAsset = cryptoManual?.asset || "";
+  const { data: cryptoQuote } = useQuery({
+    queryKey: ["wallet-crypto-quote", amount, cryptoAsset],
+    queryFn: () => WalletAPI.cryptoQuote(amount, cryptoAsset),
+    enabled: cryptoMode && !!cryptoManual && !!cryptoAsset && amount > 0,
+    staleTime: 30_000,
+  });
   const waUrl = buildWhatsappUrl(
     support.data?.whatsapp,
     `Hi, I need help adding funds${amount > 0 ? ` (₹${amount})` : ""}.`,
@@ -339,6 +347,31 @@ export function AddFundsWizard({
       toast.error(e?.message || "Could not submit");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // Crypto card tapped: oxapay gateway → create invoice + redirect to the
+  // hosted checkout; manual → show the address/QR screen.
+  async function startCrypto() {
+    setChooseMethod(false);
+    if (cryptoCfg?.gateway) {
+      if (amount < minAmount) return toast.error(`Minimum deposit is ${formatINR(minAmount)}`);
+      if (submitting) return;
+      setSubmitting(true);
+      try {
+        const r = await WalletAPI.createOxapayDeposit({ amount });
+        if (r?.payment_url) {
+          window.location.href = r.payment_url;
+          return;
+        }
+        toast.error("Could not start crypto payment");
+      } catch (e: any) {
+        toast.error(e?.message || "Could not start crypto payment");
+      } finally {
+        setSubmitting(false);
+      }
+    } else {
+      setCryptoMode(true);
     }
   }
 
@@ -448,19 +481,25 @@ export function AddFundsWizard({
               <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => { setChooseMethod(false); setStep(2); }}
-                  className="flex flex-col items-start gap-2 rounded-2xl bg-gradient-to-br from-[#2563eb] to-[#1e40af] p-4 text-left text-white shadow-md transition active:scale-[0.98]"
+                  className="relative flex flex-col items-start gap-2 overflow-hidden rounded-2xl bg-gradient-to-br from-[#2563eb] to-[#1e40af] p-4 text-left text-white shadow-md transition active:scale-[0.98]"
                 >
-                  <Building2 className="size-6" />
-                  <span className="text-sm font-bold leading-tight">UPI / Bank</span>
-                  <span className="text-[10px] opacity-80">INR — instant</span>
+                  {/* Brand art behind the label; scrim keeps the text readable. */}
+                  <img src="/inr_pay.png" alt="" aria-hidden className="pointer-events-none absolute inset-0 size-full object-cover opacity-70" />
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/10" />
+                  <Building2 className="relative size-6" />
+                  <span className="relative text-sm font-bold leading-tight">UPI / Bank</span>
+                  <span className="relative text-[10px] opacity-80">INR — instant</span>
                 </button>
                 <button
-                  onClick={() => { setChooseMethod(false); setCryptoMode(true); }}
-                  className="flex flex-col items-start gap-2 rounded-2xl bg-gradient-to-br from-[#f7931a] to-[#e2761b] p-4 text-left text-white shadow-md transition active:scale-[0.98]"
+                  onClick={startCrypto}
+                  disabled={submitting}
+                  className="relative flex flex-col items-start gap-2 overflow-hidden rounded-2xl bg-gradient-to-br from-[#f7931a] to-[#e2761b] p-4 text-left text-white shadow-md transition active:scale-[0.98] disabled:opacity-60"
                 >
-                  <Bitcoin className="size-6" />
-                  <span className="text-sm font-bold leading-tight">Crypto Payment</span>
-                  <span className="text-[10px] opacity-80">USDT / BTC &amp; more</span>
+                  <img src="/usdt_pay.png" alt="" aria-hidden className="pointer-events-none absolute inset-0 size-full object-cover opacity-70" />
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/10" />
+                  <Bitcoin className="relative size-6" />
+                  <span className="relative text-sm font-bold leading-tight">Crypto Payment</span>
+                  <span className="relative text-[10px] opacity-80">USDT / BTC &amp; more</span>
                 </button>
               </div>
               <p className="mt-3 text-[11px] text-muted-foreground">UPI/Bank is instant; crypto confirms once the network verifies your payment.</p>
@@ -491,11 +530,22 @@ export function AddFundsWizard({
             <Header onBack={() => setCryptoMode(false)} />
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 pt-4">
               <div className="text-center">
-                <div className="text-sm text-muted-foreground">Send</div>
-                <div className="text-2xl font-bold">
-                  {formatINR(amount)}{" "}
-                  <span className="text-sm font-medium text-muted-foreground">worth of {cryptoManual.asset || "crypto"}</span>
-                </div>
+                <div className="text-sm text-muted-foreground">Send exactly</div>
+                {cryptoQuote ? (
+                  <>
+                    <div className="text-3xl font-bold">
+                      {cryptoQuote.crypto_amount} <span className="text-lg">{cryptoQuote.asset}</span>
+                    </div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      ≈ {formatINR(amount)} · 1 {cryptoQuote.asset} = ₹{cryptoQuote.inr_per_unit.toLocaleString("en-IN")} (live)
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-2xl font-bold">
+                    {formatINR(amount)}{" "}
+                    <span className="text-sm font-medium text-muted-foreground">worth of {cryptoManual.asset || "crypto"}</span>
+                  </div>
+                )}
               </div>
               <div className="mx-auto rounded-2xl border border-border bg-white p-3">
                 <QRCodeSVG value={cryptoManual.wallet_address} size={168} />
