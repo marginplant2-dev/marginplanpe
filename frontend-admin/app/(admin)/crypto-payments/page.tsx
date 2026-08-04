@@ -16,7 +16,14 @@ import { cn } from "@/lib/utils";
 // / or oxapay gateway (auto-credit). Users only see Crypto once this is enabled.
 export default function CryptoPaymentsPage() {
   const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: ["crypto-config"], queryFn: () => CryptoConfigAPI.get() });
+  // refetchOnWindowFocus OFF — the operator flips tabs (oxapay, mail); without
+  // this a refetch on return re-seeds the form and silently reverts an unsaved
+  // toggle, so it looked like "enable won't turn on".
+  const { data } = useQuery({
+    queryKey: ["crypto-config"],
+    queryFn: () => CryptoConfigAPI.get(),
+    refetchOnWindowFocus: false,
+  });
 
   const [enabled, setEnabled] = useState(false);
   const [mode, setMode] = useState<"manual" | "gateway" | "both">("manual");
