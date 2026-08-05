@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
+  Gift,
   LineChart,
   Table2,
   TrendingUp,
@@ -71,6 +72,9 @@ export default function DashboardPage() {
   const wallet = summary?.wallet ?? {};
   const portfolio =
     Number(wallet.available_balance ?? 0) + Number(wallet.used_margin ?? 0);
+  // Bonus credit pool (Bonus Management). A loss-cushion + stop-out buffer,
+  // shown distinctly so the user knows it's not spendable cash.
+  const bonus = Number(wallet.credit ?? 0);
   // Prefer the canonical pnl-summary value; fall back to the dashboard
   // payload only while the dedicated query is still loading so we don't
   // flash ₹0 on first paint.
@@ -132,6 +136,11 @@ export default function DashboardPage() {
               )}
               <span className="opacity-70">today</span>
             </div>
+            {bonus > 0 && !hideBalance && (
+              <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold">
+                <Gift className="size-3" /> {formatINR(bonus)} bonus credit
+              </div>
+            )}
           </div>
           <button
             onClick={() => setDepositOpen(true)}
@@ -144,7 +153,7 @@ export default function DashboardPage() {
         {/* Inline mini-stats — 2 columns (Available + Used margin).
             Holdings P/L tile removed — every trade on this platform is
             intraday / carry-forward, there's no separate delivery book. */}
-        <div className="mt-5 grid grid-cols-2 divide-x divide-white/15 text-center text-xs">
+        <div className={cn("mt-5 grid divide-x divide-white/15 text-center text-xs", bonus > 0 ? "grid-cols-3" : "grid-cols-2")}>
           <MiniStat
             label="Available"
             value={hideBalance ? "•••" : formatINR(wallet.available_balance ?? 0)}
@@ -153,6 +162,12 @@ export default function DashboardPage() {
             label="Used margin"
             value={hideBalance ? "•••" : formatINR(wallet.used_margin ?? 0)}
           />
+          {bonus > 0 && (
+            <MiniStat
+              label="Bonus credit"
+              value={hideBalance ? "•••" : formatINR(bonus)}
+            />
+          )}
         </div>
       </section>
 
