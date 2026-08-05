@@ -60,5 +60,14 @@ class UserBonus(TimestampMixin):
             IndexModel([("user_id", ASCENDING), ("status", ASCENDING)]),
             IndexModel([("admin_id", ASCENDING), ("granted_at", DESCENDING)]),
             # One bonus per deposit — blocks a double-grant on webhook / retry.
-            IndexModel([("deposit_id", ASCENDING)], unique=True, sparse=True),
+            # PARTIAL (not sparse): sparse only skips docs MISSING the field, but
+            # custom grants store deposit_id=null explicitly, so a sparse unique
+            # index would collide every null against each other. Partial indexes
+            # only rows where deposit_id is an actual ObjectId.
+            IndexModel(
+                [("deposit_id", ASCENDING)],
+                unique=True,
+                name="uniq_bonus_deposit",
+                partialFilterExpression={"deposit_id": {"$type": "objectId"}},
+            ),
         ]
