@@ -350,6 +350,21 @@ export interface WdRule {
   auto_approve_under: string | null;
   mandatory_remark: boolean;
   require_bank_details?: boolean;
+  allow_upi_payout?: boolean;
+}
+
+// A saved withdrawal destination — a bank account or a UPI id.
+export interface PayoutMethod {
+  id: string;
+  method_type: "BANK" | "UPI";
+  bank_name: string;
+  account_holder: string;
+  account_number: string;
+  ifsc_code: string;
+  upi_id: string | null;
+  is_default: boolean;
+  is_verified: boolean;
+  nickname: string | null;
 }
 
 export const WalletAPI = {
@@ -385,8 +400,12 @@ export const WalletAPI = {
       deposit: WdRule;
       withdrawal: WdRule;
     }>(api.get("/user/wallet/wd-rules")),
-  myBankAccounts: () => unwrap<any[]>(api.get("/user/wallet/bank-accounts")),
-  addBankAccount: (body: any) => unwrap<any>(api.post("/user/wallet/bank-accounts", body)),
+  myBankAccounts: () => unwrap<PayoutMethod[]>(api.get("/user/wallet/bank-accounts")),
+  addBankAccount: (body: any) => unwrap<PayoutMethod>(api.post("/user/wallet/bank-accounts", body)),
+  setPrimaryBankAccount: (id: string) =>
+    unwrap<any>(api.post(`/user/wallet/bank-accounts/${id}/primary`, {})),
+  deleteBankAccount: (id: string) =>
+    unwrap<any>(api.delete(`/user/wallet/bank-accounts/${id}`)),
   uploadScreenshot: (file: File) => {
     const fd = new FormData();
     fd.append("file", file);

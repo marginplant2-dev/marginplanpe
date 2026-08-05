@@ -299,6 +299,10 @@ class WdRule(TimestampMixin):
     # optional. Default False (bank optional; UPI or bank either works).
     # Enforced in the user withdrawal create path + the withdrawal UI.
     require_bank_details: bool = False
+    # WITHDRAWAL-only: when False, the admin has DISABLED UPI as a payout
+    # channel — users must withdraw to a bank account and the UPI option is
+    # hidden in the UI + rejected server-side. Default True (UPI allowed).
+    allow_upi_payout: bool = True
 
     class Settings:
         name = "wd_rules"
@@ -341,6 +345,7 @@ class _WdRuleOverrideBase(TimestampMixin):
     block_duplicate_pending: bool | None = None
     max_requests_per_day: int | None = None
     require_bank_details: bool | None = None
+    allow_upi_payout: bool | None = None
 
 
 class SuperAdminWdRule(_WdRuleOverrideBase):

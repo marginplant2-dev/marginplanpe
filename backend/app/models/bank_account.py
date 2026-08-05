@@ -69,17 +69,32 @@ class CompanyBankAccount(TimestampMixin):
         ]
 
 
-# ── 20. user_bank_accounts ────────────────────────────────────────────
+# ── 20. user_bank_accounts (saved payout methods: BANK + UPI) ─────────
 class UserBankAccount(TimestampMixin):
+    """A user's saved withdrawal destination — a bank account OR a UPI id.
+
+    `method_type` splits the two channels. `is_default` is the PRIMARY flag
+    scoped WITHIN a channel (one primary bank + one primary UPI). At
+    withdrawal the user just picks a saved method (default = the primaries)
+    instead of re-typing bank/UPI every time.
+
+    Bank fields default to "" so a UPI-only row validates. For UPI rows we
+    store the VPA in BOTH `upi_id` and `account_number` — that keeps the
+    existing unique (user_id, account_number) index meaningful (a user can't
+    save the same VPA twice) without an index migration.
+    """
+
     user_id: PydanticObjectId
-    bank_name: str
-    account_holder: str
-    account_number: str
-    ifsc_code: str
+    method_type: str = "BANK"  # BANK | UPI
+    bank_name: str = ""
+    account_holder: str = ""
+    account_number: str = ""  # bank: a/c no; upi: the VPA (unique-index anchor)
+    ifsc_code: str = ""
     branch: str | None = None
     account_type: str = "SAVINGS"
+    upi_id: str | None = None  # set for UPI rows
 
-    is_default: bool = False
+    is_default: bool = False  # primary within its method_type
     is_verified: bool = False
     verification_method: str | None = None  # PENNY_DROP / MANUAL
     nickname: str | None = None

@@ -594,6 +594,16 @@ async def create_withdrawal(payload: WithdrawalCreate, user: CurrentUser):
     upi_id = (b.get("upi_id") or "").strip()
     account_number = (b.get("account_number") or "").strip()
 
+    # UPI payout channel gate (admin-configurable). When the admin disabled UPI
+    # withdrawals for this pool, drop any UPI id — the user must use a bank.
+    if upi_id and not _wd_rule.get("allow_upi_payout", True):
+        upi_id = ""
+        if not (account_number and (b.get("ifsc") or "").strip()):
+            raise HTTPException(
+                status_code=400,
+                detail="UPI withdrawals are currently disabled. Please withdraw to a bank account.",
+            )
+
     # Require ONE of: a valid bank set (account+ifsc) OR a UPI ID. We do
     # not require the user to save the destination — every withdrawal
     # carries its own snapshot so they can pay to a different account
@@ -805,6 +815,7 @@ async def my_wd_rules(user: CurrentUser):
                 "block_withdrawal_with_open_positions",
                 "block_duplicate_pending",
                 "require_bank_details",
+                "allow_upi_payout",
             ):
                 out[k] = bool(v)
             else:
@@ -816,36 +827,129 @@ async def my_wd_rules(user: CurrentUser):
     return APIResponse(data={"deposit": _ser(dep), "withdrawal": _ser(wd)})
 
 
+def _serialize_bank(r: UserBankAccount) -> dict:
+    return {
+        "id": str(r.id),
+        "method_type": r.method_type,
+        "bank_name": r.bank_name,
+        "account_holder": r.account_holder,
+        "account_number": r.account_number,
+        "ifsc_code": r.ifsc_code,
+        "upi_id": r.upi_id,
+        "is_default": r.is_default,
+        "is_verified": r.is_verified,
+        "nickname": r.nickname,
+    }
+
+
+async def _unset_other_primaries(user_id, method_type: str, keep_id) -> None:
+    """Only ONE primary per channel — clear is_default on the user's other
+    rows of the same method_type."""
+    await UserBankAccount.get_motor_collection().update_many(
+        {"user_id": user_id, "method_type": method_type, "_id": {"$ne": keep_id}},
+        {"$set": {"is_default": False}},
+    )
+
+
 @router.get("/bank-accounts", response_model=APIResponse[list])
 async def my_bank_accounts(user: CurrentUser):
-    rows = await UserBankAccount.find(UserBankAccount.user_id == user.id).to_list()
-    return APIResponse(
-        data=[
-            {
-                "id": str(r.id),
-                "bank_name": r.bank_name,
-                "account_holder": r.account_holder,
-                "account_number": r.account_number,
-                "ifsc_code": r.ifsc_code,
-                "is_default": r.is_default,
-                "is_verified": r.is_verified,
-                "nickname": r.nickname,
-            }
-            for r in rows
-        ]
+    """The user's saved payout methods (banks + UPIs), primaries first."""
+    rows = (
+        await UserBankAccount.find(UserBankAccount.user_id == user.id)
+        .sort("-is_default")
+        .to_list()
     )
+    return APIResponse(data=[_serialize_bank(r) for r in rows])
 
 
 @router.post("/bank-accounts", response_model=APIResponse[dict])
 async def add_bank_account(payload: dict, user: CurrentUser):
-    row = UserBankAccount(
-        user_id=user.id,
-        bank_name=payload.get("bank_name", ""),
-        account_holder=payload.get("account_holder", user.full_name),
-        account_number=payload.get("account_number", ""),
-        ifsc_code=payload.get("ifsc_code", ""),
-        nickname=payload.get("nickname"),
-        is_default=bool(payload.get("is_default") or False),
-    )
-    await row.insert()
-    return APIResponse(data={"id": str(row.id)})
+    """Save a new bank account or UPI id. The first method saved of a given
+    channel auto-becomes that channel's primary; `is_default=true` forces it."""
+    method = str(payload.get("method_type") or "BANK").upper()
+    if method not in ("BANK", "UPI"):
+        raise HTTPException(status_code=400, detail="Invalid payment method type.")
+
+    holder = (payload.get("account_holder") or user.full_name or "").strip()
+    if method == "UPI":
+        upi = (payload.get("upi_id") or "").strip()
+        if "@" not in upi or len(upi) < 3:
+            raise HTTPException(status_code=400, detail="Enter a valid UPI id (e.g. name@bank).")
+        row = UserBankAccount(
+            user_id=user.id,
+            method_type="UPI",
+            upi_id=upi,
+            account_number=upi,  # VPA anchors the unique (user_id, account_number) index
+            account_holder=holder,
+            nickname=(payload.get("nickname") or None),
+        )
+    else:
+        acc = (payload.get("account_number") or "").strip()
+        ifsc = (payload.get("ifsc_code") or "").strip().upper()
+        if not acc or not ifsc or not holder:
+            raise HTTPException(
+                status_code=400,
+                detail="Account holder, account number and IFSC are required.",
+            )
+        row = UserBankAccount(
+            user_id=user.id,
+            method_type="BANK",
+            bank_name=(payload.get("bank_name") or "").strip(),
+            account_holder=holder,
+            account_number=acc,
+            ifsc_code=ifsc,
+            branch=(payload.get("branch") or None),
+            nickname=(payload.get("nickname") or None),
+        )
+
+    existing = await UserBankAccount.find(
+        UserBankAccount.user_id == user.id,
+        UserBankAccount.method_type == row.method_type,
+    ).count()
+    make_primary = bool(payload.get("is_default")) or existing == 0
+    row.is_default = make_primary
+    try:
+        await row.insert()
+    except Exception:
+        raise HTTPException(status_code=400, detail="This account / UPI is already saved.")
+    if make_primary:
+        await _unset_other_primaries(user.id, row.method_type, row.id)
+    return APIResponse(data=_serialize_bank(row))
+
+
+@router.post("/bank-accounts/{account_id}/primary", response_model=APIResponse[dict])
+async def set_primary_bank_account(account_id: str, user: CurrentUser):
+    try:
+        oid = PydanticObjectId(account_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Payment method not found")
+    row = await UserBankAccount.get(oid)
+    if row is None or row.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Payment method not found")
+    row.is_default = True
+    await row.save()
+    await _unset_other_primaries(user.id, row.method_type, row.id)
+    return APIResponse(data={"id": account_id, "is_default": True})
+
+
+@router.delete("/bank-accounts/{account_id}", response_model=APIResponse[dict])
+async def delete_bank_account(account_id: str, user: CurrentUser):
+    try:
+        oid = PydanticObjectId(account_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Payment method not found")
+    row = await UserBankAccount.get(oid)
+    if row is None or row.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Payment method not found")
+    was_primary, method = row.is_default, row.method_type
+    await row.delete()
+    # Keep a primary alive: promote another method of the same channel.
+    if was_primary:
+        nxt = await UserBankAccount.find_one(
+            UserBankAccount.user_id == user.id,
+            UserBankAccount.method_type == method,
+        )
+        if nxt is not None:
+            nxt.is_default = True
+            await nxt.save()
+    return APIResponse(data={"id": account_id, "deleted": True})

@@ -125,7 +125,6 @@ export default function WalletPage() {
   // ── Dialogs ─────────────────────────────────────────────────────
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
-  const [bankOpen, setBankOpen] = useState(false);
   const [demoUpgradeOpen, setDemoUpgradeOpen] = useState(false);
 
   function openDeposit() {
@@ -163,8 +162,26 @@ export default function WalletPage() {
   // after success. Combined with the disabled button this guarantees a
   // double / triple click never creates more than ONE withdrawal request.
   const wdIdemRef = useRef<string>("");
-  const [newBank, setNewBank] = useState({ bank_name: "", account_holder: "", account_number: "", ifsc_code: "" });
   const [qrPreview, setQrPreview] = useState<{ upiId: string; payee?: string; amount?: number } | null>(null);
+
+  // ── Saved payout methods (withdraw destination) ─────────────────
+  // "PRIMARY" = send the primary bank + primary UPI together; otherwise a
+  // specific saved-method id.
+  const [wdChoice, setWdChoice] = useState<string>("PRIMARY");
+  const [addOpen, setAddOpen] = useState(false);
+  const [addSaving, setAddSaving] = useState(false);
+  const [addForm, setAddForm] = useState({
+    type: "UPI" as "UPI" | "BANK",
+    upi_id: "",
+    bank_name: "",
+    account_holder: "",
+    account_number: "",
+    ifsc_code: "",
+  });
+  const upiAllowed = wdRulesData?.withdrawal?.allow_upi_payout !== false;
+  const savedMethods = (myBanks ?? []).filter((m) => m.method_type === "BANK" || upiAllowed);
+  const primaryBank = savedMethods.find((m) => m.method_type === "BANK" && m.is_default);
+  const primaryUpi = savedMethods.find((m) => m.method_type === "UPI" && m.is_default);
 
   // Auto-pick the default (or first) company bank when dialog opens
   useEffect(() => {
@@ -237,33 +254,41 @@ export default function WalletPage() {
     }
   }
 
+  // Fold a saved method into the withdrawal `bank` snapshot the backend
+  // expects (bank fields for BANK, upi_id for UPI).
+  function applyMethodToBank(m: any, bank: Record<string, string>) {
+    if (m.method_type === "UPI") {
+      if (m.upi_id) bank.upi_id = m.upi_id;
+    } else {
+      bank.name = m.bank_name || "";
+      bank.account_number = m.account_number || "";
+      bank.ifsc = (m.ifsc_code || "").toUpperCase();
+      bank.holder = m.account_holder || "";
+    }
+  }
+
   async function submitWithdrawal() {
     if (wdSubmitting) return; // guard against double / triple clicks
     if (!wd.amount || Number(wd.amount) <= 0) return toast.error("Amount required");
+    if (!savedMethods.length) return toast.error("Add a bank or UPI to withdraw to");
 
-    // Unified payment details: UPI and bank on one page. Bank is optional
-    // unless the admin's WITHDRAWAL rule turns `require_bank_details` on;
-    // either way at least one payout method must be provided.
+    // Build the destination from the saved method(s) the user picked. Default
+    // ("PRIMARY") sends the primary bank + primary UPI together so the admin
+    // can pay by either; otherwise a single chosen method.
     const bank: Record<string, string> = {};
-    const vpa = wd.upi_id.trim();
-    const hasUpi = !!vpa;
-    const hasBank = !!(wd.account_number.trim() && wd.ifsc_code.trim());
-
-    if (requireBank) {
-      if (!wd.account_holder.trim()) return toast.error("Account holder name required");
-      if (!wd.account_number.trim()) return toast.error("Account number required");
-      if (!wd.ifsc_code.trim()) return toast.error("IFSC required");
+    if (wdChoice === "PRIMARY") {
+      if (primaryBank) applyMethodToBank(primaryBank, bank);
+      if (primaryUpi && upiAllowed) applyMethodToBank(primaryUpi, bank);
+    } else {
+      const m = savedMethods.find((x) => x.id === wdChoice);
+      if (!m) return toast.error("Select where to withdraw");
+      applyMethodToBank(m, bank);
     }
-    if (hasUpi && !vpa.includes("@")) return toast.error("Enter a valid UPI ID (e.g. name@bank)");
-    if (!hasUpi && !hasBank) return toast.error("Enter a UPI ID or bank details");
-
-    if (hasUpi) bank.upi_id = vpa;
-    if (hasBank || requireBank) {
-      bank.name = wd.bank_name.trim();
-      bank.account_number = wd.account_number.trim();
-      bank.ifsc = wd.ifsc_code.trim().toUpperCase();
-      bank.holder = wd.account_holder.trim();
-    }
+    const hasUpi = !!bank.upi_id;
+    const hasBank = !!(bank.account_number && bank.ifsc);
+    if (!hasUpi && !hasBank) return toast.error("Select where to withdraw");
+    if (requireBank && !hasBank)
+      return toast.error("Bank details are required — pick a bank account");
 
     // One stable key per intended withdrawal — reused if the user retries
     // after a network blip, so the backend dedups instead of double-booking.
@@ -296,6 +321,7 @@ export default function WalletPage() {
         account_holder: "",
         remarks: "",
       });
+      setWdChoice("PRIMARY");
       qc.invalidateQueries({ queryKey: ["my-withdrawals"] });
       qc.invalidateQueries({ queryKey: ["wallet-summary"] });
       qc.invalidateQueries({ queryKey: ["wallet-txns"] });
@@ -306,13 +332,52 @@ export default function WalletPage() {
     }
   }
 
-  async function addBank() {
+  // ── Saved payout method management ──────────────────────────────
+  async function savePayoutMethod() {
+    if (addSaving) return;
+    const body: any = { method_type: addForm.type };
+    if (addForm.type === "UPI") {
+      const v = addForm.upi_id.trim();
+      if (!v.includes("@")) return toast.error("Enter a valid UPI id (e.g. name@bank)");
+      body.upi_id = v;
+    } else {
+      if (!addForm.account_holder.trim()) return toast.error("Account holder name required");
+      if (!addForm.account_number.trim()) return toast.error("Account number required");
+      if (!addForm.ifsc_code.trim()) return toast.error("IFSC required");
+      body.bank_name = addForm.bank_name.trim();
+      body.account_holder = addForm.account_holder.trim();
+      body.account_number = addForm.account_number.trim();
+      body.ifsc_code = addForm.ifsc_code.trim().toUpperCase();
+    }
+    setAddSaving(true);
     try {
-      await WalletAPI.addBankAccount(newBank);
-      toast.success("Bank added");
-      setBankOpen(false);
-      setNewBank({ bank_name: "", account_holder: "", account_number: "", ifsc_code: "" });
+      const saved = await WalletAPI.addBankAccount(body);
+      toast.success(addForm.type === "UPI" ? "UPI added" : "Bank added");
+      setAddOpen(false);
+      setAddForm({ type: "UPI", upi_id: "", bank_name: "", account_holder: "", account_number: "", ifsc_code: "" });
+      await qc.invalidateQueries({ queryKey: ["my-banks"] });
+      if (saved?.id) setWdChoice(saved.id); // use the just-added method
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setAddSaving(false);
+    }
+  }
+
+  async function makePrimaryMethod(id: string) {
+    try {
+      await WalletAPI.setPrimaryBankAccount(id);
       qc.invalidateQueries({ queryKey: ["my-banks"] });
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  }
+
+  async function removeMethod(id: string) {
+    try {
+      await WalletAPI.deleteBankAccount(id);
+      qc.invalidateQueries({ queryKey: ["my-banks"] });
+      setWdChoice((c) => (c === id ? "PRIMARY" : c));
     } catch (e: any) {
       toast.error(e.message);
     }
@@ -666,67 +731,148 @@ export default function WalletPage() {
               />
             </Field>
 
-            {/* Unified payment details — UPI + bank on one page. Bank is
-                optional unless the admin turned "Bank details required" on. */}
-            <div className="space-y-3 rounded-md border border-border p-3">
+            {/* Withdraw to — saved bank accounts + UPIs. Just pick one
+                (default = primary bank + primary UPI); no re-typing. */}
+            <div className="space-y-2 rounded-md border border-border p-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold">Payment details</span>
-                {requireBank && (
-                  <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-500">
-                    Bank required
-                  </span>
-                )}
+                <span className="text-sm font-semibold">Withdraw to</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddOpen((o) => !o);
+                    if (!upiAllowed) setAddForm((f) => ({ ...f, type: "BANK" }));
+                  }}
+                  className="text-xs font-semibold text-primary hover:underline"
+                >
+                  {addOpen ? "Close" : "+ Add bank / UPI"}
+                </button>
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                {requireBank
-                  ? "Bank details are required. UPI is optional."
-                  : "Enter your UPI ID and/or bank details (either works)."}
-              </p>
 
-              <Field label="UPI ID (optional)">
-                <Input
-                  placeholder="name@bank"
-                  value={wd.upi_id}
-                  onChange={(e) => setWd((d) => ({ ...d, upi_id: e.target.value }))}
-                />
-              </Field>
+              {savedMethods.length === 0 && !addOpen && (
+                <p className="text-[11px] text-muted-foreground">
+                  Add a bank account{upiAllowed ? " or UPI" : ""} to withdraw to.
+                </p>
+              )}
 
-              <div className="border-t border-border/60 pt-3">
-                <Field label={requireBank ? "Account holder name *" : "Account holder name"}>
-                  <Input
-                    value={wd.account_holder}
-                    onChange={(e) => setWd((d) => ({ ...d, account_holder: e.target.value }))}
-                  />
-                </Field>
-                <div className="mt-3">
-                  <Field label={requireBank ? "Account number *" : "Account number"}>
-                    <Input
-                      value={wd.account_number}
-                      onChange={(e) => setWd((d) => ({ ...d, account_number: e.target.value }))}
-                    />
-                  </Field>
+              {savedMethods.length > 0 && (
+                <div className="space-y-1.5">
+                  {(primaryBank || (primaryUpi && upiAllowed)) && (
+                    <button
+                      type="button"
+                      onClick={() => setWdChoice("PRIMARY")}
+                      className={`flex w-full items-start gap-2 rounded-lg border p-2.5 text-left transition ${
+                        wdChoice === "PRIMARY" ? "border-primary bg-primary/5" : "border-border"
+                      }`}
+                    >
+                      <span className={`mt-0.5 size-4 shrink-0 rounded-full border-2 ${wdChoice === "PRIMARY" ? "border-primary bg-primary" : "border-muted-foreground/40"}`} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold">
+                          Primary <span className="text-[10px] font-normal text-muted-foreground">(recommended)</span>
+                        </span>
+                        <span className="block truncate text-[11px] text-muted-foreground">
+                          {[
+                            primaryBank && `${primaryBank.bank_name || "Bank"} ••${primaryBank.account_number.slice(-4)}`,
+                            primaryUpi && upiAllowed && primaryUpi.upi_id,
+                          ].filter(Boolean).join("  •  ")}
+                        </span>
+                      </span>
+                    </button>
+                  )}
+
+                  {savedMethods.map((m) => {
+                    const label = m.method_type === "UPI"
+                      ? (m.upi_id || "UPI")
+                      : `${m.bank_name || "Bank"} ••${(m.account_number || "").slice(-4)}`;
+                    const sub = m.method_type === "UPI"
+                      ? (m.account_holder || "UPI")
+                      : `${m.account_holder || ""}${m.ifsc_code ? " · " + m.ifsc_code : ""}`;
+                    return (
+                      <div
+                        key={m.id}
+                        className={`flex items-center gap-2 rounded-lg border p-2.5 ${
+                          wdChoice === m.id ? "border-primary bg-primary/5" : "border-border"
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setWdChoice(m.id)}
+                          className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                        >
+                          <span className={`mt-0.5 size-4 shrink-0 rounded-full border-2 ${wdChoice === m.id ? "border-primary bg-primary" : "border-muted-foreground/40"}`} />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-1.5 text-sm font-medium">
+                              <span className="truncate">{label}</span>
+                              <span className="rounded bg-muted px-1 text-[9px] uppercase text-muted-foreground">{m.method_type}</span>
+                              {m.is_default && <span className="shrink-0 text-[10px] text-primary">★ primary</span>}
+                            </span>
+                            <span className="block truncate text-[11px] text-muted-foreground">{sub}</span>
+                          </span>
+                        </button>
+                        <div className="flex shrink-0 items-center gap-1">
+                          {!m.is_default && (
+                            <button
+                              type="button"
+                              onClick={() => makePrimaryMethod(m.id)}
+                              title="Set as primary"
+                              className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-primary"
+                            >
+                              Set primary
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeMethod(m.id)}
+                            title="Remove"
+                            className="rounded p-1 text-muted-foreground hover:text-red-500"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="mt-3">
-                  <Field label={requireBank ? "IFSC code *" : "IFSC code"}>
+              )}
+
+              {addOpen && (
+                <div className="mt-2 space-y-2 rounded-lg border border-dashed border-border p-2.5">
+                  <div className="flex gap-2">
+                    {(["UPI", "BANK"] as const).filter((t) => t === "BANK" || upiAllowed).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setAddForm((f) => ({ ...f, type: t }))}
+                        className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-semibold ${
+                          addForm.type === t ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"
+                        }`}
+                      >
+                        {t === "UPI" ? "UPI ID" : "Bank account"}
+                      </button>
+                    ))}
+                  </div>
+                  {addForm.type === "UPI" ? (
                     <Input
-                      className="uppercase"
-                      maxLength={11}
-                      value={wd.ifsc_code}
-                      onChange={(e) =>
-                        setWd((d) => ({ ...d, ifsc_code: e.target.value.toUpperCase() }))
-                      }
+                      placeholder="name@bank"
+                      value={addForm.upi_id}
+                      onChange={(e) => setAddForm((f) => ({ ...f, upi_id: e.target.value }))}
                     />
-                  </Field>
+                  ) : (
+                    <div className="space-y-2">
+                      <Input placeholder="Account holder name" value={addForm.account_holder} onChange={(e) => setAddForm((f) => ({ ...f, account_holder: e.target.value }))} />
+                      <Input placeholder="Account number" value={addForm.account_number} onChange={(e) => setAddForm((f) => ({ ...f, account_number: e.target.value }))} />
+                      <Input placeholder="IFSC code" className="uppercase" maxLength={11} value={addForm.ifsc_code} onChange={(e) => setAddForm((f) => ({ ...f, ifsc_code: e.target.value.toUpperCase() }))} />
+                      <Input placeholder="Bank name (optional)" value={addForm.bank_name} onChange={(e) => setAddForm((f) => ({ ...f, bank_name: e.target.value }))} />
+                    </div>
+                  )}
+                  <Button size="sm" className="w-full" onClick={savePayoutMethod} disabled={addSaving}>
+                    {addSaving ? "Saving…" : "Save"}
+                  </Button>
                 </div>
-                <div className="mt-3">
-                  <Field label="Bank name (optional)">
-                    <Input
-                      value={wd.bank_name}
-                      onChange={(e) => setWd((d) => ({ ...d, bank_name: e.target.value }))}
-                    />
-                  </Field>
-                </div>
-              </div>
+              )}
+
+              {requireBank && (
+                <p className="text-[10px] text-amber-500">A bank account is required for withdrawals.</p>
+              )}
             </div>
 
             <Field label="Remarks (optional)">
