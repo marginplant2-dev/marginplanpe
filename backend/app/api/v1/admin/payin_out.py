@@ -265,6 +265,47 @@ async def approve_deposit(
     r.processed_by = admin.id
     r.processed_at = processed_at
     r.admin_remark = payload.admin_remark
+
+    # ── Bonus auto-grant (Bonus Management, gated + best-effort) ──────
+    # Stamp first_deposit_at on the very first approved deposit, then try to
+    # auto-grant a matching bonus. Idempotent by deposit_id. Never let a bonus
+    # failure block the deposit approval / credit that already succeeded.
+    try:
+        from app.core.config import settings as _bset
+
+        if _bset.BONUSES_ENABLED:
+            from app.models.user import User as _User
+            from app.services import bonus_service as _bonus
+
+            _u = await _User.get(r.user_id)
+            if _u is not None:
+                _was_first = getattr(_u, "first_deposit_at", None) is None
+                if _was_first:
+                    _u.first_deposit_at = processed_at
+                    await _u.save()
+                _granted = await _bonus.maybe_auto_grant_on_deposit(
+                    _u, amount, deposit_id=r.id, is_first=_was_first
+                )
+                if _granted is not None:
+                    await DepositRequest.get_motor_collection().update_one(
+                        {"_id": r.id},
+                        {"$set": {"bonus_id": _granted.id, "bonus_amount": _granted.original_amount}},
+                    )
+                    try:
+                        from app.core.redis_client import publish as _pub
+
+                        await _pub(f"user:{r.user_id}:wallet", {
+                            "type": "bonus_granted",
+                            "payload": {
+                                "amount": str(_granted.original_amount),
+                                "name": _granted.template_name_snapshot,
+                            },
+                        })
+                    except Exception:
+                        pass
+    except Exception:  # pragma: no cover — bonus must never break approval
+        pass
+
     await log_event(
         action=AuditAction.APPROVE,
         entity_type="DepositRequest",

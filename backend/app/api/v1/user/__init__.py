@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api.v1.user import (
     alerts,
     auth,
+    bonuses,
     dashboard,
     instruments,
     kyc,
@@ -28,6 +29,7 @@ router.include_router(auth.router)
 router.include_router(profile.router)
 router.include_router(dashboard.router)
 router.include_router(wallet.router)
+router.include_router(bonuses.router)
 router.include_router(marketwatch.router)
 router.include_router(instruments.router)
 router.include_router(orders.router)

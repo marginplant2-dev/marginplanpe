@@ -417,6 +417,23 @@ export const WalletAPI = {
   },
 };
 
+// Bonus Management (backend gated by BONUSES_ENABLED → 503 when off).
+export const BonusesUserAPI = {
+  myBonuses: () => unwrap<any[]>(api.get("/user/bonuses")),
+  eligible: (amount: string | number) =>
+    unwrap<{
+      bonus_amount: string;
+      template_id: string | null;
+      template_name: string | null;
+      type: string | null;
+      is_first_deposit: boolean;
+      below_minimum: boolean;
+      minimum_required: string | null;
+      minimum_template_name: string | null;
+    }>(api.get("/user/bonuses/eligible", { params: { amount: String(amount) } })),
+  ledger: (id: string) => unwrap<any[]>(api.get(`/user/bonuses/${id}/ledger`)),
+};
+
 export const MarketwatchAPI = {
   list: () => unwrap<any[]>(api.get("/user/marketwatch")),
   create: (name: string) => unwrap<any>(api.post("/user/marketwatch", { name })),

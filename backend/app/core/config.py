@@ -346,6 +346,14 @@ class Settings(BaseSettings):
     # before turning on hard rejection. Flip True to actually reject.
     LOGIN_TENANT_ISOLATION_ENFORCE: bool = False
 
+    # ── Bonus Management ─────────────────────────────────────────────
+    # Master flag for the whole Bonus feature (templates, grants, credit
+    # pool that absorbs losses, wager/expiry). OFF by default so the
+    # feature ships fully inert: all /bonuses routes 503, no engine /
+    # wallet / risk behaviour changes, no background loop. Flip True to
+    # activate. 0-second reversible.
+    BONUSES_ENABLED: bool = False
+
     # ── Outage-proof boolean parsing ─────────────────────────────────
     # A mistyped boolean env var (the real incident: `METAAPI_FEED=fasle`)
     # made pydantic's strict bool_parsing raise at Settings() construction,
@@ -371,6 +379,7 @@ class Settings(BaseSettings):
         "LOGIN_TENANT_ISOLATION_ENFORCE",
         "CIRCUIT_BANDS_ENABLED",
         "CIRCUIT_ENFORCE",
+        "BONUSES_ENABLED",
         mode="before",
     )
     @classmethod

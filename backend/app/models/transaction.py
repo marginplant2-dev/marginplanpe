@@ -33,6 +33,7 @@ class TransactionType(StrEnum):
     PNL = "PNL"
     ADJUSTMENT = "ADJUSTMENT"
     BONUS = "BONUS"
+    BONUS_CONVERTED = "BONUS_CONVERTED"  # bonus credit → withdrawable cash (wager met)
     PENALTY = "PENALTY"
     PROMO = "PROMO"
     INTER_USER = "INTER_USER"
@@ -64,6 +65,12 @@ class WalletTransaction(TimestampMixin):
 
     created_by: PydanticObjectId | None = None  # admin id for manual entries
     reversal_of: PydanticObjectId | None = None  # link back when reversed
+
+    # Bonus Management (gated by settings.BONUSES_ENABLED). Set on
+    # BONUS_CONVERTED rows to link the cash credit back to the originating
+    # bonus grant. Null on every non-bonus transaction.
+    bonus_id: PydanticObjectId | None = None
+    bonus_amount: Money | None = None
 
     class Settings:
         name = "wallet_transactions"
@@ -110,6 +117,9 @@ class DepositRequest(TimestampMixin):
     gateway_ref: str | None = None        # oxapay invoice/track id
     gateway_status: str | None = None     # raw provider status (paid / expired …)
     bank_account_id: PydanticObjectId | None = None  # company bank used
+    # Bonus Management — stamped by the approval path when an auto-grant fires.
+    bonus_id: PydanticObjectId | None = None
+    bonus_amount: Money | None = None
 
     user_remark: str | None = None
     admin_remark: str | None = None

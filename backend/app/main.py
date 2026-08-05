@@ -789,6 +789,19 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     setattr(app, "_intraday_to_carry_task", rollover_task)
     setattr(app, "_expiry_cleanup_task", expiry_task)
 
+    # Bonus expiry sweep (Bonus Management) — hourly; converts wager-met
+    # bonuses / claws back the rest once past expiry. Only started when the
+    # feature flag is on, so it's fully absent otherwise.
+    if settings.BONUSES_ENABLED:
+        from app.services.bonus_expiry import bonus_expiry_loop
+        bonus_task: _asyncio.Task = _asyncio.create_task(
+            _supervise(
+                "bonus_expiry",
+                _leader_only("bonus_expiry", bonus_expiry_loop, interval_sec=3600.0),
+            )
+        )
+        setattr(app, "_bonus_expiry_task", bonus_task)
+
     # EOD pending-order auto-cancel: just after 00:00 IST (and once on boot),
     # expire every still-parked NSE/BSE/NFO/BFO/MCX LIMIT/SL-M order so a
     # DAY order can't carry into the next session and fire on the next day's
@@ -1029,6 +1042,20 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             etask.cancel()
             try:
                 await etask
+            except (asyncio.CancelledError, Exception):
+                pass
+    except Exception:
+        pass
+
+    # Stop bonus-expiry loop cleanly (only ever started when flag on)
+    try:
+        from app.services.bonus_expiry import stop_bonus_expiry
+        stop_bonus_expiry()
+        btask = getattr(app, "_bonus_expiry_task", None)
+        if btask is not None:
+            btask.cancel()
+            try:
+                await btask
             except (asyncio.CancelledError, Exception):
                 pass
     except Exception:

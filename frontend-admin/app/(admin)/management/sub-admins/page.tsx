@@ -65,6 +65,7 @@ const PERMISSION_LABELS: Array<{ key: keyof AdminPermissions; label: string }> =
   { key: "audit", label: "Audit logs" },
   { key: "support", label: "Support" },
   { key: "download_app", label: "Download App" },
+  { key: "bonuses", label: "Bonuses" },
 ];
 
 const ALL_OFF: AdminPermissions = {
@@ -91,6 +92,7 @@ const ALL_OFF: AdminPermissions = {
   money_transactions: false,
   broker_deposits: false,
   download_app: false,
+  bonuses: false,
 };
 
 export default function SubAdminsPage() {
@@ -918,6 +920,7 @@ const BROKER_PERMS_ALL_OFF: BrokerPermissions = {
   brokerage: "OFF",
   sub_brokers: "OFF",
   banks: "OFF",
+  bonuses: "OFF",
 };
 
 function CreateBrokerForAdminDialog({

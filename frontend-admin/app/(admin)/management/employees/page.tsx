@@ -61,6 +61,7 @@ const PERMISSION_LABELS: Array<{ key: keyof AdminPermissions; label: string }> =
   { key: "audit", label: "Audit logs" },
   { key: "support", label: "Support" },
   { key: "download_app", label: "Download App" },
+  { key: "bonuses", label: "Bonuses" },
 ];
 
 const ALL_OFF: AdminPermissions = {
@@ -70,6 +71,7 @@ const ALL_OFF: AdminPermissions = {
   accounts: false, pnl_sharing: false, audit: false, support: false,
   orders: false, positions: false, marketwatch: false,
   money_transactions: false, broker_deposits: false, download_app: false,
+  bonuses: false,
 };
 
 export default function EmployeesPage() {

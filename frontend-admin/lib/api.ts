@@ -409,6 +409,23 @@ export const TradingAPI = {
   holdings: (params?: any) => unwrap<any[]>(api.get("/admin/holdings", { params })),
 };
 
+// Bonus Management (backend gated by BONUSES_ENABLED → 503 when off).
+export const BonusesAdminAPI = {
+  listTemplates: () => unwrap<any[]>(api.get("/admin/bonuses/templates")),
+  createTemplate: (body: any) => unwrap<any>(api.post("/admin/bonuses/templates", body)),
+  updateTemplate: (id: string, body: any) => unwrap<any>(api.put(`/admin/bonuses/templates/${id}`, body)),
+  deleteTemplate: (id: string) => unwrap<any>(api.delete(`/admin/bonuses/templates/${id}`)),
+  listGrants: (params?: { user_id?: string; status?: string; type?: string; page?: number; limit?: number }) =>
+    unwrap<{ bonuses: any[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>(
+      api.get("/admin/bonuses", { params }),
+    ),
+  grant: (body: { user_id: string; template_id?: string; deposit_amount?: number; amount?: number; notes?: string }) =>
+    unwrap<any>(api.post("/admin/bonuses/grant", body)),
+  cancel: (id: string, reason: string) => unwrap<any>(api.post(`/admin/bonuses/${id}/cancel`, { reason })),
+  ledger: (id: string) => unwrap<any[]>(api.get(`/admin/bonuses/${id}/ledger`)),
+  recompute: (id: string) => unwrap<any>(api.post(`/admin/bonuses/${id}/recompute`)),
+};
+
 export const PayinOutAPI = {
   // Deposits / withdrawals are paginated (15 per page by default).
   // Pass `status` empty / undefined to get every status.

@@ -18,6 +18,7 @@ import {
   DatabaseBackup,
   Download,
   FileText,
+  Gift,
   Layers,
   History,
   Home,
@@ -77,6 +78,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     items: [
       { href: "/payments", label: "Payments", icon: Banknote, perm: "deposits" },
       { href: "/crypto-payments", label: "Crypto Payments", icon: Bitcoin, perm: "deposits" },
+      { href: "/management/bonuses", label: "Bonuses", icon: Gift, perm: "bonuses" },
     ],
   },
   {

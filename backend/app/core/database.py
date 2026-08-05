@@ -47,8 +47,11 @@ def _document_models() -> list[type["Document"]]:
     from app.models.alert import PriceAlert
     from app.models.audit_log import AuditLog
     from app.models.bank_account import CompanyBankAccount, UserBankAccount
+    from app.models.bonus_template import BonusTemplate
+    from app.models.bonus_transaction import BonusTransaction
     from app.models.brokerage_plan import BrokeragePlan
     from app.models.crypto_config import AdminCryptoConfig
+    from app.models.user_bonus import UserBonus
     from app.models.holding import Holding
     from app.models.holiday import TradingHoliday
     from app.models.instrument import Instrument
@@ -128,6 +131,10 @@ def _document_models() -> list[type["Document"]]:
         UserBankAccount,
         AdminCryptoConfig,
         BrokeragePlan,
+        # Bonus Management (gated by BONUSES_ENABLED; models always registered)
+        BonusTemplate,
+        UserBonus,
+        BonusTransaction,
         # Trading
         Order,
         Trade,

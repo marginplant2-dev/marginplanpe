@@ -573,6 +573,34 @@ async def create_withdrawal(payload: WithdrawalCreate, user: CurrentUser):
                 ),
             )
 
+    # Bonus wager gate (Bonus Management, gated). Block withdrawal while any
+    # ACTIVE bonus still has an unmet wager target (>0). 409 + machine-readable
+    # blocked_by so the UI can explain "trade ₹X more to unlock".
+    from app.core.config import settings as _bset
+
+    if _bset.BONUSES_ENABLED:
+        from app.models.user_bonus import UserBonus, UserBonusStatus
+        from app.utils.decimal_utils import to_decimal as _td
+
+        _active = await UserBonus.find(
+            UserBonus.user_id == user.id, UserBonus.status == UserBonusStatus.ACTIVE
+        ).to_list()
+        _blocked = []
+        for _b in _active:
+            _target = _td(_b.wager_target_volume)
+            _prog = _td(_b.wager_progress_volume)
+            if _target > 0 and _prog < _target:
+                _blocked.append({
+                    "bonus_id": str(_b.id),
+                    "name": _b.template_name_snapshot,
+                    "wager_remaining": str(_target - _prog),
+                })
+        if _blocked:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "BONUS_WAGER_UNMET", "blocked_by": _blocked},
+            )
+
     # Balance pre-check — reject immediately if user doesn't have
     # enough available_balance.  Without this, requests would sit in
     # the admin queue and only fail (or worse, book settlement

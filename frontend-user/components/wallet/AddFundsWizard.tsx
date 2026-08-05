@@ -15,9 +15,10 @@ import {
   MessageCircle,
   Camera,
   Bitcoin,
+  Gift,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { WalletAPI } from "@/lib/api";
+import { WalletAPI, BonusesUserAPI } from "@/lib/api";
 import { API_URL } from "@/lib/constants";
 import { useAuthStore } from "@/stores/authStore";
 import { DemoUpgradeDialog } from "@/components/wallet/DemoUpgradeDialog";
@@ -246,6 +247,20 @@ export function AddFundsWizard({
     enabled: cryptoMode && !!cryptoManual && !!cryptoAsset && amount > 0,
     staleTime: 30_000,
   });
+
+  // Debounced bonus-eligibility preview (Bonus Management). Returns null /
+  // 503s when the feature is off, so the pill simply never renders then.
+  const [debAmt, setDebAmt] = useState(0);
+  useEffect(() => {
+    const t = setTimeout(() => setDebAmt(amount), 400);
+    return () => clearTimeout(t);
+  }, [amount]);
+  const { data: bonusPreview } = useQuery({
+    queryKey: ["bonus-eligible", debAmt],
+    queryFn: () => BonusesUserAPI.eligible(debAmt),
+    enabled: debAmt >= minAmount && debAmt > 0,
+    retry: false,
+  });
   const waUrl = buildWhatsappUrl(
     support.data?.whatsapp,
     `Hi, I need help adding funds${amount > 0 ? ` (₹${amount})` : ""}.`,
@@ -446,6 +461,19 @@ export function AddFundsWizard({
                   ))}
                 </div>
               </div>
+
+              {Number(bonusPreview?.bonus_amount ?? 0) > 0 && (
+                <div className="mt-4 flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-2 text-xs font-medium text-primary">
+                  <Gift className="size-3.5 shrink-0" />
+                  +{formatINR(bonusPreview!.bonus_amount)} bonus credit on approval
+                  {bonusPreview?.template_name ? ` · ${bonusPreview.template_name}` : ""}
+                </div>
+              )}
+              {bonusPreview?.below_minimum && bonusPreview.minimum_required && (
+                <div className="mt-2 text-[11px] text-muted-foreground">
+                  Deposit {formatINR(bonusPreview.minimum_required)}+ to earn a bonus.
+                </div>
+              )}
 
               <button
                 onClick={() => (cryptoAvailable ? setChooseMethod(true) : setStep(2))}

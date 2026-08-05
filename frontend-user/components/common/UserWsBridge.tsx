@@ -206,6 +206,24 @@ export function UserWsBridge() {
               }
             }
             break;
+          case "bonus_granted": {
+            // Bonus Management — a deposit auto-granted a bonus. Refresh wallet
+            // + bonus caches and toast the good news.
+            qc.invalidateQueries({ queryKey: ["wallet"] });
+            qc.invalidateQueries({ queryKey: ["wallet-summary"] });
+            qc.invalidateQueries({ queryKey: ["my-bonuses"] });
+            {
+              const p = (msg as any).payload || {};
+              if (userNotificationsEnabled()) {
+                toast.success("Bonus credited! 🎁", {
+                  description: p.name ? `${p.name}: ₹${p.amount} bonus credit` : `₹${p.amount} bonus credit`,
+                  duration: 7000,
+                });
+                playNotifyPing();
+              }
+            }
+            break;
+          }
           case "marketwatch":
             // Cross-tab / cross-device sync: when this user adds /
             // removes an instrument on web, the apk (or another web

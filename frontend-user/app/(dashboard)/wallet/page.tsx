@@ -42,6 +42,7 @@ import {
 import { UpiQR, buildUpiUri } from "@/components/common/UpiQR";
 import { WdRulesBanner } from "@/components/common/WdRulesBanner";
 import { AddFundsWizard } from "@/components/wallet/AddFundsWizard";
+import { BonusCard } from "@/components/wallet/BonusCard";
 import { cn, formatINR, pnlColor } from "@/lib/utils";
 import {
   buildMailtoUrl,
@@ -453,6 +454,10 @@ export default function WalletPage() {
           hint="awaiting admin approval"
         />
       </section>
+
+      {/* Bonus credit tile — renders only when the user has bonus credit /
+          active bonuses (inert while the feature is off). */}
+      <BonusCard credit={summary?.credit} />
 
       {/* ── Unified Transactions section ─────────────────────────
           Operator request: drop the 4-box layout (Transaction history,

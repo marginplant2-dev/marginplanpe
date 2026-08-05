@@ -28,6 +28,14 @@ class Wallet(TimestampMixin):
     unrealized_pnl: Money = Field(default_factory=_zero)
     credit_limit: Money = Field(default_factory=_zero)
 
+    # Bonus credit pool (Bonus Management, gated by settings.BONUSES_ENABLED).
+    # Phantom credit granted by a bonus. Counts toward the stop-out / free-
+    # margin base like credit_limit, but ALSO absorbs realized losses — AFTER
+    # real available_balance is exhausted (deposit-first), BEFORE
+    # settlement_outstanding. Materialized from the bonus_transactions ledger;
+    # never edit directly outside bonus_service. Zero when bonuses are off.
+    credit: Money = Field(default_factory=_zero)
+
     # Unrecovered settlement loss — when a stop-out force-close booked a
     # realized loss that exceeded available_balance + credit_limit, the
     # uncoverable shortfall sits here. Recovered automatically against the

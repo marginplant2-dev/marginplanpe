@@ -211,6 +211,7 @@ class WalletSummary(BaseModel):
     realized_pnl: str
     unrealized_pnl: str
     credit_limit: str
+    credit: str = "0"  # bonus credit pool (Bonus Management); "0" when off
     settlement_outstanding: str = "0"
     total_deposits: str
     total_withdrawals: str

@@ -408,6 +408,21 @@ async def execute_market_order(
     # ── Persist trade + order in parallel (independent writes) ────────
     await asyncio.gather(trade.insert(), order.save())
 
+    # ── Bonus wager progress (Bonus Management) ───────────────────────
+    # Every fill's notional counts toward any ACTIVE bonus's wager target;
+    # gated + best-effort so it can NEVER block or fail a fill.
+    try:
+        from app.core.config import settings as _bset
+
+        if _bset.BONUSES_ENABLED:
+            from app.services import bonus_service as _bonus
+
+            await _bonus.increment_wager(
+                order.user_id, to_decimal(trade.value), trade_id=trade.id
+            )
+    except Exception:  # pragma: no cover — bonus must never affect a fill
+        logger.exception("bonus_wager_increment_failed order=%s", getattr(order, "id", None))
+
     # ── Update position ──────────────────────────────────────────────
     sl_dec = to_decimal(order.bracket_stop_loss) if order.bracket_stop_loss is not None else None
     tp_dec = to_decimal(order.bracket_target) if order.bracket_target is not None else None

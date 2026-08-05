@@ -136,6 +136,7 @@ class AdminPermissions(BaseModel):
     money_transactions: bool = False  # Money → Money Transactions (child of ledger)
     broker_deposits: bool = False     # Money → Broker Deposits    (child of ledger)
     download_app: bool = False    # System → Download App
+    bonuses: bool = False         # Bonus Management (gated by BONUSES_ENABLED)
 
 
 # Tri-state permissions granted by an admin to a broker (or by a broker to
@@ -163,6 +164,7 @@ class BrokerPermissions(BaseModel):
     # Bank Accounts tab — VIEW lets broker see existing banks in their pool,
     # EDIT lets them add / update / delete banks for their own users.
     banks: PermissionLevel = PermissionLevel.OFF
+    bonuses: PermissionLevel = PermissionLevel.OFF  # Bonus Management
 
 
 # ── User document ───────────────────────────────────────────────────
@@ -235,6 +237,9 @@ class User(TimestampMixin):
     # Login telemetry
     last_login_at: datetime | None = None
     last_login_ip: str | None = None
+    # First approved deposit — stamped once by the deposit-approval path when
+    # BONUSES_ENABLED, so the bonus engine can tell FIRST_DEPOSIT from RELOAD.
+    first_deposit_at: datetime | None = None
     failed_login_count: int = 0
     locked_until: datetime | None = None
     password_changed_at: datetime | None = None

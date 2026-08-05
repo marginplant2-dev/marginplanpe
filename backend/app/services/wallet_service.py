@@ -191,6 +191,32 @@ async def adjust(
         # Mongo hiccup. Safer to over-restrict than over-permit.
         auto_settlement_on = True
 
+    # ── Bonus credit absorbs the OVERFLOW past real balance ────────────
+    # (Bonus Management, gated by BONUSES_ENABLED. Deposit-first, per the
+    # operator: a trade LOSS drains real available_balance first; only the
+    # part that would push it below zero is eaten from the bonus credit pool,
+    # BEFORE it books to settlement_outstanding. We shrink `amt` by whatever
+    # bonus absorbed so the atomic loop below books just the residual.)
+    try:
+        from app.core.config import settings as _settings
+
+        if (
+            _settings.BONUSES_ENABLED
+            and transaction_type == TransactionType.PNL
+            and amt < ZERO
+        ):
+            from app.services import bonus_service as _bonus
+
+            _w0 = await get_or_create(user_id)
+            _overflow = (-amt) - to_decimal(_w0.available_balance)
+            if _overflow > ZERO:
+                _absorbed = await _bonus.absorb_loss(user_id, _overflow)
+                if _absorbed > ZERO:
+                    amt = add(amt, _absorbed)  # less negative → smaller settlement
+                    narration = f"{narration} (₹{_absorbed} absorbed by bonus credit)"
+    except Exception:  # pragma: no cover — bonus must never block a wallet write
+        logger.exception("bonus_absorb_failed user=%s", user_id)
+
     # ── Atomic, race-safe wallet write (optimistic concurrency) ───────
     # This used to read available_balance, compute the new value in
     # Python, then save() — a read-modify-write. When several closes
@@ -629,6 +655,59 @@ async def has_pending_settlement_request(
     return existing is not None
 
 
+async def credit_balance(
+    *,
+    user_id: str | PydanticObjectId,
+    amount: Decimal | float | int | str,
+    reason: str,
+    metadata: dict | None = None,
+    bonus_id: str | PydanticObjectId | None = None,
+) -> WalletTransaction | None:
+    """Credit available_balance — used to convert matured bonus credit into
+    withdrawable cash (Bonus Management). Writes a BONUS_CONVERTED ledger row
+    stamped with bonus_id/bonus_amount. Positive amount only; version-guarded
+    like adjust(). Returns the WalletTransaction, or None for a non-positive
+    amount."""
+    amt = quantize_money(to_decimal(amount))
+    if amt <= ZERO:
+        return None
+    from pymongo import ReturnDocument as _ReturnDocument
+
+    before = ZERO
+    after = ZERO
+    for _attempt in range(12):
+        w = await get_or_create(user_id)
+        before = to_decimal(w.available_balance)
+        after = add(before, amt)
+        updated = await Wallet.get_motor_collection().find_one_and_update(
+            {"_id": w.id, "version": w.version},
+            {"$set": {"available_balance": to_decimal128(after), "version": (w.version or 0) + 1}},
+            return_document=_ReturnDocument.AFTER,
+        )
+        if updated is not None:
+            break
+        await asyncio.sleep(0.015 * (_attempt + 1))
+    else:
+        raise RuntimeError("credit_balance: too much concurrent contention — please retry")
+
+    name = (metadata or {}).get("bonus") if metadata else None
+    txn = WalletTransaction(
+        user_id=PydanticObjectId(user_id),
+        transaction_type=TransactionType.BONUS_CONVERTED,
+        amount=Decimal128(str(amt)),
+        balance_before=Decimal128(str(before)),
+        balance_after=Decimal128(str(after)),
+        reference_type="BONUS",
+        reference_id=str(bonus_id) if bonus_id else None,
+        narration=(f"Bonus '{name}' converted to withdrawable balance" if name else "Bonus credit converted to balance"),
+        status=TransactionStatus.COMPLETED,
+        bonus_id=PydanticObjectId(str(bonus_id)) if bonus_id else None,
+        bonus_amount=Decimal128(str(amt)),
+    )
+    await txn.insert()
+    return txn
+
+
 async def force_debit(
     user_id: str | PydanticObjectId,
     amount: Decimal | float | int | str,
@@ -669,6 +748,29 @@ async def force_debit(
             auto_settlement_on = bool(getattr(_u, "auto_settlement", True))
     except Exception:
         auto_settlement_on = True
+
+    # ── Bonus credit absorbs the overflow past real balance ────────────
+    # (Bonus Management, gated by BONUSES_ENABLED. Deposit-first: on a stop-out
+    # PNL force-close the real balance is spent first; the overflow past zero is
+    # eaten from bonus credit BEFORE booking to settlement. Shrinks the debit
+    # magnitude by whatever bonus absorbed.)
+    try:
+        from app.core.config import settings as _settings
+
+        if _settings.BONUSES_ENABLED and transaction_type == TransactionType.PNL:
+            from app.services import bonus_service as _bonus
+
+            _w0 = await get_or_create(user_id)
+            _overflow = amt - to_decimal(_w0.available_balance)
+            if _overflow > ZERO:
+                _absorbed = await _bonus.absorb_loss(user_id, _overflow)
+                if _absorbed > ZERO:
+                    amt = quantize_money(amt - _absorbed)
+                    if amt < ZERO:
+                        amt = ZERO
+                    narration = f"{narration} (₹{_absorbed} absorbed by bonus credit)"
+    except Exception:  # pragma: no cover — bonus must never block a force-close
+        logger.exception("bonus_absorb_force_failed user=%s", user_id)
 
     # ── ATOMIC version-guarded write (mirrors adjust()) ───────────────
     # CRITICAL: a stop-out force-closes EVERY open position in PARALLEL
@@ -1420,6 +1522,8 @@ async def summary(user_id: str | PydanticObjectId) -> dict[str, Any]:
         "realized_pnl": str(w.realized_pnl),
         "unrealized_pnl": str(w.unrealized_pnl),
         "credit_limit": str(w.credit_limit),
+        # Bonus credit pool (Bonus Management). 0 when bonuses are off.
+        "credit": str(w.credit),
         "settlement_outstanding": str(w.settlement_outstanding),
         "total_deposits": str(w.total_deposits),
         "total_withdrawals": str(w.total_withdrawals),

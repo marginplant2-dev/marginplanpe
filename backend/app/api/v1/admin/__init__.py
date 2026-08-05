@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api.v1.admin import (
     accounts,
     auth,
+    bonuses,
     branding,
     brokerage,
     crypto_config,
@@ -45,6 +46,7 @@ router.include_router(trading.router)
 router.include_router(payin_out.router)
 router.include_router(brokerage.router)
 router.include_router(crypto_config.router)
+router.include_router(bonuses.router)
 router.include_router(instruments.router)
 router.include_router(marketwatch.router)
 router.include_router(ledger.router)

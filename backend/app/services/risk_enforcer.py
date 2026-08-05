@@ -139,6 +139,10 @@ def _wallet_balance(wallet: Any) -> Decimal:
         to_decimal(wallet.available_balance)
         + to_decimal(wallet.used_margin)
         + to_decimal(wallet.credit_limit)
+        # Bonus credit pool (Bonus Management) counts toward the stop-out base,
+        # so a user can ride a bit further before stop-out. Always 0 when
+        # BONUSES_ENABLED is off (no grants ever happen), so this is inert then.
+        + to_decimal(getattr(wallet, "credit", 0))
     )
 
 

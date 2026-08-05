@@ -32,6 +32,8 @@ export interface AdminPermissions {
   money_transactions: boolean;
   broker_deposits: boolean;
   download_app: boolean;
+  // Bonus Management (gated by backend BONUSES_ENABLED).
+  bonuses: boolean;
 }
 
 // Tri-state permission level (admin → broker grant, or broker → sub-broker).
@@ -57,6 +59,7 @@ export interface BrokerPermissions {
   sub_brokers: PermissionLevel;
   // VIEW = see existing banks in own pool; EDIT = add / update / delete.
   banks: PermissionLevel;
+  bonuses: PermissionLevel;
 }
 
 export interface AdminUser {
