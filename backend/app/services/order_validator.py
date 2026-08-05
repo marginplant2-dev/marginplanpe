@@ -1073,7 +1073,14 @@ async def validate(
     # operator flagged (CL59347510 sold KIRLOSENG on a closed Saturday). User
     # exits now respect market hours exactly like a user BUY.
     _is_force_close = is_squareoff and (placed_from or "WEB").upper() != "WEB"
-    if not is_amo and not is_24x7 and not _is_force_close:
+    # Admin-placed orders (Admin → Market Watch "place-orders", placed_from
+    # =="ADMIN") bypass the market-hours guard entirely — the operator can
+    # deliberately open OR close a trade off-hours / on a weekend / holiday,
+    # at the live LTP (MARKET) or their own price (MANUAL). This is an
+    # authenticated, scope-checked operator action, unlike a user's WEB order
+    # which stays gated (the stale-price fairness guard below is for USERS).
+    _is_admin_placed = (placed_from or "WEB").upper() == "ADMIN"
+    if not is_amo and not is_24x7 and not _is_force_close and not _is_admin_placed:
         ist = now_ist()
 
         # 24×5 (forex / metals / energy): closed only on weekends (Sat full-day;
