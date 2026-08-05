@@ -165,7 +165,7 @@ export default function ProfilePage() {
           tone="primary"
           label="Bank accounts"
           sub="Linked payout accounts"
-          href="/wallet#bank"
+          href="/bank-accounts"
         />
       </ListGroup>
 
