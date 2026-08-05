@@ -915,14 +915,17 @@ async def block_margin(user_id: str | PydanticObjectId, amount: Decimal | float)
     updated = await coll.find_one_and_update(
         {
             "user_id": uid,
-            # available_balance + credit_limit >= amt — evaluated atomically
-            # by the server so concurrent callers serialize on this doc.
+            # available_balance + credit_limit + bonus credit >= amt — evaluated
+            # atomically by the server so concurrent callers serialize on this
+            # doc. Bonus credit is buying-power headroom (Bonus Management),
+            # never deducted here; 0 when bonuses are off.
             "$expr": {
                 "$gte": [
                     {
                         "$add": [
                             {"$ifNull": ["$available_balance", zero_128]},
                             {"$ifNull": ["$credit_limit", zero_128]},
+                            {"$ifNull": ["$credit", zero_128]},
                         ]
                     },
                     amt_128,
@@ -944,7 +947,7 @@ async def block_margin(user_id: str | PydanticObjectId, amount: Decimal | float)
         w = await get_or_create(user_id)
         raise InsufficientFundsError(
             f"Insufficient margin: have ₹{w.available_balance} "
-            f"(+credit ₹{w.credit_limit}), need ₹{amt}"
+            f"(+credit ₹{w.credit_limit} +bonus ₹{w.credit}), need ₹{amt}"
         )
     # Notify the user's APK/web so the wallet's "available" and "used"
     # numbers reflect the new margin block immediately instead of waiting

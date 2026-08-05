@@ -1015,7 +1015,16 @@ async def validate(
             code="MARGIN_SANITY_FLOOR",
         )
     wallet = await wallet_service.get_or_create(user.id)  # type: ignore[arg-type]
-    available = to_decimal(wallet.available_balance) + to_decimal(wallet.credit_limit)
+    # Buying power = real cash + admin credit_limit + bonus credit pool. Bonus
+    # credit (Bonus Management) is usable as opening margin headroom exactly
+    # like credit_limit — it's never spent here, just lets the user lock margin
+    # they don't have the cash for; a later loss drains real balance first, then
+    # the bonus (see wallet_service loss hook). 0 when bonuses are off → inert.
+    available = (
+        to_decimal(wallet.available_balance)
+        + to_decimal(wallet.credit_limit)
+        + to_decimal(getattr(wallet, "credit", 0))
+    )
     # Closing/reducing orders don't lock new margin — they free it up — so
     # skip the funds + utilisation cap checks for them.
     if is_reducing or is_squareoff:

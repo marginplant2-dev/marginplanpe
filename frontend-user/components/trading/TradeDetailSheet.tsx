@@ -444,9 +444,13 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
   // into `lots`. submit() still uses `lotsToUse` for the actual order.
   const intradayMargin = +(marginPerLot * liveLots).toFixed(2);
   const carryforwardMargin = +(overnightMarginPerLot * liveLots).toFixed(2);
+  // Buying power = cash + admin credit_limit + bonus credit (Bonus Management).
+  // Must match the backend order gate (order_validator + block_margin), which
+  // all count bonus credit as usable opening-margin headroom.
   const availableMargin =
     Number(walletSummary?.available_balance ?? 0) +
-    Number(walletSummary?.credit_limit ?? 0);
+    Number(walletSummary?.credit_limit ?? 0) +
+    Number(walletSummary?.credit ?? 0);
 
   // Open-position count on THIS instrument — small badge by the symbol.
   const openPosCount = useMemo(() => {
