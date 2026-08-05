@@ -72,9 +72,10 @@ export default function DashboardPage() {
   const wallet = summary?.wallet ?? {};
   const portfolio =
     Number(wallet.available_balance ?? 0) + Number(wallet.used_margin ?? 0);
-  // Bonus credit pool (Bonus Management). A loss-cushion + stop-out buffer,
-  // shown distinctly so the user knows it's not spendable cash.
-  const bonus = Number(wallet.credit ?? 0);
+  // Bonus credit pool (Bonus Management). Show the FREE (unlocked) portion —
+  // it decrements as the user opens trades against it and restores on close.
+  const bonus = Number(wallet.bonus_free ?? wallet.credit ?? 0);
+  const bonusLocked = Number(wallet.bonus_locked ?? 0);
   // Prefer the canonical pnl-summary value; fall back to the dashboard
   // payload only while the dedicated query is still loading so we don't
   // flash ₹0 on first paint.
@@ -156,16 +157,17 @@ export default function DashboardPage() {
         <div className={cn("mt-5 grid divide-x divide-white/15 text-center text-xs", bonus > 0 ? "grid-cols-3" : "grid-cols-2")}>
           <MiniStat
             label="Available"
-            value={hideBalance ? "•••" : formatINR(wallet.available_balance ?? 0)}
+            value={hideBalance ? "•••" : formatINR(wallet.available_free ?? wallet.available_balance ?? 0)}
           />
           <MiniStat
             label="Used margin"
             value={hideBalance ? "•••" : formatINR(wallet.used_margin ?? 0)}
           />
-          {bonus > 0 && (
+          {(bonus > 0 || bonusLocked > 0) && (
             <MiniStat
               label="Bonus credit"
               value={hideBalance ? "•••" : formatINR(bonus)}
+              hint={bonusLocked > 0 ? `${formatINR(bonusLocked)} in use` : undefined}
             />
           )}
         </div>
@@ -322,11 +324,12 @@ export default function DashboardPage() {
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
+function MiniStat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="px-2">
       <div className="text-[10px] uppercase tracking-wider opacity-75">{label}</div>
       <div className="mt-0.5 font-tabular text-sm font-semibold">{value}</div>
+      {hint && <div className="text-[9px] opacity-70">{hint}</div>}
     </div>
   );
 }

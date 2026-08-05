@@ -457,7 +457,7 @@ export default function WalletPage() {
 
       {/* Bonus credit tile — renders only when the user has bonus credit /
           active bonuses (inert while the feature is off). */}
-      <BonusCard credit={summary?.credit} />
+      <BonusCard credit={summary?.bonus_free ?? summary?.credit} />
 
       {/* ── Unified Transactions section ─────────────────────────
           Operator request: drop the 4-box layout (Transaction history,

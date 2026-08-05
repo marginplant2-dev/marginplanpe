@@ -12,6 +12,7 @@ function daysUntil(iso?: string | null): number | null {
 const STATUS_STYLE: Record<string, string> = {
   ACTIVE: "bg-amber-500/15 text-amber-500",
   COMPLETED: "bg-emerald-500/15 text-emerald-500",
+  CONSUMED: "bg-muted text-muted-foreground",
   EXPIRED: "bg-muted text-muted-foreground",
   CANCELLED: "bg-red-500/15 text-red-500",
 };

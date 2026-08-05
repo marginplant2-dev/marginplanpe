@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-const STATUSES = ["", "ACTIVE", "COMPLETED", "EXPIRED", "CANCELLED"];
+const STATUSES = ["", "ACTIVE", "COMPLETED", "CONSUMED", "EXPIRED", "CANCELLED"];
 
 export function BonusGrantsTab() {
   const qc = useQueryClient();

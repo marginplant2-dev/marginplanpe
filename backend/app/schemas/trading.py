@@ -212,6 +212,9 @@ class WalletSummary(BaseModel):
     unrealized_pnl: str
     credit_limit: str
     credit: str = "0"  # bonus credit pool (Bonus Management); "0" when off
+    bonus_free: str = "0"      # bonus available to trade (raw credit − locked)
+    bonus_locked: str = "0"    # bonus tied up in open margin
+    available_free: str = "0"  # real free cash, floored at 0 (never negative)
     settlement_outstanding: str = "0"
     total_deposits: str
     total_withdrawals: str

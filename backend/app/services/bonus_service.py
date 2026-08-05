@@ -270,7 +270,12 @@ async def absorb_loss(
             bonus=b, action=BonusAction.LOSS_ABSORBED, credit_delta=-take,
             position_id=position_id, trade_id=trade_id,
         )
-        b.current_credit = to_decimal128(cred - take)
+        newc = cred - take
+        b.current_credit = to_decimal128(newc)
+        # Fully eaten by losses → terminal CONSUMED so it stops showing as an
+        # ACTIVE ₹0 grant (and can never block a withdrawal via an unmet wager).
+        if newc <= 0:
+            b.status = UserBonusStatus.CONSUMED
         await b.save()
         remaining -= take
         absorbed_total += take

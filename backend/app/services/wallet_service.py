@@ -1511,6 +1511,23 @@ async def summary(user_id: str | PydanticObjectId) -> dict[str, Any]:
         except Exception:
             margin_level_pct = None
 
+    # ── Bonus display split (Bonus Management) ───────────────────────
+    # When bonus credit is used as opening margin, available_balance goes
+    # NEGATIVE (the shortfall is borrowed against credit_limit + bonus
+    # headroom). For the user these derived fields present it intuitively:
+    #   available_free : real free cash, floored at 0 (never shown negative)
+    #   bonus_locked   : bonus currently tied up in open margin
+    #   bonus_free     : bonus still available to trade with
+    # The raw `available_balance` / `credit` are kept for wealth + buying-power
+    # math; the frontend shows these *_free fields in the tiles.
+    raw_credit = to_decimal(w.credit)
+    borrowed = (ZERO - avail) if avail < ZERO else ZERO  # negative-available = headroom used
+    bonus_locked = min(raw_credit, borrowed - credit if borrowed > credit else ZERO)
+    if bonus_locked < ZERO:
+        bonus_locked = ZERO
+    bonus_free = raw_credit - bonus_locked
+    available_free = avail if avail > ZERO else ZERO
+
     return {
         # ── Dabba-style KPIs (preferred) ────────────────────────────
         "bal": str(bal),
@@ -1525,8 +1542,12 @@ async def summary(user_id: str | PydanticObjectId) -> dict[str, Any]:
         "realized_pnl": str(w.realized_pnl),
         "unrealized_pnl": str(w.unrealized_pnl),
         "credit_limit": str(w.credit_limit),
-        # Bonus credit pool (Bonus Management). 0 when bonuses are off.
+        # Bonus credit pool (Bonus Management). `credit` is the raw total (kept
+        # for buying-power math); *_free / *_locked are the display split.
         "credit": str(w.credit),
+        "bonus_free": str(bonus_free),
+        "bonus_locked": str(bonus_locked),
+        "available_free": str(available_free),
         "settlement_outstanding": str(w.settlement_outstanding),
         "total_deposits": str(w.total_deposits),
         "total_withdrawals": str(w.total_withdrawals),

@@ -27,6 +27,7 @@ class UserBonusStatus(StrEnum):
     COMPLETED = "COMPLETED"  # wager met → remaining credit converted to cash
     EXPIRED = "EXPIRED"  # past expires_at, wager unmet → remainder clawed
     CANCELLED = "CANCELLED"  # admin cancel → remainder clawed
+    CONSUMED = "CONSUMED"  # credit fully eaten by trade losses → nothing left
 
 
 class UserBonus(TimestampMixin):
