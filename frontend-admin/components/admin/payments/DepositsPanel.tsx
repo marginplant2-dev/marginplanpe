@@ -186,7 +186,7 @@ export function DepositsPanel() {
       },
     },
     { key: "payment_mode", header: "Mode" },
-    { key: "utr_number", header: "UTR", render: (r) => r.utr_number || "—" },
+    { key: "utr_number", header: "UTR / Tx", render: (r) => <TxnCell r={r} /> },
     { key: "user_remark", header: "Remark", render: (r) => r.user_remark || "—", className: "max-w-[200px] truncate" },
     {
       key: "screenshot",
@@ -429,6 +429,42 @@ export function DepositsPanel() {
 }
 
 /* ─────────────────────────────────────────────────────────────────── */
+/* Transaction / UTR cell                                               */
+/* ─────────────────────────────────────────────────────────────────── */
+
+/**
+ * Shows the payment's transaction reference: bank UTR for UPI/BANK, or the
+ * on-chain tx hash (manual crypto) / oxapay track id (gateway) for CRYPTO,
+ * with the asset · network underneath. Click to copy the full value — tx
+ * hashes are long and admins paste them into a block explorer to verify.
+ */
+function TxnCell({ r }: { r: any }) {
+  const isCrypto = r.payment_mode === "CRYPTO";
+  const txn = r.utr_number || r.crypto_tx_hash || r.gateway_ref || "";
+  const sub = isCrypto
+    ? [r.crypto_asset, r.crypto_network].filter(Boolean).join(" · ")
+    : "";
+  if (!txn) return <span className="text-muted-foreground">—</span>;
+  return (
+    <button
+      type="button"
+      className="flex max-w-[170px] flex-col items-start leading-tight text-left"
+      title={`${txn}\n(click to copy)`}
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard?.writeText(txn).then(
+          () => toast.success("Transaction id copied"),
+          () => {},
+        );
+      }}
+    >
+      <span className="w-full truncate font-mono text-[11px] hover:text-primary">{txn}</span>
+      {sub && <span className="text-[9px] uppercase tracking-wide text-muted-foreground">{sub}</span>}
+    </button>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────── */
 /* Mobile deposit card                                                  */
 /* ─────────────────────────────────────────────────────────────────── */
 
@@ -527,11 +563,9 @@ function DepositMobileCard({
         </div>
         <div className="min-w-0">
           <div className="text-[9px] uppercase tracking-wider text-muted-foreground">
-            UTR
+            {r.payment_mode === "CRYPTO" ? "Tx" : "UTR"}
           </div>
-          <div className="truncate font-mono text-[11px]" title={r.utr_number || "—"}>
-            {r.utr_number || "—"}
-          </div>
+          <TxnCell r={r} />
         </div>
         {r.user_remark && (
           <div className="col-span-2 min-w-0">

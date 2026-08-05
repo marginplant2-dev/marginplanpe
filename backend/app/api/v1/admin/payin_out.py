@@ -160,6 +160,15 @@ async def list_deposits(
                     "amount": str(r.amount),
                     "payment_mode": r.payment_mode.value,
                     "utr_number": r.utr_number,
+                    # Crypto details so the admin sees the user's on-chain tx id
+                    # (manual) or the oxapay ref (gateway) instead of a blank UTR.
+                    "crypto_asset": r.crypto_asset,
+                    "crypto_network": r.crypto_network,
+                    "crypto_address": r.crypto_address,
+                    "crypto_tx_hash": r.crypto_tx_hash,
+                    "gateway": r.gateway,
+                    "gateway_ref": r.gateway_ref,
+                    "gateway_status": r.gateway_status,
                     "screenshot_url": r.screenshot_url,
                     "status": r.status.value,
                     "user_remark": r.user_remark,
