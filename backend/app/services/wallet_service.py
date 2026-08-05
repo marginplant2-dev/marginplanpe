@@ -905,59 +905,49 @@ async def block_margin(user_id: str | PydanticObjectId, amount: Decimal | float)
     amt = quantize_money(to_decimal(amount))
     if amt <= ZERO:
         return
-    # Ensure the wallet doc exists so the conditional update can match it.
     await get_or_create(user_id)
-    uid = user_id if isinstance(user_id, PydanticObjectId) else PydanticObjectId(str(user_id))
-    amt_128 = to_decimal128(amt)
-    neg_amt_128 = to_decimal128(ZERO - amt)
-    zero_128 = Decimal128("0")
     coll = Wallet.get_motor_collection()
-    updated = await coll.find_one_and_update(
-        {
-            "user_id": uid,
-            # available_balance + credit_limit + bonus credit >= amt — evaluated
-            # atomically by the server so concurrent callers serialize on this
-            # doc. Bonus credit is buying-power headroom (Bonus Management),
-            # never deducted here; 0 when bonuses are off.
-            "$expr": {
-                "$gte": [
-                    {
-                        "$add": [
-                            {"$ifNull": ["$available_balance", zero_128]},
-                            {"$ifNull": ["$credit_limit", zero_128]},
-                            {"$ifNull": ["$credit", zero_128]},
-                        ]
-                    },
-                    amt_128,
-                ]
-            },
-        },
-        {
-            "$inc": {
-                "available_balance": neg_amt_128,
-                "used_margin": amt_128,
-                "version": 1,
-            }
-        },
-        return_document=ReturnDocument.AFTER,
-    )
-    if updated is None:
-        # Conditional didn't match → funds genuinely insufficient (or the
-        # wallet vanished, which get_or_create above rules out).
+    new_avail = ZERO
+    for _attempt in range(12):
         w = await get_or_create(user_id)
-        raise InsufficientFundsError(
-            f"Insufficient margin: have ₹{w.available_balance} "
-            f"(+credit ₹{w.credit_limit} +bonus ₹{w.credit}), need ₹{amt}"
+        avail = to_decimal(w.available_balance)
+        free_bonus = to_decimal(w.credit)
+        cl = to_decimal(w.credit_limit)
+        # Buying power = free cash + admin credit_limit + free bonus.
+        if add(add(avail, cl), free_bonus) < amt:
+            raise InsufficientFundsError(
+                f"Insufficient margin: have ₹{w.available_balance} "
+                f"(+credit ₹{w.credit_limit} +bonus ₹{w.credit}), need ₹{amt}"
+            )
+        # ── Bonus-first lock (operator policy) ────────────────────────
+        # Lock BONUS before cash so a granted bonus is visibly consumed as the
+        # user trades (bonus → bonus_locked, restored on close). The remaining
+        # margin comes off cash, which only dips below 0 when an admin
+        # credit_limit backs it. Losses still hit cash first (see adjust hook).
+        bonus_use = free_bonus if free_bonus < amt else amt
+        if bonus_use < ZERO:
+            bonus_use = ZERO
+        cash_use = sub(amt, bonus_use)
+        new_avail = sub(avail, cash_use)
+        set_fields = {
+            "available_balance": to_decimal128(new_avail),
+            "used_margin": to_decimal128(add(w.used_margin, amt)),
+            "credit": to_decimal128(sub(free_bonus, bonus_use)),
+            "bonus_locked": to_decimal128(add(to_decimal(w.bonus_locked), bonus_use)),
+        }
+        res = await coll.find_one_and_update(
+            {"_id": w.id, "version": w.version},
+            {"$set": set_fields, "$inc": {"version": 1}},
+            return_document=ReturnDocument.AFTER,
         )
-    # Notify the user's APK/web so the wallet's "available" and "used"
-    # numbers reflect the new margin block immediately instead of waiting
-    # on the 15 s wallet poll.
+        if res is not None:
+            break
+        await asyncio.sleep(0.015 * (_attempt + 1))
+    else:
+        raise InsufficientFundsError("Margin lock failed under contention — please retry")
     asyncio.create_task(
         _publish_wallet_event(
-            user_id,
-            reason="MARGIN_BLOCK",
-            amount=amt,
-            balance_after=to_decimal(updated.get("available_balance")),
+            user_id, reason="MARGIN_BLOCK", amount=amt, balance_after=new_avail,
         )
     )
 
@@ -997,13 +987,22 @@ async def release_margin(user_id: str | PydanticObjectId, amount: Decimal | floa
         actual = min(amt, to_decimal(w.used_margin))
         if actual <= ZERO:
             return
-        new_avail = add(w.available_balance, actual)
+        # Restore bonus BEFORE cash (mirror of the bonus-first lock): the freed
+        # margin repays the locked bonus first, then real cash.
+        locked = to_decimal(w.bonus_locked)
+        bonus_restore = locked if locked < actual else actual  # min(locked, actual)
+        if bonus_restore < ZERO:
+            bonus_restore = ZERO
+        cash_restore = sub(actual, bonus_restore)
+        new_avail = add(w.available_balance, cash_restore)
         res = await coll.update_one(
             {"_id": w.id, "version": w.version},
             {
                 "$set": {
                     "used_margin": to_decimal128(sub(w.used_margin, actual)),
                     "available_balance": to_decimal128(new_avail),
+                    "credit": to_decimal128(add(to_decimal(w.credit), bonus_restore)),
+                    "bonus_locked": to_decimal128(sub(locked, bonus_restore)),
                 },
                 "$inc": {"version": 1},
             },
@@ -1520,12 +1519,11 @@ async def summary(user_id: str | PydanticObjectId) -> dict[str, Any]:
     #   bonus_free     : bonus still available to trade with
     # The raw `available_balance` / `credit` are kept for wealth + buying-power
     # math; the frontend shows these *_free fields in the tiles.
-    raw_credit = to_decimal(w.credit)
-    borrowed = (ZERO - avail) if avail < ZERO else ZERO  # negative-available = headroom used
-    bonus_locked = min(raw_credit, borrowed - credit if borrowed > credit else ZERO)
-    if bonus_locked < ZERO:
-        bonus_locked = ZERO
-    bonus_free = raw_credit - bonus_locked
+    # Bonus-first locking keeps `credit` = FREE (unlocked) bonus and
+    # `bonus_locked` the portion tied in open margin. available_balance stays
+    # >= 0 (only an admin credit_limit can back a deeper lock → floor for show).
+    bonus_free = to_decimal(w.credit)
+    bonus_locked = to_decimal(w.bonus_locked)
     available_free = avail if avail > ZERO else ZERO
 
     return {

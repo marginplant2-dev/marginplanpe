@@ -32,9 +32,16 @@ class Wallet(TimestampMixin):
     # Phantom credit granted by a bonus. Counts toward the stop-out / free-
     # margin base like credit_limit, but ALSO absorbs realized losses — AFTER
     # real available_balance is exhausted (deposit-first), BEFORE
-    # settlement_outstanding. Materialized from the bonus_transactions ledger;
-    # never edit directly outside bonus_service. Zero when bonuses are off.
+    # settlement_outstanding. `credit` holds the FREE (unlocked) bonus:
+    # opening a trade locks bonus BEFORE cash (operator policy), moving the
+    # locked amount into `bonus_locked` and back on close. Total bonus value
+    # granted = credit + bonus_locked = Σ active UserBonus.current_credit.
+    # Zero when bonuses are off.
     credit: Money = Field(default_factory=_zero)
+
+    # Bonus currently tied up in open-position margin (Bonus Management).
+    # Restored to `credit` when that margin is released on close.
+    bonus_locked: Money = Field(default_factory=_zero)
 
     # Unrecovered settlement loss — when a stop-out force-close booked a
     # realized loss that exceeded available_balance + credit_limit, the

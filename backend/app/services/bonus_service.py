@@ -233,12 +233,17 @@ async def recompute_credit(user_id: Any) -> Decimal:
             await b.save()
         if b.status == UserBonusStatus.ACTIVE:
             total += s
-    total = quantize_money(total)
+    total = quantize_money(total)  # total remaining bonus value (free + locked)
     w = await Wallet.find_one(Wallet.user_id == uid)
+    free = total
     if w is not None:
-        w.credit = to_decimal128(total)
+        # Wallet.credit holds the FREE bonus; the rest is locked in margin.
+        free = quantize_money(total - to_decimal(w.bonus_locked))
+        if free < 0:
+            free = ZERO
+        w.credit = to_decimal128(free)
         await w.save()
-    return total
+    return free
 
 
 async def absorb_loss(
