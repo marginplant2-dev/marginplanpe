@@ -52,3 +52,9 @@ class BonusGrantRequest(BaseModel):
 
 class BonusCancelRequest(BaseModel):
     reason: str
+
+
+class BonusDeductRequest(BaseModel):
+    user_id: str
+    amount: float
+    reason: str = ""

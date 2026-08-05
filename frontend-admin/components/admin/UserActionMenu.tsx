@@ -10,6 +10,7 @@ import {
   Ban,
   CheckCircle2,
   Eye,
+  Gift,
   LogIn,
   MinusCircle,
   MoreHorizontal,
@@ -19,12 +20,14 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
-import { UsersAPI } from "@/lib/api";
+import { UsersAPI, BonusesAdminAPI } from "@/lib/api";
 import { TransferUserDialog } from "@/components/admin/TransferUserDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { useAdminAuthStore } from "@/stores/authStore";
+import { canSee } from "@/lib/permissions";
 import { useMarketStream } from "@/lib/useMarketStream";
 import { useMemo } from "react";
 import {
@@ -40,6 +43,8 @@ type ActionKind =
   | null
   | "addFund"
   | "deductFund"
+  | "addBonus"
+  | "deductBonus"
   | "ban"
   | "kill"
   | "delete"
@@ -53,6 +58,8 @@ interface Props {
 export function UserActionMenu({ user, onChange }: Props) {
   const router = useRouter();
   const qc = useQueryClient();
+  const me = useAdminAuthStore((s) => s.admin);
+  const canBonus = canSee(me, "bonuses");
   const [menuOpen, setMenuOpen] = useState(false);
   const [action, setAction] = useState<ActionKind>(null);
   const [transferOpen, setTransferOpen] = useState(false);
@@ -106,6 +113,35 @@ export function UserActionMenu({ user, onChange }: Props) {
       close();
     } catch (e: any) {
       toast.error(e?.response?.data?.error?.message || e.message || "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runBonus(kind: "addBonus" | "deductBonus") {
+    const num = Number(amount);
+    if (!num || num <= 0) {
+      toast.error("Enter a positive amount");
+      return;
+    }
+    setBusy(true);
+    try {
+      if (kind === "addBonus") {
+        await BonusesAdminAPI.grant({ user_id: user.id, amount: num, notes: note.trim() });
+        toast.success(`Added ₹${num} bonus credit to ${user.user_code}`);
+      } else {
+        const r = await BonusesAdminAPI.deduct({ user_id: user.id, amount: num, reason: note.trim() });
+        toast.success(`Deducted ₹${r.deducted} bonus credit from ${user.user_code}`);
+      }
+      refresh();
+      close();
+    } catch (e: any) {
+      toast.error(
+        e?.response?.data?.error?.message ||
+          e?.response?.data?.detail ||
+          e.message ||
+          "Failed",
+      );
     } finally {
       setBusy(false);
     }
@@ -257,6 +293,20 @@ export function UserActionMenu({ user, onChange }: Props) {
               label="Deduct Fund"
               onClick={() => pick(() => setAction("deductFund"))}
             />
+            {canBonus && (
+              <>
+                <MenuButton
+                  icon={<Gift className="size-4" />}
+                  label="Add Bonus"
+                  onClick={() => pick(() => setAction("addBonus"))}
+                />
+                <MenuButton
+                  icon={<Gift className="size-4" />}
+                  label="Deduct Bonus"
+                  onClick={() => pick(() => setAction("deductBonus"))}
+                />
+              </>
+            )}
             <MenuSeparator />
 
             {/* Transfer User — opens the role-aware destination picker.
@@ -336,6 +386,33 @@ export function UserActionMenu({ user, onChange }: Props) {
         busy={busy}
         onCancel={close}
         onSubmit={() => runWalletAdjust("deductFund")}
+      />
+      <AmountDialog
+        open={action === "addBonus"}
+        title={`Add bonus — ${user.user_code}`}
+        description="Grants bonus credit. It absorbs losses AFTER real balance, counts toward the stop-out base, and has no wager (withdrawable freely)."
+        actionLabel="Add bonus"
+        amount={amount}
+        setAmount={setAmount}
+        note={note}
+        setNote={setNote}
+        busy={busy}
+        onCancel={close}
+        onSubmit={() => runBonus("addBonus")}
+      />
+      <AmountDialog
+        open={action === "deductBonus"}
+        title={`Deduct bonus — ${user.user_code}`}
+        description="Claws back bonus credit from the user's active bonuses (oldest first)."
+        actionLabel="Deduct bonus"
+        actionVariant="destructive"
+        amount={amount}
+        setAmount={setAmount}
+        note={note}
+        setNote={setNote}
+        busy={busy}
+        onCancel={close}
+        onSubmit={() => runBonus("deductBonus")}
       />
       {/* Ban / Unblock */}
       <Dialog open={action === "ban"} onOpenChange={(v) => !v && close()}>

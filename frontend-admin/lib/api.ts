@@ -421,6 +421,8 @@ export const BonusesAdminAPI = {
     ),
   grant: (body: { user_id: string; template_id?: string; deposit_amount?: number; amount?: number; notes?: string }) =>
     unwrap<any>(api.post("/admin/bonuses/grant", body)),
+  deduct: (body: { user_id: string; amount: number; reason?: string }) =>
+    unwrap<{ deducted: string; user_wallet_credit: string }>(api.post("/admin/bonuses/deduct", body)),
   cancel: (id: string, reason: string) => unwrap<any>(api.post(`/admin/bonuses/${id}/cancel`, { reason })),
   ledger: (id: string) => unwrap<any[]>(api.get(`/admin/bonuses/${id}/ledger`)),
   recompute: (id: string) => unwrap<any>(api.post(`/admin/bonuses/${id}/recompute`)),

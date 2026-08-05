@@ -144,6 +144,56 @@ async def grant_custom(
     return bonus
 
 
+async def deduct_custom(
+    user_id: Any, amount: Any, *, by: PydanticObjectId | None, reason: str = ""
+) -> Decimal:
+    """Admin manual bonus deduction — claw back up to `amount` of bonus credit,
+    OLDEST bonus first. A bonus whose credit hits 0 is marked CANCELLED (so a
+    leftover empty grant can't keep blocking withdrawals via its wager). Returns
+    the amount actually deducted."""
+    amt = quantize_money(to_decimal(amount))
+    if amt <= 0:
+        raise ValueError("Deduct amount must be positive")
+    uid = _uid(user_id)
+    bonuses = (
+        await UserBonus.find(
+            UserBonus.user_id == uid, UserBonus.status == UserBonusStatus.ACTIVE
+        )
+        .sort("+granted_at")
+        .to_list()
+    )
+    remaining = amt
+    deducted = ZERO
+    for b in bonuses:
+        if remaining <= 0:
+            break
+        cred = to_decimal(b.current_credit)
+        if cred <= 0:
+            continue
+        take = min(cred, remaining)
+        await _write_bonus_tx(
+            bonus=b, action=BonusAction.CANCELLED_CLAWED, credit_delta=-take,
+            metadata={"reason": "admin_deduct", "note": reason},
+        )
+        newc = cred - take
+        b.current_credit = to_decimal128(newc)
+        if newc <= 0:
+            b.status = UserBonusStatus.CANCELLED
+            b.cancelled_at = now_utc()
+            b.cancelled_by = by
+            b.cancellation_reason = reason or "admin deduct"
+        await b.save()
+        remaining -= take
+        deducted += take
+    if deducted > 0:
+        await _bump_wallet_credit(uid, -deducted)
+        await log_event(
+            action=AuditAction.UPDATE, entity_type="UserBonus", actor_id=by, target_user_id=uid,
+            metadata={"action": "deduct", "amount": str(deducted), "reason": reason},
+        )
+    return quantize_money(deducted)
+
+
 async def cancel(bonus: UserBonus, *, cancelled_by: PydanticObjectId | None, reason: str) -> UserBonus:
     if bonus.status != UserBonusStatus.ACTIVE:
         raise ValueError("Only an active bonus can be cancelled")

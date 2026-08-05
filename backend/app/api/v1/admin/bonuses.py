@@ -18,6 +18,7 @@ from app.models.user_bonus import UserBonus, UserBonusStatus
 from app.models.wallet import Wallet
 from app.schemas.bonus import (
     BonusCancelRequest,
+    BonusDeductRequest,
     BonusGrantRequest,
     BonusTemplateCreate,
     BonusTemplatePatch,
@@ -218,6 +219,35 @@ async def grant(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return APIResponse(data=_bonus_out(bonus, user), message="Bonus granted.")
+
+
+@router.post("/deduct", response_model=APIResponse[dict])
+async def deduct(
+    payload: BonusDeductRequest, admin: CurrentAdmin,
+    _: None = Depends(require_perm("bonuses", "write")),
+):
+    """Manually claw back bonus credit from a user (Add/Deduct-Fund-style
+    quick action). Deducts up to `amount` from the user's active bonuses."""
+    _gate()
+    try:
+        user = await User.get(PydanticObjectId(payload.user_id))
+    except Exception:
+        user = None
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if admin.role != UserRole.SUPER_ADMIN and getattr(user, "assigned_admin_id", None) != admin.id:
+        raise HTTPException(status_code=403, detail="User is not in your pool")
+    try:
+        deducted = await bonus_service.deduct_custom(
+            user.id, payload.amount, by=admin.id, reason=payload.reason,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    w = await Wallet.find_one(Wallet.user_id == user.id)
+    return APIResponse(
+        data={"deducted": str(deducted), "user_wallet_credit": str(w.credit) if w else "0"},
+        message=f"Deducted ₹{deducted} bonus credit.",
+    )
 
 
 @router.post("/{bonus_id}/cancel", response_model=APIResponse[dict])
