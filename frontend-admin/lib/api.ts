@@ -409,6 +409,13 @@ export const TradingAPI = {
   holdings: (params?: any) => unwrap<any[]>(api.get("/admin/holdings", { params })),
 };
 
+// Per-admin / super-admin public-registration toggle.
+export const RegistrationAPI = {
+  status: () => unwrap<{ enabled: boolean }>(api.get("/admin/dashboard/registration-status")),
+  set: (enabled: boolean) =>
+    unwrap<{ enabled: boolean }>(api.put("/admin/dashboard/registration-status", { enabled })),
+};
+
 // Bonus Management (backend gated by BONUSES_ENABLED → 503 when off).
 export const BonusesAdminAPI = {
   listTemplates: () => unwrap<any[]>(api.get("/admin/bonuses/templates")),

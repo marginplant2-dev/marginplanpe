@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, HTTPException, Request, status
 
 from app.core.dependencies import CurrentUser
 from app.core.exceptions import (
@@ -95,6 +95,23 @@ async def register(payload: RegisterRequest, request: Request):
             referral_code=payload.referral_code,
         )
     )
+
+    # Public-registration switch. The owning admin (their ?ref= link / custom
+    # domain) or the super-admin (the platform pool, when nothing matched) can
+    # turn signups OFF for THEIR pool only. Reject with a clear message the
+    # register page shows as a popup; every other admin's link keeps working.
+    from app.models.user import User as _User
+
+    _reg_owner = (
+        await _User.get(assigned_admin_id)
+        if assigned_admin_id
+        else await branding_service.find_platform_super_admin()
+    )
+    if _reg_owner is not None and not getattr(_reg_owner, "registration_enabled", True):
+        raise HTTPException(
+            status_code=403,
+            detail="Registration is temporarily disabled. Please try again later.",
+        )
 
     user = await user_service.create_user(
         email=payload.email,

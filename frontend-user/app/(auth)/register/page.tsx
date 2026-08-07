@@ -127,6 +127,7 @@ function RegisterPageInner() {
   const pwd = form.watch("password") || "";
   const strength = passwordStrength(pwd);
   const showRules = pwdFocused || pwd.length > 0;
+  const [blockedMsg, setBlockedMsg] = useState<string | null>(null);
 
   async function onSubmit(values: FormValues) {
     try {
@@ -148,12 +149,30 @@ function RegisterPageInner() {
       router.push(refCode ? `/login?ref=${encodeURIComponent(refCode)}` : "/login");
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Registration failed";
-      toast.error(msg);
+      // Registration turned off for this pool → prominent popup, not a toast.
+      if (/registration is (temporarily )?disabled/i.test(msg)) {
+        setBlockedMsg(msg);
+      } else {
+        toast.error(msg);
+      }
     }
   }
 
   return (
     <div className="space-y-4 sm:space-y-6">
+      {/* Registration-disabled popup — shown when this pool has signups off. */}
+      {blockedMsg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setBlockedMsg(null)}>
+          <div className="w-full max-w-sm rounded-2xl bg-card p-6 text-center shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mx-auto mb-3 grid size-12 place-items-center rounded-full bg-amber-500/15 text-amber-500">
+              <X className="size-6" />
+            </div>
+            <h3 className="text-lg font-semibold">Registration closed</h3>
+            <p className="mt-1.5 text-sm text-muted-foreground">{blockedMsg}</p>
+            <Button className="mt-5 w-full" onClick={() => setBlockedMsg(null)}>OK</Button>
+          </div>
+        </div>
+      )}
       {/* Header — hidden on mobile (tab bar already says "Register"),
           visible on desktop where the tab bar is absent. */}
       <div className="hidden space-y-1.5 lg:block">

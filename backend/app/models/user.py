@@ -338,6 +338,14 @@ class User(TimestampMixin):
     # resolved) as a Telegram button. null / empty → nothing shown.
     telegram_link: str | None = None
 
+    # Per-admin (and super-admin) public-registration switch. When False, the
+    # website /register flow for THIS owner's pool (their ?ref= link, custom
+    # domain, or — for the super-admin — the platform pool) is turned OFF and
+    # shows a "registration temporarily disabled" message. Default True so every
+    # existing pool keeps accepting signups. Only the owner's own toggle matters;
+    # other admins are unaffected.
+    registration_enabled: bool = True
+
     # Custom domain (sparse-unique — see Settings.indexes). Stored
     # lowercased, no scheme: "mybroker.com".
     custom_domain: str | None = None

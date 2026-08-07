@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   Activity,
   AlertTriangle,
@@ -16,10 +17,11 @@ import {
   Link2,
   Copy,
   Check,
+  UserPlus,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { DashboardAPI } from "@/lib/api";
+import { DashboardAPI, RegistrationAPI } from "@/lib/api";
 import { formatINR, formatINRCompact, formatNumber, pnlColor } from "@/lib/utils";
 import { PageHeader } from "@/components/common/PageHeader";
 import { readDashboardSnapshot, writeDashboardSnapshot } from "@/lib/dashboardSnapshot";
@@ -237,6 +239,10 @@ export default function AdminDashboardPage() {
         </Card>
       )}
 
+      {/* Website-registration toggle — the admin (their ?ref= link) or the
+          super-admin (the platform pool) turns their own signups on/off. */}
+      <RegistrationToggleCard isSuper={admin?.role === "SUPER_ADMIN"} />
+
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
@@ -312,5 +318,54 @@ function Row({ label, value, ok }: { label: string; value: string; ok: boolean }
       <span className="text-muted-foreground">{label}</span>
       <span className={`font-mono text-xs ${ok ? "text-primary" : "text-destructive"}`}>{value}</span>
     </div>
+  );
+}
+
+function RegistrationToggleCard({ isSuper }: { isSuper: boolean }) {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ["admin", "registration-status"],
+    queryFn: () => RegistrationAPI.status(),
+  });
+  const enabled = data?.enabled ?? true;
+  const mut = useMutation({
+    mutationFn: (next: boolean) => RegistrationAPI.set(next),
+    onSuccess: (r) => {
+      toast.success(r.enabled ? "Website registration turned ON" : "Website registration turned OFF");
+      qc.invalidateQueries({ queryKey: ["admin", "registration-status"] });
+    },
+    onError: (e: any) => toast.error(e?.message || "Failed to update"),
+  });
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <UserPlus className="size-4 text-primary" />
+          <CardTitle className="text-sm">Website registration</CardTitle>
+        </div>
+        <CardDescription>
+          {isSuper
+            ? "New signups from the website (platform pool). Turn OFF to show a “registration temporarily disabled” popup on the register page."
+            : "New signups via YOUR referral link. Turn OFF to close registration for your pool — other admins are unaffected."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-between">
+          <span className={`text-sm font-semibold ${enabled ? "text-emerald-500" : "text-destructive"}`}>
+            {enabled ? "ON — accepting signups" : "OFF — registration closed"}
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            disabled={mut.isPending}
+            onClick={() => mut.mutate(!enabled)}
+            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${enabled ? "bg-emerald-500" : "bg-muted-foreground/30"}`}
+          >
+            <span className={`inline-block size-4 transform rounded-full bg-white shadow transition-transform ${enabled ? "translate-x-6" : "translate-x-1"}`} />
+          </button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

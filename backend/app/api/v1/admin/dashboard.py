@@ -31,6 +31,32 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/dashboard", tags=["admin-dashboard"])
 
 
+# ── Public-registration toggle (per-admin / super-admin) ─────────────
+# Each admin (and the super-admin, for the platform pool) can turn their OWN
+# website /register flow ON/OFF. Not gated by BRANDING_ENABLED — registration
+# hierarchy works regardless. Other admins are unaffected.
+from pydantic import BaseModel  # noqa: E402
+
+
+class _RegistrationToggle(BaseModel):
+    enabled: bool
+
+
+@router.get("/registration-status", response_model=APIResponse[dict])
+async def get_registration_status(admin: CurrentAdmin):
+    return APIResponse(data={"enabled": bool(getattr(admin, "registration_enabled", True))})
+
+
+@router.put("/registration-status", response_model=APIResponse[dict])
+async def set_registration_status(payload: _RegistrationToggle, admin: CurrentAdmin):
+    admin.registration_enabled = bool(payload.enabled)
+    await admin.save()
+    return APIResponse(
+        data={"enabled": admin.registration_enabled},
+        message=("Website registration enabled." if admin.registration_enabled else "Website registration disabled."),
+    )
+
+
 async def _safe(coro, default):
     """Run an awaitable; on failure log and return `default` so a single bad
     query doesn't blank the whole admin dashboard."""
