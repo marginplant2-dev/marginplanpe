@@ -87,6 +87,45 @@ def _money_to_float(v: Any) -> float:
             return 0.0
 
 
+def bracket_direction_error(
+    action: Any, ref_price: Any, sl: Any = None, tp: Any = None
+) -> str | None:
+    """Return a user-facing message when an SL/TP leg is on the WRONG side of
+    ``ref_price``, else None. Shared guard for every bracket-leg writer.
+
+    Why it matters: SL/TP legs fill at EXACTLY the leg price (``_exact_close`` —
+    a deliberate operator decision). A leg on the profitable side of the market
+    is already "hit" the instant it's stored — the risk enforcer fires it and
+    the fill books at an untraded price → fake P&L. So an impossible leg must be
+    REJECTED at write time, never accepted.
+
+    Rules (ref = live LTP, caller falls back to entry price; ref <= 0 → None,
+    fail open so a missing mark never blocks a legitimate leg):
+      • BUY / long  : SL below ref, TP above ref
+      • SELL / short: SL above ref, TP below ref
+    """
+    ref = _money_to_float(ref_price)
+    if ref <= 0:
+        return None
+    act = str(getattr(action, "value", action) or "").upper()
+    is_long = act == "BUY"
+    if sl is not None:
+        s = _money_to_float(sl)
+        if s > 0:
+            if is_long and s >= ref:
+                return f"Stop Loss ₹{s:g} must be BELOW current price ₹{ref:.2f} for a BUY position."
+            if not is_long and s <= ref:
+                return f"Stop Loss ₹{s:g} must be ABOVE current price ₹{ref:.2f} for a SELL position."
+    if tp is not None:
+        t = _money_to_float(tp)
+        if t > 0:
+            if is_long and t <= ref:
+                return f"Target ₹{t:g} must be ABOVE current price ₹{ref:.2f} for a BUY position."
+            if not is_long and t >= ref:
+                return f"Target ₹{t:g} must be BELOW current price ₹{ref:.2f} for a SELL position."
+    return None
+
+
 async def validate(
     *,
     user: User,

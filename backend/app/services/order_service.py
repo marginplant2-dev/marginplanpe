@@ -290,6 +290,27 @@ async def place_order(
         to_decimal(expected_raw) if expected_raw not in (None, "", 0, 0.0) else None
     )
 
+    # ── Wrong-side bracket guard (shared with the SL/TP endpoints) ────────
+    # An SL/TP leg on the profitable side of the market is "already hit": the
+    # risk enforcer fires it instantly and it fills at EXACTLY the (untraded)
+    # leg price → fake P&L booked to the wallet. Reject an impossible leg at
+    # write time. ref = client's live snapshot, else the live LTP; fails open
+    # when neither exists.
+    if (bracket_sl is not None or bracket_tp is not None) and not is_squareoff:
+        _bref = expected_price
+        if _bref is None:
+            try:
+                from app.services import market_data_service as _mds
+
+                _bref = await _mds.get_ltp(token)
+            except Exception:
+                _bref = None
+        _berr = order_validator.bracket_direction_error(
+            action, _bref, sl=bracket_sl, tp=bracket_tp
+        )
+        if _berr:
+            raise OrderRejectedError(_berr, code="BRACKET_WRONG_SIDE")
+
     # Operator-forced fill price (admin Market-Watch "Manual" order). When
     # present the matching engine fills at EXACTLY this price, bypassing the
     # slippage cap — see matching_engine.execute_market_order. Admin-only

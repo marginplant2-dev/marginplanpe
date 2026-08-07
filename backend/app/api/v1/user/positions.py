@@ -15,7 +15,7 @@ from app.models.position import Position, PositionStatus
 from app.models.trade import Trade
 from app.schemas.common import APIResponse
 from app.schemas.trading import HoldingOut, PositionOut
-from app.services import audit_service, market_data_service, netting_service, order_service, position_service
+from app.services import audit_service, market_data_service, netting_service, order_service, order_validator, position_service
 from app.utils.decimal_utils import to_decimal
 
 router = APIRouter(prefix="/positions", tags=["user-positions"])
@@ -791,17 +791,11 @@ async def update_sl_tp(position_id: str, payload: dict, user: CurrentUser):
         raise HTTPException(status_code=400, detail="Target (Take Profit) is disabled for this segment.")
 
     if _ref > 0:
-        # 1. Directional check
-        if sl_val is not None:
-            if _side == "BUY" and sl_val >= _ref:
-                raise HTTPException(status_code=400, detail=f"Stop Loss ₹{sl_val} must be BELOW current price ₹{_ref:.2f} for a BUY position.")
-            if _side == "SELL" and sl_val <= _ref:
-                raise HTTPException(status_code=400, detail=f"Stop Loss ₹{sl_val} must be ABOVE current price ₹{_ref:.2f} for a SELL position.")
-        if tp_val is not None:
-            if _side == "BUY" and tp_val <= _ref:
-                raise HTTPException(status_code=400, detail=f"Target ₹{tp_val} must be ABOVE current price ₹{_ref:.2f} for a BUY position.")
-            if _side == "SELL" and tp_val >= _ref:
-                raise HTTPException(status_code=400, detail=f"Target ₹{tp_val} must be BELOW current price ₹{_ref:.2f} for a SELL position.")
+        # 1. Directional check (shared helper — same guard as place-order + the
+        #    active-trade endpoint, so all three writers can't drift apart).
+        _dir_err = order_validator.bracket_direction_error(_side, _ref, sl=sl_val, tp=tp_val)
+        if _dir_err:
+            raise HTTPException(status_code=400, detail=_dir_err)
 
         # 2. Limit-away min-distance check
         if _limit_pct > 0:
@@ -1969,6 +1963,32 @@ async def update_active_trade_sl_tp(trade_id: str, payload: dict, user: CurrentU
             raise HTTPException(status_code=400, detail="Stop Loss is disabled for this segment.")
         if _setting_tp and not _eff.get("tp_enabled", True):
             raise HTTPException(status_code=400, detail="Target (Take Profit) is disabled for this segment.")
+
+    # ── Wrong-side direction guard (shared helper) ────────────────────────
+    # THE fix for this endpoint: an SL/TP on the profitable side of the market
+    # fills at EXACTLY the untraded leg price → fake P&L (the SILVERM 1-lakh
+    # incident). The earlier removed block left this unguarded on the belief
+    # that a bad leg "self-corrects" — it self-DESTRUCTS. Reject it here, same
+    # guard used by place-order + update_sl_tp. ref = live LTP, else entry;
+    # fails open when neither exists. Clearing (null/0) is never blocked.
+    _sl_raw = payload.get("stop_loss") if "stop_loss" in payload else None
+    _tp_raw = payload.get("target") if "target" in payload else None
+    _sl_set = _sl_raw not in (None, "", 0, "0")
+    _tp_set = _tp_raw not in (None, "", 0, "0")
+    if _sl_set or _tp_set:
+        try:
+            _dref = float(await market_data_service.get_ltp(p.instrument.token))
+        except Exception:
+            _dref = 0.0
+        if _dref <= 0:
+            _dref = float(str(p.avg_price or 0))
+        _dir_err = order_validator.bracket_direction_error(
+            p.opened_side, _dref,
+            sl=_sl_raw if _sl_set else None,
+            tp=_tp_raw if _tp_set else None,
+        )
+        if _dir_err:
+            raise HTTPException(status_code=400, detail=_dir_err)
 
     # ── Per-fill SL/TP via pending exit orders ────────────────────────────
     # A REAL fill gets its own exit order(s) that close ONLY its qty, so an

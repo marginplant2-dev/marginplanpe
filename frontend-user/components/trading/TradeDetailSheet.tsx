@@ -444,13 +444,14 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
   // into `lots`. submit() still uses `lotsToUse` for the actual order.
   const intradayMargin = +(marginPerLot * liveLots).toFixed(2);
   const carryforwardMargin = +(overnightMarginPerLot * liveLots).toFixed(2);
-  // Buying power = cash + admin credit_limit + bonus credit (Bonus Management).
-  // Must match the backend order gate (order_validator + block_margin), which
-  // all count bonus credit as usable opening-margin headroom.
+  // Buying power = cash + admin credit_limit + FREE bonus (Bonus Management).
+  // Matches the backend order gate. Bonus is locked BEFORE cash on open, so we
+  // show cash and bonus SEPARATELY in the pad.
+  const cashFree = Number(walletSummary?.available_free ?? walletSummary?.available_balance ?? 0);
+  const bonusFree = Number(walletSummary?.bonus_free ?? walletSummary?.credit ?? 0);
+  const bonusLocked = Number(walletSummary?.bonus_locked ?? 0);
   const availableMargin =
-    Number(walletSummary?.available_balance ?? 0) +
-    Number(walletSummary?.credit_limit ?? 0) +
-    Number(walletSummary?.credit ?? 0);
+    cashFree + Number(walletSummary?.credit_limit ?? 0) + bonusFree;
 
   // Open-position count on THIS instrument — small badge by the symbol.
   const openPosCount = useMemo(() => {
@@ -1279,15 +1280,23 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
           // equals the intraday figure there.
           const carryFwd = isInfowaySeg ? intradayMargin : carryforwardMargin;
           return (
-            <div className="mt-4 grid grid-cols-3 gap-2 px-4 text-[11px]">
+            <div className={`mt-4 grid gap-2 px-4 text-[11px] ${bonusFree > 0 || bonusLocked > 0 ? "grid-cols-2" : "grid-cols-3"}`}>
               <MarginCard
                 label="Available"
-                value={formatINRCompact(availableMargin)}
-                fullValue={`${formatINR(availableMargin)} free · Equity ${formatINR(equity)}${
+                value={formatINRCompact(cashFree)}
+                fullValue={`Cash ${formatINR(cashFree)} · buying power ${formatINR(availableMargin)} · Equity ${formatINR(equity)}${
                   openUnrl !== 0 ? ` (open P/L ${openUnrl >= 0 ? "+" : ""}${formatINR(openUnrl)})` : ""
                 }`}
                 accent={availableMargin >= intradayMargin ? "ok" : "low"}
               />
+              {(bonusFree > 0 || bonusLocked > 0) && (
+                <MarginCard
+                  label="Bonus"
+                  value={formatINRCompact(bonusFree)}
+                  fullValue={`Bonus free ${formatINR(bonusFree)}${bonusLocked > 0 ? ` · in use ${formatINR(bonusLocked)}` : ""}`}
+                  accent="ok"
+                />
+              )}
               <MarginCard
                 label="Intraday"
                 value={formatINRCompact(intradayMargin)}
