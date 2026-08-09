@@ -1260,6 +1260,11 @@ async def admin_edit_position(
                 old_realized = _td(p.realized_pnl or 0)
                 realized_delta = new_realized - old_realized
                 p.realized_pnl = Decimal128(str(new_realized))
+                # Also push the correction onto the underlying fills so the
+                # user's FIFO Closed blotter matches the wallet, not just a
+                # price edit. (Was: only price edits resynced → a realized
+                # override left the user view stale, mismatching the wallet.)
+                resync_closed_fills = True
             except Exception as e:
                 raise HTTPException(
                     status_code=400, detail=f"Invalid realized_pnl: {e}"
