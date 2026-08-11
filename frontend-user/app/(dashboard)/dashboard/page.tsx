@@ -108,7 +108,7 @@ export default function DashboardPage() {
               <Wallet className="size-3.5" /> Portfolio value
             </div>
             <div className="flex items-baseline gap-3">
-              <h2 className="font-tabular text-3xl font-bold md:text-4xl">
+              <h2 className="font-tabular text-3xl font-bold text-white md:text-4xl">
                 {hideBalance ? "₹ ••••••" : formatINR(portfolio)}
               </h2>
               <button
