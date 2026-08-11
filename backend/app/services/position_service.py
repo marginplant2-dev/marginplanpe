@@ -1875,6 +1875,79 @@ def stop_intraday_to_carry_loop() -> None:
     _intraday_loop_stop = True
 
 
+async def settle_expiring_today(segment_group: frozenset[str] | set[str]) -> dict[str, int]:
+    """Expiry-day auto-settlement.
+
+    At a segment group's close (driven by `intraday_to_carry_loop`), force-close
+    EVERY open position whose instrument EXPIRES TODAY, at its live close price
+    (the clearing price). Expiring contracts must NOT carry forward — they settle
+    on the expiry day itself, not the day-after cleanup sweep. Reuses
+    `settle_expired_position` (books realized P&L, releases margin, flips CLOSED;
+    idempotent). Returns counts.
+    """
+    import logging as _logging
+    from datetime import datetime as _dt
+
+    from app.models.instrument import Instrument as _Instr
+    from app.services import market_data_service as _mds
+    from app.services.expiry_cleanup import parse_symbol_expiry as _parse
+    from app.utils.time_utils import now_ist as _now_ist
+
+    _log = _logging.getLogger(__name__)
+    today = _now_ist().date()
+    seg = list(segment_group)
+
+    open_pos = await Position.find(
+        {"status": PositionStatus.OPEN.value, "segment_type": {"$in": seg}}
+    ).to_list()
+    if not open_pos:
+        return {"settled": 0, "instruments": 0}
+
+    tokens = list({str(p.instrument.token) for p in open_pos if p.instrument.token})
+    # Resolve each token's expiry from the Instrument doc, else the symbol parse.
+    exp_by_token: dict[str, object] = {}
+    try:
+        for i in await _Instr.find({"token": {"$in": tokens}}).to_list():
+            e = getattr(i, "expiry", None)
+            if isinstance(e, _dt):
+                e = e.date()
+            exp_by_token[str(i.token)] = e
+    except Exception:  # noqa: BLE001
+        _log.exception("expiry_day_instrument_lookup_failed")
+
+    expiring: set[str] = set()
+    for p in open_pos:
+        tok = str(p.instrument.token or "")
+        e = exp_by_token.get(tok)
+        if e is None:
+            e = _parse(getattr(p.instrument, "symbol", None))
+        if e == today:
+            expiring.add(tok)
+    if not expiring:
+        return {"settled": 0, "instruments": 0}
+
+    settled = 0
+    for p in open_pos:
+        if str(p.instrument.token or "") not in expiring:
+            continue
+        # Clearing price = the live LTP at close; settle_expired_position falls
+        # back to the position's frozen ltp if the token no longer ticks.
+        px = None
+        try:
+            _l = await _mds.get_ltp(p.instrument.token)
+            if _l:
+                px = to_decimal(_l)
+        except Exception:  # noqa: BLE001
+            px = None
+        try:
+            if await settle_expired_position(p, settlement_price=px, reason="EXPIRY_SETTLED") == "settled":
+                settled += 1
+        except Exception:  # noqa: BLE001
+            _log.exception("expiry_day_settle_position_failed", extra={"position_id": str(p.id)})
+    _log.info("expiry_day_settled", extra={"instruments": len(expiring), "settled": settled})
+    return {"settled": settled, "instruments": len(expiring)}
+
+
 async def intraday_to_carry_loop(interval_sec: float = 60.0) -> None:
     """Wake every minute; at each segment group's close minute (once per
     IST day), run `convert_intraday_to_carry` against that group.
@@ -1953,6 +2026,20 @@ async def intraday_to_carry_loop(interval_sec: float = 60.0) -> None:
                                 extra={"group": group_name, "date": day_key},
                             )
                             continue
+                        # Expiry-day settlement FIRST — close every open position
+                        # on an instrument expiring TODAY at its close/clearing
+                        # price, so an expiring contract is never carried forward.
+                        try:
+                            exp_summary = await settle_expiring_today(group_set)
+                            if exp_summary.get("settled"):
+                                _log.info(
+                                    "expiry_day_settled_group",
+                                    extra={"group": group_name, **exp_summary},
+                                )
+                        except Exception:  # noqa: BLE001
+                            _log.exception(
+                                "expiry_day_settle_failed", extra={"group": group_name}
+                            )
                         summary = await convert_intraday_to_carry(group_set)
                         _last_rollover_day[group_name] = day_key
                         _log.info(
