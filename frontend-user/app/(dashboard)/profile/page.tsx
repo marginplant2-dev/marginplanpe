@@ -16,7 +16,6 @@ import {
   KeyRound,
   Lock,
   LogOut,
-  Mail,
   MessageCircle,
   Palette,
   Phone,
@@ -34,7 +33,6 @@ import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/common/ThemeToggle";
 import { useAuthStore } from "@/stores/authStore";
 import {
-  buildMailtoUrl,
   buildWhatsappUrl,
   useSupportContacts,
 } from "@/lib/useSupport";
@@ -679,10 +677,7 @@ function SupportLinks() {
     support?.whatsapp,
     "Hi, I need help with my MarginPlant account",
   );
-  const mailUrl = buildMailtoUrl(support?.email, {
-    subject: "MarginPlant support request",
-  });
-  if (!waUrl && !mailUrl) {
+  if (!waUrl) {
     return (
       <section className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
         Support channels haven't been configured yet. Please contact your broker.
@@ -707,25 +702,6 @@ function SupportLinks() {
                 <div className="text-sm font-medium">WhatsApp support</div>
                 <p className="truncate text-[11px] text-muted-foreground">
                   {support?.whatsapp}
-                </p>
-              </div>
-              <ChevronRight className="size-4 text-muted-foreground" />
-            </a>
-          </li>
-        )}
-        {mailUrl && (
-          <li>
-            <a
-              href={mailUrl}
-              className="flex items-center gap-3 px-3 py-3 transition-colors hover:bg-muted/30"
-            >
-              <div className="grid size-10 place-items-center rounded-xl bg-primary/12 text-primary">
-                <Mail className="size-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium">Email support</div>
-                <p className="truncate text-[11px] text-muted-foreground">
-                  {support?.email}
                 </p>
               </div>
               <ChevronRight className="size-4 text-muted-foreground" />
