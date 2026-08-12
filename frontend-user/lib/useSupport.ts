@@ -51,10 +51,14 @@ export function useSupportContacts() {
   return useQuery<SupportContacts>({
     queryKey: ["support", "contacts"],
     queryFn: () => unwrap<SupportContacts>(api.get("/user/support")),
-    staleTime: 10 * 60_000,
-    gcTime: 30 * 60_000,
+    // Admins set/change their support WhatsApp actively, so don't cache it for
+    // long — refetch on every page mount so the number a broker just saved is
+    // visible to their users right away (was 10 min stale → looked "not set").
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
     retry: 1,
-    refetchOnWindowFocus: false,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 }
 
