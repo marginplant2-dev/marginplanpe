@@ -275,7 +275,10 @@ class NettingFieldsRequired(BaseModel):
     optionSellCommission: float = 20.0
     chargeOn: Literal["open", "close", "both"] = "both"
     # Limit away
-    limitAwayPercent: float = 10.0
+    # 0 = no min-distance check (operator removed the admin UI form for this,
+    # so new seeds must not silently impose a 10% SL/TP band). Resolver treats
+    # limit_percentage <= 0 as "check off".
+    limitAwayPercent: float = 0.0
     # Block a parked LIMIT/SL order from resting inside the day's traded
     # range. Default OFF — nothing changes until an admin turns it on.
     limitWithinDayRange: bool = False
