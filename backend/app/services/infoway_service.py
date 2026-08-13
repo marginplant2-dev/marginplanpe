@@ -411,20 +411,14 @@ class InfowayService:
         self._channels: dict[str, _Channel] = {
             CHANNEL_CRYPTO: _Channel(CHANNEL_CRYPTO, self),
             CHANNEL_COMMON: _Channel(CHANNEL_COMMON, self),
+            # International equities (US / HK / A-shares) — see `start()`: this
+            # channel is only actually CONNECTED when INFOWAY_DEFAULT_STOCKS is
+            # populated. Registered here so subscribe()'s bucket seeding always
+            # has the key, but left dormant otherwise so it doesn't burn one of
+            # the key's few concurrent WS slots and starve `common` (gold /
+            # forex) into an HTTP 429 lockout.
+            CHANNEL_STOCK: _Channel(CHANNEL_STOCK, self),
         }
-        # International equities (US / HK / A-shares) — Infoway routes these
-        # through a dedicated `stock` business channel; subscribing them on
-        # `common` silently drops ticks. Each Infoway API key allows only a
-        # small number of concurrent WS connections, so an idle stock channel
-        # STILL burns a slot (it opens + reconnects even with 0 symbols) and
-        # can starve `common` (forex/metals) into a permanent HTTP 429 lockout.
-        # Only spawn it when the admin has actually populated
-        # INFOWAY_DEFAULT_STOCKS — matches the documented intent and frees the
-        # slot for gold/forex when US equities aren't in use. `_channel_for`
-        # never routes to `stock` when `_stock_codes()` is empty, so no symbol
-        # can KeyError on the missing channel.
-        if _stock_codes():
-            self._channels[CHANNEL_STOCK] = _Channel(CHANNEL_STOCK, self)
         self._last_error: str | None = None
         self._main_loop: asyncio.AbstractEventLoop | None = None
 
@@ -468,7 +462,18 @@ class InfowayService:
         # Stagger channel startups by 3 s each so we don't fire 3 simultaneous
         # WS handshakes at the same API key — Infoway rate-limits concurrent
         # connection bursts with HTTP 429.
-        for ch in self._channels.values():
+        #
+        # Skip the `stock` channel entirely when no US equities are configured:
+        # each key allows only ~2 concurrent WS connections, and an idle stock
+        # channel still opens + reconnects, permanently starving `common`
+        # (gold / forex / metals) into an HTTP 429 lockout. `_channel_for` never
+        # routes a symbol to `stock` while `_stock_codes()` is empty, so the
+        # dormant channel receives no subscriptions.
+        stock_on = bool(_stock_codes())
+        for name, ch in self._channels.items():
+            if name == CHANNEL_STOCK and not stock_on:
+                logger.info("infoway_stock_channel_skipped: INFOWAY_DEFAULT_STOCKS empty")
+                continue
             await ch.start()
             await asyncio.sleep(3)
         logger.info("infoway_started")
