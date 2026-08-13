@@ -275,7 +275,14 @@ class _Channel:
             backoff = min(backoff * 2, cap)
 
     async def _connect_once(self) -> None:
+        # The `common` (forex/metals) channel uses its own key when configured,
+        # so it gets a dedicated connection slot instead of contending with
+        # crypto on one key (each Infoway key allows only ~1-2 concurrent WS).
         token = settings.INFOWAY_API_KEY.get_secret_value()
+        if self.business == CHANNEL_COMMON:
+            common_key = settings.INFOWAY_API_KEY_COMMON.get_secret_value()
+            if common_key:
+                token = common_key
         url = f"{WS_BASE}?business={self.business}&apikey={token}"
         async with websockets.connect(
             url,

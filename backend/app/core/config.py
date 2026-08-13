@@ -212,6 +212,12 @@ class Settings(BaseSettings):
 
     # Infoway — global forex / crypto / metals / energy / stocks / indices feed.
     INFOWAY_API_KEY: SecretStr = Field(default=SecretStr(""))
+    # Optional dedicated key for the `common` (forex / metals / energy) channel.
+    # Each Infoway key allows only ~1-2 concurrent WS connections, so crypto and
+    # gold/forex can't always share one key. When set, the common channel uses
+    # THIS key while crypto/stock stay on INFOWAY_API_KEY — giving gold its own
+    # connection slot. Empty → common falls back to INFOWAY_API_KEY (old behaviour).
+    INFOWAY_API_KEY_COMMON: SecretStr = Field(default=SecretStr(""))
     INFOWAY_AUTO_CONNECT: bool = True
     INFOWAY_DEFAULT_CRYPTO: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,DOGEUSDT,BNBUSDT"
     # NOTE: keep this list pure forex pairs (6-char major/minor crosses). Don't
