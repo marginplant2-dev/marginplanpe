@@ -22,7 +22,7 @@ interface BrandLogoProps {
 //   "🌱 MarginPlant Broker" wordmark — keeping the existing UX byte-
 //   identical for the bulk of traffic that isn't on a branded link.
 export function BrandLogo({ href = "/dashboard", size = "md", iconOnly = false, className }: BrandLogoProps) {
-  const { branding } = useBranding();
+  const { branding, showPlatformDefault } = useBranding();
   const customName = (branding?.brand_name ?? "").trim();
   // logo_url from the API is relative (e.g. "/static/branding/...");
   // prefix with API_URL so it loads from the backend host. Same logic
@@ -52,12 +52,15 @@ export function BrandLogo({ href = "/dashboard", size = "md", iconOnly = false, 
       {!iconOnly && (
         customName ? (
           <span className="text-foreground">{customName}</span>
-        ) : (
+        ) : showPlatformDefault ? (
+          // Super-admin "MarginPlant Broker" wordmark — ONLY on the platform
+          // host. On a tenant's branded domain (or before the host/brand has
+          // resolved) we show just the glyph, never MarginPlant.
           <span>
             <span className="text-primary">MarginPlant</span>
             <span className="text-foreground"> Broker</span>
           </span>
-        )
+        ) : null
       )}
     </span>
   );

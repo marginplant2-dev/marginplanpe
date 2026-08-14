@@ -1,5 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import { MpContainer } from "./mp-ui";
+import { useBranding } from "@/lib/branding-context";
+import { API_URL } from "@/lib/constants";
 
 // Broker sitemap — Trading markets, Platforms, Company and Support/Legal.
 const COLS: { title: string; links: { href: string; label: string }[] }[] = [
@@ -44,6 +48,12 @@ const COLS: { title: string; links: { href: string; label: string }[] }[] = [
 
 export function MarketingFooter() {
   const year = new Date().getFullYear();
+  const { branding, showPlatformDefault } = useBranding();
+  const brandName = (branding?.brand_name ?? "").trim();
+  const logoSrc = branding?.logo_url ? `${API_URL}${branding.logo_url}` : null;
+  // On a tenant's branded domain, never reveal "MarginPlant". Show the
+  // tenant's own name/logo when resolved, else a neutral placeholder.
+  const displayName = brandName || (showPlatformDefault ? "MarginPlant" : "");
 
   return (
     <footer className="mp-dark border-t border-mp-border bg-mp-bg text-mp-text">
@@ -53,16 +63,38 @@ export function MarketingFooter() {
               light brand mark (white wordmark) for contrast. */}
           <div className="col-span-2">
             <Link href="/" className="inline-flex items-center gap-2.5">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/marginplant_logo_light_new.png"
-                alt="MarginPlant"
-                className="h-14 w-auto"
-                width={280}
-                height={56}
-                loading="lazy"
-                decoding="async"
-              />
+              {logoSrc ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={logoSrc}
+                    alt={brandName || "Logo"}
+                    className="h-14 w-auto rounded object-contain"
+                  />
+                  {brandName && (
+                    <span className="font-display text-xl font-bold tracking-tight text-mp-text">
+                      {brandName}
+                    </span>
+                  )}
+                </>
+              ) : showPlatformDefault ? (
+                // Platform host only — the super-admin MarginPlant wordmark.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src="/marginplant_logo_light_new.png"
+                  alt="MarginPlant"
+                  className="h-14 w-auto"
+                  width={280}
+                  height={56}
+                  loading="lazy"
+                  decoding="async"
+                />
+              ) : (
+                // Branded domain / brand unresolved — nothing, never MarginPlant.
+                <span className="font-display text-xl font-bold tracking-tight text-mp-text">
+                  {displayName}
+                </span>
+              )}
             </Link>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-mp-text-mut">
               A SEBI-registered stock broker built in India. Trade Equity, F&O,
@@ -96,15 +128,16 @@ export function MarketingFooter() {
         {/* Compliance disclaimer (fixed copy) */}
         <div className="mt-12 border-t border-mp-border pt-8">
           <p className="max-w-4xl text-[12px] leading-relaxed text-mp-text-mut">
-            MarginPlant is a SEBI-registered stock broker offering trading and
-            investing across NSE, BSE & MCX. Investments in the securities market
+            {displayName || "This platform"} is a SEBI-registered stock broker
+            offering trading and investing across NSE, BSE & MCX. Investments in
+            the securities market
             are subject to market risks; read all the related documents carefully
             before investing. Nothing on this site is investment advice or a
             solicitation to trade, and past performance does not guarantee future
             results. Trade only with money you can afford to lose.
           </p>
           <p className="mt-4 text-[12px] text-mp-text-mut">
-            © {year} MarginPlant. All rights reserved.
+            © {year} {displayName || "This platform"}. All rights reserved.
           </p>
         </div>
       </MpContainer>

@@ -55,6 +55,14 @@ export type Branding = {
 type BrandingContextValue = {
   branding: Branding | null;
   loading: boolean;
+  /** True ONLY once the client has confirmed we're on the platform host
+   *  (marginplant.com / localhost). The super-admin "MarginPlant" default
+   *  logo + wordmark may render ONLY when this is true — never during SSR,
+   *  never on a tenant's branded domain, never before the host is known.
+   *  This is what stops MarginPlant flashing on `broker.example.com`. */
+  showPlatformDefault: boolean;
+  /** True once the client has confirmed we're on a tenant custom domain. */
+  onBrandedHost: boolean;
   /** Re-fetch the logged-in user's branding (called after login). */
   refresh: () => Promise<void>;
 };
@@ -62,6 +70,8 @@ type BrandingContextValue = {
 const Ctx = createContext<BrandingContextValue>({
   branding: null,
   loading: false,
+  showPlatformDefault: false,
+  onBrandedHost: false,
   refresh: async () => {},
 });
 
@@ -173,11 +183,18 @@ function writeCachedBranding(host: string, brand: Branding): void {
   }
 }
 
-function applyBrandingChrome(brand: Branding | null): void {
+function applyBrandingChrome(
+  brand: Branding | null,
+  allowPlatformDefault = true,
+): void {
   if (typeof document === "undefined") return;
-  // Title — fall back to platform default when null/empty.
-  const baseTitle = brand?.brand_name?.trim() || APP_NAME;
-  if (document.title !== baseTitle) {
+  // Title — fall back to the platform default ("MarginPlant") ONLY on the
+  // platform host. On a tenant's branded domain we must never reveal the
+  // super-admin's name, so leave the title untouched when the tenant brand
+  // hasn't resolved yet (keeps the last value / the neutral SSR title).
+  const baseTitle =
+    brand?.brand_name?.trim() || (allowPlatformDefault ? APP_NAME : "");
+  if (baseTitle && document.title !== baseTitle) {
     document.title = baseTitle;
   }
   // Favicon swap. Next.js (app/icon.svg) bakes a <link rel="icon">
@@ -276,6 +293,12 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
   const searchParams = useSearchParams();
   const [branding, setBranding] = useState<Branding | null>(null);
   const [loading, setLoading] = useState(true);
+  // "unknown" until the client resolves the host (SSR + first paint). The
+  // MarginPlant default is gated on this being "platform", so it can never
+  // render server-side or on a branded domain — killing the flash.
+  const [hostKind, setHostKind] = useState<"unknown" | "platform" | "branded">(
+    "unknown",
+  );
   const handoffConsumed = useRef(false);
 
   // Step 0 — consume `#wl=` handoff before anything else, so any
@@ -295,7 +318,12 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
     try {
       const ref = searchParams?.get("ref");
       const host = window.location.hostname;
-      const onCustomDomain = !ref && !isPlatformHost(host);
+      const platform = isPlatformHost(host);
+      // Record the host kind so components know whether the MarginPlant
+      // default is allowed to render. A ?ref= link on the platform host is
+      // still the platform host (branding resolves to the referred admin).
+      setHostKind(platform ? "platform" : "branded");
+      const onCustomDomain = !ref && !platform;
 
       // Repaint the last-known brand for this host IMMEDIATELY so a slow
       // /branding/by-domain round-trip never flashes the platform default
@@ -304,7 +332,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
         const cached = readCachedBranding(host);
         if (cached) {
           setBranding(cached);
-          applyBrandingChrome(cached);
+          applyBrandingChrome(cached, false);
         }
       }
 
@@ -323,7 +351,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
           const cached = readCachedBranding(host);
           if (cached) {
             setBranding(cached);
-            applyBrandingChrome(cached);
+            applyBrandingChrome(cached, false);
             return; // `finally` still runs → setLoading(false)
           }
         }
@@ -366,7 +394,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
         }
       }
       setBranding(brand);
-      applyBrandingChrome(brand);
+      applyBrandingChrome(brand, platform);
     } finally {
       setLoading(false);
     }
@@ -385,7 +413,17 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   return (
-    <Ctx.Provider value={{ branding, loading, refresh }}>{children}</Ctx.Provider>
+    <Ctx.Provider
+      value={{
+        branding,
+        loading,
+        showPlatformDefault: hostKind === "platform",
+        onBrandedHost: hostKind === "branded",
+        refresh,
+      }}
+    >
+      {children}
+    </Ctx.Provider>
   );
 }
 

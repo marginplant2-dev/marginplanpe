@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ChevronDown, Menu, X } from "lucide-react";
+import { ChevronDown, Menu, Sprout, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBranding } from "@/lib/branding-context";
 import { API_URL } from "@/lib/constants";
@@ -50,7 +50,7 @@ export function MarketingNav() {
   const [open, setOpen] = useState(false);
   // Which parent group is expanded in the mobile menu (accordion).
   const [openGroup, setOpenGroup] = useState<string | null>(null);
-  const { branding } = useBranding();
+  const { branding, showPlatformDefault } = useBranding();
   const customName = (branding?.brand_name ?? "").trim();
   const logoSrc = branding?.logo_url ? `${API_URL}${branding.logo_url}` : null;
 
@@ -94,10 +94,11 @@ export function MarketingNav() {
                   />
                 </span>
                 <span className="font-display text-lg font-bold tracking-tight text-black">
-                  {customName || "MarginPlant"}
+                  {customName || (showPlatformDefault ? "MarginPlant" : "")}
                 </span>
               </>
-            ) : (
+            ) : showPlatformDefault ? (
+              // Platform host only — the super-admin MarginPlant wordmark.
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src="/marginplant_logo_dark_new.png"
@@ -108,6 +109,11 @@ export function MarketingNav() {
                 fetchPriority="high"
                 decoding="async"
               />
+            ) : (
+              // Branded domain / brand unresolved — neutral glyph, no MarginPlant.
+              <span className="grid size-9 place-items-center rounded-xl bg-mp-primary/10">
+                <Sprout className="size-6 text-mp-primary" strokeWidth={2.5} />
+              </span>
             )}
           </Link>
 

@@ -68,8 +68,12 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 function AuthLayoutInner({ children }: { children: React.ReactNode }) {
   const searchParams = useSearchParams();
   const pathname = usePathname() || "";
-  const { branding } = useBranding();
+  const { branding, showPlatformDefault } = useBranding();
   const tenantName = (branding?.brand_name ?? "").trim();
+  // On a tenant's branded domain the super-admin "MarginPlant" name/logo must
+  // never appear. Use it only on the confirmed platform host; elsewhere fall
+  // back to empty / a neutral glyph until the tenant brand resolves.
+  const platformName = showPlatformDefault ? "MarginPlant" : "";
   // Tenant logo uploaded by admin / super-admin via /settings/branding.
   // Mirrors BrandLogo.tsx: paths are server-relative, so prefix API_URL.
   // Falls back to the default Sprout glyph when no logo is configured.
@@ -128,16 +132,22 @@ function AuthLayoutInner({ children }: { children: React.ReactNode }) {
         <>
           <BrandTile logoSrc={logoSrc} alt={tenantName || "Logo"} size="sm" />
           <span className="text-lg font-bold tracking-tight text-foreground">
-            {tenantName || "MarginPlant"}
+            {tenantName || platformName}
           </span>
         </>
-      ) : (
+      ) : showPlatformDefault ? (
+        // Platform host only — the super-admin's MarginPlant wordmark image.
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src="/marginplant_logo_dark_new.png"
           alt="MarginPlant"
           className="h-9 w-auto"
         />
+      ) : (
+        // Branded domain (or brand not resolved yet) — neutral glyph tile,
+        // NEVER the MarginPlant logo. The tenant logo replaces it once the
+        // /branding/by-domain fetch (or its per-host cache) lands.
+        <BrandTile logoSrc={null} alt="" size="sm" />
       )}
     </Link>
   );
@@ -167,7 +177,7 @@ function AuthLayoutInner({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="relative z-10 text-xs text-white/60">
-            &copy; {new Date().getFullYear()} {tenantName || "MarginPlant"} · All
+            &copy; {new Date().getFullYear()} {tenantName || platformName} · All
             rights reserved
           </div>
         </div>
