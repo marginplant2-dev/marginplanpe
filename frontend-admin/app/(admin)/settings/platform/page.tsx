@@ -7,6 +7,7 @@ import {
   BellOff,
   CalendarClock,
   Check,
+  CreditCard,
   Loader2,
   Mail,
   Megaphone,
@@ -76,6 +77,7 @@ export default function PlatformSettingsPage() {
         <NotificationsCard />
         <WeeklySettlementCard />
         <PromoButtonCard />
+        <PaymentGatewayCard />
       </div>
     </div>
   );
@@ -609,6 +611,106 @@ function WeeklySettlementCard() {
           <li>· Same side &amp; lots kept; entry price resets, P&amp;L back to 0.</li>
           <li>· "Run now" is idempotent — safe to test before Saturday.</li>
         </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Divinepay payment gateway (super-admin's own pool) ───────────────
+// Controls the auto-crediting UPI pay-in for the super-admin's OWN users
+// (assigned_admin_id is None). Per-admin pools are toggled on the sub-admins
+// list. Ships OFF; the whole platform stays manual until turned on.
+function PaymentGatewayCard() {
+  const admin = useAdminAuthStore((s) => s.admin);
+  const isSuperAdmin = String(admin?.role || "") === "SUPER_ADMIN";
+  const [enabled, setEnabled] = useState(false);
+  const [configured, setConfigured] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let alive = true;
+    SettingsAPI.getPaymentGateway()
+      .then((d) => {
+        if (!alive) return;
+        setEnabled(Boolean(d?.enabled));
+        setConfigured(Boolean(d?.configured));
+        setLoaded(true);
+      })
+      .catch(() => {
+        if (alive) setLoaded(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isSuperAdmin]);
+
+  if (!isSuperAdmin) return null;
+
+  async function toggle(next: boolean) {
+    setSaving(true);
+    try {
+      await SettingsAPI.setPaymentGateway(next);
+      setEnabled(next);
+      toast.success(
+        next
+          ? "Online payment ON for your own pool"
+          : "Online payment OFF — your users use manual deposits",
+      );
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to update");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <CreditCard className="size-4 text-primary" /> Payment gateway
+        </CardTitle>
+        <CardDescription>
+          Divinepay UPI online pay-in that auto-credits the wallet. This switch
+          is for YOUR OWN users; turn it on per admin from the Sub-admins list.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!configured && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-600">
+            Gateway key not set on the server (DIVINEPAY_API_KEY). Deposits stay
+            manual until it&apos;s configured.
+          </div>
+        )}
+        <div className="flex items-center justify-between rounded-md border border-border bg-card p-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold">Online payment (my pool)</div>
+            <div className="text-[11px] text-muted-foreground">
+              {enabled
+                ? "On — your users get the UPI pay-in flow"
+                : "Off — your users use the manual deposit flow"}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => toggle(!enabled)}
+            disabled={!loaded || saving}
+            aria-pressed={enabled}
+            aria-label={enabled ? "Disable payment gateway" : "Enable payment gateway"}
+            className={cn(
+              "relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:opacity-50",
+              enabled ? "bg-emerald-500" : "bg-muted",
+            )}
+          >
+            <span
+              className={cn(
+                "inline-block size-5 transform rounded-full bg-white shadow transition-transform",
+                enabled ? "translate-x-6" : "translate-x-1",
+              )}
+            />
+          </button>
+        </div>
       </CardContent>
     </Card>
   );

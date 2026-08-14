@@ -219,6 +219,11 @@ class Settings(BaseSettings):
     # connection slot. Empty → common falls back to INFOWAY_API_KEY (old behaviour).
     INFOWAY_API_KEY_COMMON: SecretStr = Field(default=SecretStr(""))
     INFOWAY_AUTO_CONNECT: bool = True
+
+    # Divinepay UPI pay-in gateway (single platform merchant account, shared
+    # with our other project — reuse the same live sk_ key). Server-side only.
+    DIVINEPAY_API_KEY: SecretStr = Field(default=SecretStr(""))
+    DIVINEPAY_BASE_URL: str = "https://divinepay.us.cc"
     INFOWAY_DEFAULT_CRYPTO: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,DOGEUSDT,BNBUSDT"
     # NOTE: keep this list pure forex pairs (6-char major/minor crosses). Don't
     # add USDINR here — Indian-rupee derivatives belong on the NSE/BSE CDS

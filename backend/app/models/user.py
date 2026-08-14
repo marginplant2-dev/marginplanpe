@@ -346,6 +346,14 @@ class User(TimestampMixin):
     # other admins are unaffected.
     registration_enabled: bool = True
 
+    # Divinepay UPI gateway switch (set on an ADMIN row by the super-admin).
+    # When True, this admin's users get the auto-crediting online pay-in flow;
+    # False → the manual bank-QR + screenshot + admin-approval deposit flow.
+    # Default False — the whole platform ships with the gateway OFF; the
+    # super-admin turns it on per admin (and per their own pool via a
+    # PlatformSetting). See divinepay_service.gateway_on_for.
+    payment_gateway_enabled: bool = False
+
     # Per-admin maintenance switch (set on an ADMIN row by the super-admin).
     # When True, EVERY non-admin user in this admin's pool is blocked from
     # logging in AND any already-logged-in session is kicked on its next

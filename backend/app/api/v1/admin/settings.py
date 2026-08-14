@@ -96,6 +96,56 @@ async def set_weekly_settlement_enabled(payload: UpdatePlatformSettingRequest, a
     return APIResponse(data={"enabled": enabled})
 
 
+# ── Divinepay payment gateway (super-admin's own pool) ───────────────
+@router.get("/settings/payment-gateway", response_model=APIResponse[dict])
+async def get_payment_gateway(admin: CurrentAdmin):
+    """Whether the Divinepay UPI gateway is ON for the super-admin's OWN pool
+    (users with no assigned admin). Per-admin pools use each admin's own switch.
+    Absent row ⇒ OFF (the platform ships manual)."""
+    _require_super_admin(admin)
+    from app.services.divinepay_service import SUPER_ADMIN_POOL_KEY, is_configured
+
+    row = await PlatformSetting.find_one(
+        PlatformSetting.setting_key == SUPER_ADMIN_POOL_KEY
+    )
+    raw = row.setting_value if row is not None else False
+    enabled = raw is True or str(raw).strip().lower() in {"true", "1", "yes", "on"}
+    return APIResponse(data={"enabled": enabled, "configured": is_configured()})
+
+
+@router.put("/settings/payment-gateway", response_model=APIResponse[dict])
+async def set_payment_gateway(payload: UpdatePlatformSettingRequest, admin: CurrentAdmin):
+    """Turn the Divinepay gateway ON/OFF for the super-admin's own pool."""
+    _require_super_admin(admin)
+    from app.services.divinepay_service import SUPER_ADMIN_POOL_KEY
+
+    enabled = bool(payload.setting_value)
+    row = await PlatformSetting.find_one(
+        PlatformSetting.setting_key == SUPER_ADMIN_POOL_KEY
+    )
+    if row is None:
+        row = PlatformSetting(
+            setting_key=SUPER_ADMIN_POOL_KEY,
+            setting_value=enabled,
+            setting_type=SettingType.BOOL,
+            category="payment",
+            is_public=False,
+            description="Divinepay UPI gateway for the super-admin's own users.",
+        )
+        await row.insert()
+    else:
+        row.setting_value = enabled
+        await row.save()
+    await log_event(
+        action=AuditAction.SETTING_CHANGE,
+        entity_type="PlatformSetting",
+        entity_id=SUPER_ADMIN_POOL_KEY,
+        actor_id=admin.id,
+        new_values={"enabled": enabled},
+    )
+    return APIResponse(data={"enabled": enabled})
+
+
 # ── Platform settings ────────────────────────────────────────────────
 @router.get("/settings/platform", response_model=APIResponse[list])
 async def list_platform_settings(admin: CurrentAdmin, category: str | None = None):

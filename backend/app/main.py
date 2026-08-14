@@ -857,6 +857,19 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     )
     setattr(app, "_demo_reset_task", demo_reset_task)
 
+    # Divinepay deposit reconcile: every 20 s, ask the gateway about recent
+    # PENDING gateway deposits and credit the paid ones — so a user who paid
+    # then closed the tab before verifying their UTR is still credited. Leader-
+    # only + supervised; no-op when the gateway isn't configured.
+    from app.services.divinepay_service import deposit_reconcile_loop
+    divinepay_task: _asyncio.Task = _asyncio.create_task(
+        _supervise(
+            "divinepay_reconcile",
+            _leader_only("divinepay_reconcile", deposit_reconcile_loop, interval_sec=20.0),
+        )
+    )
+    setattr(app, "_divinepay_reconcile_task", divinepay_task)
+
     # Weekly settlement engine: wakes every 60 s and, at the Saturday-23:00
     # IST window (Saturday 11 PM — see is_saturday_settlement_window), mark-to-
     # market settles every OPEN position — books the
@@ -1112,6 +1125,18 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             ptask.cancel()
             try:
                 await ptask
+            except (asyncio.CancelledError, Exception):
+                pass
+    except Exception:
+        pass
+
+    # Stop Divinepay reconcile loop cleanly
+    try:
+        dtask = getattr(app, "_divinepay_reconcile_task", None)
+        if dtask is not None:
+            dtask.cancel()
+            try:
+                await dtask
             except (asyncio.CancelledError, Exception):
                 pass
     except Exception:

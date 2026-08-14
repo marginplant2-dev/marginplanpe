@@ -13,6 +13,7 @@ import {
   MoreVertical,
   Eye,
   EyeOff,
+  CreditCard,
   KeyRound,
   Trash2,
   Wrench,
@@ -203,6 +204,20 @@ export default function SubAdminsPage() {
     onError: (e: any) =>
       toast.error(e?.response?.data?.detail ?? e?.message ?? "Failed"),
   });
+  const paymentGwMut = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      ManagementAPI.setSubAdminPaymentGateway(id, enabled),
+    onSuccess: (_d, v) => {
+      toast.success(
+        v.enabled
+          ? "Online payment ON — this admin's users get the UPI pay-in"
+          : "Online payment OFF — this admin's users use manual deposits",
+      );
+      qc.invalidateQueries({ queryKey: ["admin", "sub-admins"] });
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.detail ?? e?.message ?? "Failed"),
+  });
   const resetPwMut = useMutation({
     mutationFn: ({ id, pw }: { id: string; pw: string }) =>
       ManagementAPI.resetSubAdminPassword(id, pw),
@@ -333,6 +348,18 @@ export default function SubAdminsPage() {
                 {r.maintenance_mode
                   ? "Turn OFF maintenance"
                   : "Maintenance mode (lock pool)"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() =>
+                  paymentGwMut.mutate({ id: r.id, enabled: !r.payment_gateway_enabled })
+                }
+              >
+                <CreditCard
+                  className={`size-4 ${r.payment_gateway_enabled ? "text-emerald-500" : "text-muted-foreground"}`}
+                />
+                {r.payment_gateway_enabled
+                  ? "Online payment: ON (turn off)"
+                  : "Online payment: OFF (turn on)"}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={() =>

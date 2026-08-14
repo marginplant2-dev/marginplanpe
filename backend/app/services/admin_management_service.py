@@ -233,6 +233,27 @@ async def set_maintenance(
     return sa
 
 
+async def set_payment_gateway(
+    sub_admin_id: str | PydanticObjectId,
+    enabled: bool,
+    actor_id: PydanticObjectId,
+) -> User:
+    """Turn the Divinepay UPI gateway ON/OFF for this admin's pool. ON → their
+    users get the auto-crediting online pay-in; OFF → the manual deposit flow."""
+    sa = await _get_sub_admin_or_404(sub_admin_id)
+    sa.payment_gateway_enabled = bool(enabled)
+    await sa.save()
+    await log_event(
+        action=AuditAction.UPDATE,
+        entity_type="User",
+        entity_id=sa.id,
+        actor_id=actor_id,
+        target_user_id=sa.id,
+        metadata={"kind": "SUB_ADMIN", "payment_gateway_enabled": bool(enabled)},
+    )
+    return sa
+
+
 async def list_sub_admins(
     *, status: str | None = None, q: str | None = None, page: int = 1, page_size: int = 20
 ) -> tuple[list[User], int]:

@@ -69,6 +69,7 @@ class SubAdminDTO(BaseModel):
     user_count: int = 0  # active trading clients (CLOSED + broker rows excluded)
     broker_count: int = 0  # broker + sub-broker login accounts under this admin
     maintenance_mode: bool = False  # ON → this admin's whole pool is login-locked
+    payment_gateway_enabled: bool = False  # ON → this pool gets the Divinepay UPI flow
     created_at: datetime | None = None
 
 

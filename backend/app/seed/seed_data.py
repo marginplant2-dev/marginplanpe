@@ -119,6 +119,10 @@ async def seed_platform_settings() -> None:
         ("promo.button_enabled", False, SettingType.BOOL, "general", True, "Show the promo button on every user's dashboard header"),
         ("promo.button_url", "", SettingType.STRING, "general", True, "URL the promo button opens (blank = disabled)"),
         ("promo.button_label", "Offer", SettingType.STRING, "general", True, "Short label shown on the promo button"),
+        # Divinepay UPI gateway for the super-admin's OWN pool (assigned_admin_id
+        # is None). Default OFF — the whole platform ships manual; super-admin
+        # flips this + per-admin toggles to enable the auto-crediting flow.
+        ("payment_gateway.super_admin_pool_enabled", False, SettingType.BOOL, "payment", False, "Divinepay UPI gateway for the super-admin's own users (per-admin pools use each admin's own switch)"),
         ("platform.language", "en", SettingType.STRING, "general", True, "Default UI language"),
         ("trading.market_open", settings.MARKET_OPEN_TIME, SettingType.STRING, "trading", True, "Market open time"),
         ("trading.market_close", settings.MARKET_CLOSE_TIME, SettingType.STRING, "trading", True, "Market close time"),

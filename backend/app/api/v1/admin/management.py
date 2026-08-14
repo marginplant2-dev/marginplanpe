@@ -52,6 +52,7 @@ async def _ser_sub_admin(sa: User) -> SubAdminDTO:
         user_count=await mgmt.count_assigned_users(sa.id),
         broker_count=await mgmt.count_assigned_brokers(sa.id),
         maintenance_mode=bool(getattr(sa, "maintenance_mode", False)),
+        payment_gateway_enabled=bool(getattr(sa, "payment_gateway_enabled", False)),
         created_at=sa.created_at,
     )
 
@@ -181,6 +182,19 @@ async def set_sub_admin_maintenance(
     """Turn maintenance mode ON/OFF for this admin's whole pool. ON blocks every
     non-admin user's login and kicks live sessions; OFF restores normal access."""
     sa = await mgmt.set_maintenance(sub_admin_id, body.enabled, admin.id)
+    return APIResponse(data=await _ser_sub_admin(sa))
+
+
+@router.put(
+    "/sub-admins/{sub_admin_id}/payment-gateway",
+    response_model=APIResponse[SubAdminDTO],
+)
+async def set_sub_admin_payment_gateway(
+    sub_admin_id: str, body: SetMaintenanceRequest, admin: SuperAdmin
+):
+    """Turn the Divinepay UPI gateway ON/OFF for this admin's pool. ON → their
+    users get the auto-crediting online pay-in; OFF → the manual deposit flow."""
+    sa = await mgmt.set_payment_gateway(sub_admin_id, body.enabled, admin.id)
     return APIResponse(data=await _ser_sub_admin(sa))
 
 

@@ -895,6 +895,8 @@ export const ManagementAPI = {
     unwrap<any>(api.post(`/admin/management/sub-admins/${id}/unblock`)),
   setSubAdminMaintenance: (id: string, enabled: boolean) =>
     unwrap<any>(api.post(`/admin/management/sub-admins/${id}/maintenance`, { enabled })),
+  setSubAdminPaymentGateway: (id: string, enabled: boolean) =>
+    unwrap<any>(api.put(`/admin/management/sub-admins/${id}/payment-gateway`, { enabled })),
   deleteSubAdmin: (id: string) =>
     unwrap<any>(api.delete(`/admin/management/sub-admins/${id}`)),
   resetSubAdminPassword: (id: string, new_password: string) =>
@@ -946,6 +948,9 @@ export const SettingsAPI = {
   platformList: (category?: string) => unwrap<any[]>(api.get("/admin/settings/platform", { params: { category } })),
   updatePlatform: (key: string, setting_value: any) =>
     unwrap<any>(api.put(`/admin/settings/platform/${encodeURIComponent(key)}`, { setting_value })),
+  getPaymentGateway: () => unwrap<any>(api.get("/admin/settings/payment-gateway")),
+  setPaymentGateway: (enabled: boolean) =>
+    unwrap<any>(api.put("/admin/settings/payment-gateway", { setting_value: enabled })),
   // Weekly mark-to-market settlement engine (super-admin only).
   weeklySettlementRun: () =>
     unwrap<{ week_key?: string; batch_id?: string; total?: number; settled?: number; skipped?: number; failed?: number; skipped_reason?: string }>(

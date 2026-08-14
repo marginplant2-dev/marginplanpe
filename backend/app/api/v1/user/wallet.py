@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from decimal import Decimal
 from pathlib import Path
 
 from beanie import PydanticObjectId
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from pydantic import BaseModel
 
 from app.core.dependencies import CurrentUser
 from app.models.bank_account import CompanyBankAccount, UserBankAccount
@@ -63,6 +65,17 @@ async def upload_screenshot(user: CurrentUser, file: UploadFile = File(...)):
 
 @router.get("/summary", response_model=APIResponse[WalletSummary])
 async def summary(user: CurrentUser):
+    # Best-effort: credit any Divinepay deposit this user paid but didn't verify
+    # (paid then closed the tab), so a wallet refresh reflects it instantly. Only
+    # touches the gateway when a PENDING gateway row actually exists; never
+    # blocks the summary.
+    try:
+        from app.services import divinepay_service
+
+        if divinepay_service.is_configured():
+            await divinepay_service.reconcile_deposits(user.id)
+    except Exception:
+        pass
     return APIResponse(data=WalletSummary(**(await wallet_service.summary(user.id))))
 
 
@@ -262,6 +275,114 @@ async def create_oxapay_deposit(payload: DepositCreate, user: CurrentUser):
     req.gateway_ref = inv["track_id"]
     await req.save()
     return APIResponse(data={"payment_url": inv["payment_url"], "deposit_id": str(req.id)})
+
+
+# ── Divinepay UPI gateway (auto-crediting pay-in) ────────────────────
+class _GatewayDepositBody(BaseModel):
+    amount: Decimal
+
+
+class _SubmitUtrBody(BaseModel):
+    order_id: str
+    utr: str
+
+
+@router.get("/deposit-mode", response_model=APIResponse[dict])
+async def deposit_mode(user: CurrentUser):
+    """Tells the client which deposit flow to render: GATEWAY (auto-crediting
+    Divinepay UPI) when the super-admin enabled it for this user's pool, else
+    MANUAL (bank-QR + screenshot + admin approval)."""
+    from app.services import divinepay_service
+
+    on = await divinepay_service.gateway_on_for(user)
+    return APIResponse(
+        data={
+            "mode": "GATEWAY" if on else "MANUAL",
+            "min_amount": str(divinepay_service.MIN_AMOUNT),
+            "max_amount": str(divinepay_service.MAX_AMOUNT),
+        }
+    )
+
+
+@router.post("/deposits/gateway", response_model=APIResponse[dict])
+async def create_gateway_deposit(payload: _GatewayDepositBody, user: CurrentUser):
+    """Open a Divinepay UPI pay-in: create a PENDING DepositRequest + a gateway
+    order, return the hosted payment URL. NOTHING is credited here — the
+    gateway's verdict (submit-utr / status / reconcile) credits the wallet."""
+    if getattr(user, "is_demo", False):
+        raise HTTPException(status_code=403, detail="Demo accounts cannot deposit funds.")
+    from app.services import divinepay_service, wd_rules_service
+
+    if not await divinepay_service.gateway_on_for(user):
+        raise HTTPException(status_code=400, detail="Online payment isn't available for your account.")
+    # The admin's own deposit rules (min / max / daily) apply ON TOP of the
+    # gateway's ₹100–₹25,000 band.
+    await wd_rules_service.validate_request(
+        user_id=user.id, rule_type="DEPOSIT", amount=float(payload.amount), user_remark=None
+    )
+    try:
+        created = await divinepay_service.create_payin(payload.amount)
+    except divinepay_service.DivinepayError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    order_id = created["order_id"]
+    req = DepositRequest(
+        user_id=user.id,
+        amount=to_decimal128(payload.amount),
+        payment_mode=PaymentMode.UPI,
+        gateway=divinepay_service.GATEWAY,
+        gateway_ref=order_id,
+        status=DepositStatus.PENDING,
+        idempotency_key=f"divinepay:{order_id}",
+    )
+    await req.insert()
+    return APIResponse(
+        data={
+            "deposit_id": str(req.id),
+            "order_id": order_id,
+            "payment_url": created["payment_url"],
+            "amount": str(payload.amount),
+        }
+    )
+
+
+@router.post("/deposits/gateway/submit-utr", response_model=APIResponse[dict])
+async def submit_gateway_utr(payload: _SubmitUtrBody, user: CurrentUser):
+    """User submits their UPI UTR after paying. We hand it to the gateway and
+    then let the gateway's success verdict credit the wallet — never the
+    client's word."""
+    from app.services import divinepay_service
+
+    order_id = (payload.order_id or "").strip()
+    utr = (payload.utr or "").strip()
+    req = await DepositRequest.find_one(
+        DepositRequest.idempotency_key == f"divinepay:{order_id}",
+        DepositRequest.user_id == user.id,
+    )
+    if req is None:
+        raise HTTPException(status_code=404, detail="Deposit not found")
+    if req.status == DepositStatus.APPROVED:
+        return APIResponse(data={"status": "success", "already_credited": True, "amount": str(req.amount)})
+
+    # Record the UTR, tell the gateway, then let the gateway authorise the credit.
+    if utr and req.utr_number != utr:
+        req.utr_number = utr
+        await req.save()
+    try:
+        await divinepay_service.submit_utr(order_id, utr)
+    except divinepay_service.DivinepayError:
+        pass  # fall through to a status-driven credit attempt
+
+    credited = await divinepay_service.credit_deposit(req, utr)
+    if credited:
+        return APIResponse(data={"status": "success", "credited": True, "amount": str(req.amount)})
+    # Not confirmed yet — surface the current gateway status; the 20s reconcile
+    # loop (and the next UTR submit) will credit it once the gateway confirms.
+    try:
+        st = await divinepay_service.check_status(order_id)
+    except divinepay_service.DivinepayError:
+        st = {}
+    return APIResponse(data={"status": str(st.get("status") or "pending"), "credited": False})
 
 
 @router.post("/deposits", response_model=APIResponse[dict])

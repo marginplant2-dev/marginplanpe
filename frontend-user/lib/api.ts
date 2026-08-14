@@ -403,6 +403,19 @@ export const WalletAPI = {
     ),
   createDeposit: (body: any) => unwrap<any>(api.post("/user/wallet/deposits", body)),
   myDeposits: () => unwrap<any[]>(api.get("/user/wallet/deposits")),
+  // Divinepay UPI gateway (auto-crediting online pay-in).
+  depositMode: () =>
+    unwrap<{ mode: "GATEWAY" | "MANUAL"; min_amount: string; max_amount: string }>(
+      api.get("/user/wallet/deposit-mode"),
+    ),
+  createGatewayDeposit: (amount: number) =>
+    unwrap<{ deposit_id: string; order_id: string; payment_url: string; amount: string }>(
+      api.post("/user/wallet/deposits/gateway", { amount }),
+    ),
+  submitGatewayUtr: (order_id: string, utr: string) =>
+    unwrap<{ status: string; credited?: boolean; already_credited?: boolean; amount?: string }>(
+      api.post("/user/wallet/deposits/gateway/submit-utr", { order_id, utr }),
+    ),
   createWithdrawal: (body: any) => unwrap<any>(api.post("/user/wallet/withdrawals", body)),
   myWithdrawals: () => unwrap<any[]>(api.get("/user/wallet/withdrawals")),
   // Delete a still-PENDING request (approved/rejected ones are immutable).

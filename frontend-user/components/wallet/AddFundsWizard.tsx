@@ -22,6 +22,7 @@ import { WalletAPI, BonusesUserAPI } from "@/lib/api";
 import { API_URL } from "@/lib/constants";
 import { useAuthStore } from "@/stores/authStore";
 import { DemoUpgradeDialog } from "@/components/wallet/DemoUpgradeDialog";
+import { GatewayDepositFlow } from "@/components/wallet/GatewayDepositFlow";
 import { UpiQR } from "@/components/common/UpiQR";
 import { cn, formatINR } from "@/lib/utils";
 import { buildWhatsappUrl, useSupportContacts } from "@/lib/useSupport";
@@ -208,6 +209,16 @@ export function AddFundsWizard({
   });
   const minAmount = Number(rules?.deposit?.min_amount ?? 0) || 500;
 
+  // Deposit mode — GATEWAY (auto-crediting Divinepay UPI) when the super-admin
+  // enabled it for this pool, else MANUAL (the bank-QR flow below).
+  const { data: depMode } = useQuery({
+    queryKey: ["deposit-mode"],
+    queryFn: () => WalletAPI.depositMode(),
+    staleTime: 60_000,
+    enabled: open,
+  });
+  const isGateway = depMode?.mode === "GATEWAY";
+
   // Reset whenever the wizard opens.
   useEffect(() => {
     if (open) {
@@ -271,6 +282,19 @@ export function AddFundsWizard({
   // Demo users cannot deposit — block at wizard level as a safety net
   if (user?.is_demo) {
     return <DemoUpgradeDialog open={open} onClose={onClose} />;
+  }
+
+  // Online (Divinepay UPI) auto-crediting flow — fully separate from the manual
+  // bank-QR + screenshot flow below, so nothing about MANUAL changes.
+  if (isGateway) {
+    return (
+      <GatewayDepositFlow
+        onClose={onClose}
+        onSuccess={onSuccess}
+        adminMin={minAmount}
+        gatewayMin={Number(depMode?.min_amount ?? 100)}
+      />
+    );
   }
 
   function bump(n: number) {
