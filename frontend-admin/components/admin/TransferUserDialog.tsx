@@ -39,6 +39,9 @@ interface Props {
    *  hits the scope-checked /transfer/to-admin endpoint instead of the broker
    *  flow. Ignored for SUPER_ADMIN (already lists admins). */
   toAdmin?: boolean;
+  /** Bulk mode: move several users at once to the picked admin via
+   *  /transfer/to-admin-bulk. Title shows the count instead of one name. */
+  bulkUserIds?: string[];
 }
 
 /**
@@ -64,13 +67,15 @@ interface Props {
  * owner's dashboard from the very next poll — full trade / wallet /
  * position history travels with the user.
  */
-export function TransferUserDialog({ user, open, onClose, onChange, toAdmin }: Props) {
+export function TransferUserDialog({ user, open, onClose, onChange, toAdmin, bulkUserIds }: Props) {
   const qc = useQueryClient();
   const admin = useAdminAuthStore((s) => s.admin);
   const callerRole = admin?.role;
+  const bulk = (bulkUserIds?.length ?? 0) > 0;
   // toAdmin routes a permitted ADMIN caller down the cross-admin path (list all
   // admins, hit /transfer/to-admin). SUPER_ADMIN already lists admins natively.
-  const crossAdmin = !!toAdmin && callerRole !== "SUPER_ADMIN";
+  // Bulk always targets admins too.
+  const crossAdmin = (!!toAdmin || bulk) && callerRole !== "SUPER_ADMIN";
   const [query, setQuery] = useState("");
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -134,6 +139,16 @@ export function TransferUserDialog({ user, open, onClose, onChange, toAdmin }: P
     }
     setSubmitting(true);
     try {
+      if (bulk) {
+        const res = await ManagementAPI.transferUsersToAdminBulk(bulkUserIds!, pickedId);
+        toast.success(
+          `Transferred ${res.transferred} user${res.transferred === 1 ? "" : "s"}${res.skipped ? ` · ${res.skipped} skipped` : ""} to ${dest.full_name ?? dest.user_code ?? "admin"}`,
+        );
+        qc.invalidateQueries({ queryKey: ["admin", "users"] });
+        onChange?.();
+        close();
+        return;
+      }
       if (crossAdmin) {
         await ManagementAPI.transferUserToAdmin(user.id, pickedId);
       } else if (callerRole === "SUPER_ADMIN") {
@@ -176,7 +191,9 @@ export function TransferUserDialog({ user, open, onClose, onChange, toAdmin }: P
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base font-semibold">
             <ArrowRightLeft className="size-4 text-primary" />
-            Transfer {user.full_name || user.user_code || "user"}
+            {bulk
+              ? `Transfer ${bulkUserIds!.length} user${bulkUserIds!.length === 1 ? "" : "s"}`
+              : `Transfer ${user.full_name || user.user_code || "user"}`}
           </DialogTitle>
           <DialogDescription className="text-xs">
             All trade history, wallet entries, positions and orders move with

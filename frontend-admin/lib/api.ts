@@ -915,6 +915,10 @@ export const ManagementAPI = {
     unwrap<{ items: any[] }>(api.get("/admin/management/transfer/admins")),
   transferUserToAdmin: (userId: string, target_admin_id: string) =>
     unwrap<any>(api.post(`/admin/management/transfer/to-admin/${userId}`, { target_admin_id })),
+  transferUsersToAdminBulk: (user_ids: string[], target_admin_id: string) =>
+    unwrap<{ transferred: number; skipped: number }>(
+      api.post("/admin/management/transfer/to-admin-bulk", { user_ids, target_admin_id }),
+    ),
   // Settlements
   listSettlements: (week_start?: string) =>
     unwrap<{
