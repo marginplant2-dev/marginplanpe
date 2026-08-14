@@ -223,6 +223,11 @@ export function AddFundsWizard({
     enabled: open,
   });
   const isGateway = depMode?.mode === "GATEWAY";
+  // The online gateway uses its OWN ₹100 floor, not the admin's manual-deposit
+  // rule (which can be higher, e.g. ₹1000 for bank transfers). Manual keeps
+  // using the admin rule min.
+  const gatewayMin = Number(depMode?.min_amount ?? 100) || 100;
+  const effMin = isGateway ? gatewayMin : minAmount;
 
   // Reset whenever the wizard opens.
   useEffect(() => {
@@ -305,7 +310,7 @@ export function AddFundsWizard({
 
   // ── Divinepay UPI gateway ───────────────────────────────────────────
   async function gatewayPay() {
-    if (amount < minAmount) return toast.error(`Minimum deposit is ${formatINR(minAmount)}`);
+    if (amount < effMin) return toast.error(`Minimum deposit is ${formatINR(effMin)}`);
     if (gwBusy) return;
     setGwBusy(true);
     try {
@@ -534,7 +539,7 @@ export function AddFundsWizard({
 
               <button
                 onClick={isGateway ? gatewayPay : () => (cryptoAvailable ? setChooseMethod(true) : setStep(2))}
-                disabled={amount < minAmount || gwBusy}
+                disabled={amount < effMin || gwBusy}
                 className="mt-7 flex h-12 w-full items-center justify-center gap-1.5 rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {gwBusy ? <Loader2 className="size-4 animate-spin" /> : null}
@@ -544,11 +549,15 @@ export function AddFundsWizard({
               <div className="mt-5 rounded-xl bg-muted/40 p-4">
                 <div className="mb-1.5 text-sm font-semibold">Add Funds rules</div>
                 <div className="text-xs text-muted-foreground">
-                  Minimum amount: <span className="font-semibold text-foreground">{formatINR(minAmount)}</span>
+                  Minimum amount: <span className="font-semibold text-foreground">{formatINR(effMin)}</span>
                 </div>
                 <ol className="mt-2 space-y-1 text-xs text-muted-foreground">
-                  <li>1. Minimum deposit amount is {minAmount}</li>
-                  <li>2. Upload a clear screenshot including UTR no, date and time</li>
+                  <li>1. Minimum deposit amount is {effMin}</li>
+                  {isGateway ? (
+                    <li>2. Pay on the UPI page, then enter the 12-digit UTR to credit instantly</li>
+                  ) : (
+                    <li>2. Upload a clear screenshot including UTR no, date and time</li>
+                  )}
                 </ol>
               </div>
 

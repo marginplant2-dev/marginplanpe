@@ -311,15 +311,14 @@ async def create_gateway_deposit(payload: _GatewayDepositBody, user: CurrentUser
     gateway's verdict (submit-utr / status / reconcile) credits the wallet."""
     if getattr(user, "is_demo", False):
         raise HTTPException(status_code=403, detail="Demo accounts cannot deposit funds.")
-    from app.services import divinepay_service, wd_rules_service
+    from app.services import divinepay_service
 
     if not await divinepay_service.gateway_on_for(user):
         raise HTTPException(status_code=400, detail="Online payment isn't available for your account.")
-    # The admin's own deposit rules (min / max / daily) apply ON TOP of the
-    # gateway's ₹100–₹25,000 band.
-    await wd_rules_service.validate_request(
-        user_id=user.id, rule_type="DEPOSIT", amount=float(payload.amount), user_remark=None
-    )
+    # The gateway's own ₹100–₹25,000 band is the authoritative limit (enforced
+    # in create_payin). The admin's MANUAL deposit rule (which can set a higher
+    # min for bank transfers) deliberately does NOT gate the online flow — the
+    # operator wants online pay-in to start from the ₹100 gateway floor.
     try:
         created = await divinepay_service.create_payin(payload.amount)
     except divinepay_service.DivinepayError as e:
