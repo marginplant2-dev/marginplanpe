@@ -114,6 +114,11 @@ async def seed_platform_settings() -> None:
         ("platform.support_email", settings.SUPPORT_EMAIL, SettingType.STRING, "general", True, "Support email"),
         ("platform.support_whatsapp", "", SettingType.STRING, "general", True, "Support WhatsApp number (with country code, e.g. +919999999999)"),
         ("platform.theme", "dark", SettingType.STRING, "general", True, "UI theme hint"),
+        # Promo button — a blinking CTA in every user's dashboard header. Super
+        # admin sets the URL + label and flips it on from Platform Settings.
+        ("promo.button_enabled", False, SettingType.BOOL, "general", True, "Show the promo button on every user's dashboard header"),
+        ("promo.button_url", "", SettingType.STRING, "general", True, "URL the promo button opens (blank = disabled)"),
+        ("promo.button_label", "Offer", SettingType.STRING, "general", True, "Short label shown on the promo button"),
         ("platform.language", "en", SettingType.STRING, "general", True, "Default UI language"),
         ("trading.market_open", settings.MARKET_OPEN_TIME, SettingType.STRING, "trading", True, "Market open time"),
         ("trading.market_close", settings.MARKET_CLOSE_TIME, SettingType.STRING, "trading", True, "Market close time"),

@@ -9,6 +9,7 @@ import {
   Check,
   Loader2,
   Mail,
+  Megaphone,
   Moon,
   Palette,
   Play,
@@ -23,6 +24,7 @@ import { useAdminAuthStore } from "@/stores/authStore";
 import { SettingsAPI } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/common/PageHeader";
 import { cn } from "@/lib/utils";
 import { playNotifyPing } from "@/lib/notify-sound";
@@ -73,8 +75,157 @@ export default function PlatformSettingsPage() {
         <ProfileCard />
         <NotificationsCard />
         <WeeklySettlementCard />
+        <PromoButtonCard />
       </div>
     </div>
+  );
+}
+
+// ── Promo button (super-admin only) ──────────────────────────────────
+// A blinking button shown in EVERY user's dashboard header. Super-admin sets
+// the URL it opens + a short label, then flips it ON. OFF → hidden for all.
+const PROMO_ENABLED_KEY = "promo.button_enabled";
+const PROMO_URL_KEY = "promo.button_url";
+const PROMO_LABEL_KEY = "promo.button_label";
+
+function PromoButtonCard() {
+  const admin = useAdminAuthStore((s) => s.admin);
+  const isSuperAdmin = String(admin?.role || "") === "SUPER_ADMIN";
+  const [enabled, setEnabled] = useState(false);
+  const [url, setUrl] = useState("");
+  const [label, setLabel] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let alive = true;
+    SettingsAPI.platformList("general")
+      .then((rows) => {
+        if (!alive) return;
+        const get = (k: string) =>
+          (rows || []).find((r: any) => r?.key === k)?.value;
+        setEnabled(Boolean(get(PROMO_ENABLED_KEY)));
+        setUrl(String(get(PROMO_URL_KEY) ?? ""));
+        setLabel(String(get(PROMO_LABEL_KEY) ?? ""));
+        setLoaded(true);
+      })
+      .catch(() => {
+        if (alive) setLoaded(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isSuperAdmin]);
+
+  if (!isSuperAdmin) return null;
+
+  async function saveDetails() {
+    setSaving(true);
+    try {
+      await SettingsAPI.updatePlatform(PROMO_URL_KEY, url.trim());
+      await SettingsAPI.updatePlatform(PROMO_LABEL_KEY, label.trim());
+      toast.success("Promo URL & label saved");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggle(next: boolean) {
+    if (next && !url.trim()) {
+      toast.error("Set and save the button URL before turning it ON");
+      return;
+    }
+    setSaving(true);
+    try {
+      await SettingsAPI.updatePlatform(PROMO_ENABLED_KEY, next);
+      setEnabled(next);
+      toast.success(
+        next
+          ? "Promo button ON — blinking on every user's dashboard"
+          : "Promo button OFF — hidden for all users",
+      );
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to update");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Megaphone className="size-4 text-primary" /> Promo button
+        </CardTitle>
+        <CardDescription>
+          A blinking button shown in every user&apos;s dashboard header. Set the
+          URL it opens, save, then turn it ON.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">
+            Button URL
+          </label>
+          <Input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://example.com/offer"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">
+            Button label (short)
+          </label>
+          <Input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Offer"
+            maxLength={24}
+          />
+        </div>
+        <Button
+          onClick={saveDetails}
+          disabled={saving}
+          size="sm"
+          variant="outline"
+          className="w-full"
+        >
+          Save URL &amp; label
+        </Button>
+        <div className="flex items-center justify-between rounded-md border border-border bg-card p-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold">Show to all users</div>
+            <div className="text-[11px] text-muted-foreground">
+              {enabled
+                ? "On — blinking button live on every dashboard"
+                : "Off — hidden for everyone"}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => toggle(!enabled)}
+            disabled={!loaded || saving}
+            aria-pressed={enabled}
+            aria-label={enabled ? "Hide promo button" : "Show promo button"}
+            className={cn(
+              "relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:opacity-50",
+              enabled ? "bg-emerald-500" : "bg-muted",
+            )}
+          >
+            <span
+              className={cn(
+                "inline-block size-5 transform rounded-full bg-white shadow transition-transform",
+                enabled ? "translate-x-6" : "translate-x-1",
+              )}
+            />
+          </button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

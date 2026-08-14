@@ -130,6 +130,23 @@ async def accept_terms(user: CurrentUser):
     return APIResponse(data={"accepted_at": user.terms_accepted_at})
 
 
+@router.get("/promo", response_model=APIResponse[dict])
+async def get_promo_button(user: CurrentUser):
+    """Platform-wide promo button config for the dashboard header. Super-admin
+    sets these in Platform Settings. Returns ``enabled`` only when the switch is
+    ON *and* a URL is present, so the client can render unconditionally."""
+    row = await PlatformSetting.find_one(
+        PlatformSetting.setting_key == "promo.button_enabled"
+    )
+    raw = row.setting_value if row is not None else False
+    on = raw is True or str(raw).strip().lower() in {"true", "1", "yes", "on"}
+    url = await _read_setting("promo.button_url")
+    label = (await _read_setting("promo.button_label")) or "Offer"
+    return APIResponse(
+        data={"enabled": bool(on and url), "url": url, "label": label}
+    )
+
+
 @router.get("", response_model=APIResponse[dict])
 async def get_support_contacts(user: CurrentUser):
     """Returns the effective WhatsApp + email for THIS user. WhatsApp

@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, LogOut, Search, User as UserIcon, Wallet } from "lucide-react";
+import { Bell, LogOut, Megaphone, Search, User as UserIcon, Wallet } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
-import { WalletAPI } from "@/lib/api";
+import { api, unwrap, WalletAPI } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ThemeToggle } from "@/components/common/ThemeToggle";
@@ -107,6 +107,10 @@ export function TopBar() {
         </span>
       </Link>
 
+      {/* Promo button — super-admin-managed blinking CTA. Renders nothing
+          unless the super-admin turned it ON with a URL in Platform Settings. */}
+      <PromoButton />
+
       {/* Notification bell — visible on mobile + desktop. */}
       <Button variant="ghost" size="icon" aria-label="Notifications" asChild>
         <Link href="/notifications">
@@ -169,5 +173,39 @@ function SupportShortcut() {
         <WhatsAppIcon className="size-4 text-[#25D366]" />
       </a>
     </Button>
+  );
+}
+
+/**
+ * Promo button — a super-admin-managed blinking CTA in the header, shown to
+ * EVERY user. Config comes from Platform Settings (promo.button_*). Renders
+ * nothing unless it's enabled AND has a URL, so the header stays clean when
+ * it's off. Polls once a minute so an admin toggle propagates without a
+ * reload.
+ */
+type PromoConfig = { enabled: boolean; url: string; label: string };
+
+function PromoButton() {
+  const { data } = useQuery<PromoConfig>({
+    queryKey: ["promo-button"],
+    queryFn: () => unwrap<PromoConfig>(api.get("/user/support/promo")),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+  if (!data?.enabled || !data.url) return null;
+  const href = /^https?:\/\//i.test(data.url) ? data.url : `https://${data.url}`;
+  const label = (data.label || "Offer").trim() || "Offer";
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={label}
+      className="inline-flex animate-pulse items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-2.5 py-1.5 text-xs font-bold text-white shadow-lg shadow-amber-500/40 ring-2 ring-amber-300/60 transition-transform hover:scale-105 sm:px-3"
+    >
+      <Megaphone className="size-3.5 shrink-0" />
+      <span className="max-w-[26vw] truncate sm:max-w-none">{label}</span>
+    </a>
   );
 }
