@@ -189,8 +189,15 @@ function PromoButton() {
   const { data } = useQuery<PromoConfig>({
     queryKey: ["promo-button"],
     queryFn: () => unwrap<PromoConfig>(api.get("/user/support/promo")),
-    staleTime: 60_000,
-    refetchInterval: 60_000,
+    // Short poll + always-refetch-on-mount/focus so a super-admin toggle (esp.
+    // turning it OFF) clears within ~10 s and instantly on any nav / tab focus,
+    // instead of lingering for a minute. Never persisted stale: refetchOnMount
+    // "always" re-checks immediately even after a cache rehydrate.
+    staleTime: 0,
+    gcTime: 0,
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: true,
+    refetchOnMount: "always",
     refetchOnWindowFocus: true,
   });
   if (!data?.enabled || !data.url) return null;
@@ -202,10 +209,10 @@ function PromoButton() {
       target="_blank"
       rel="noopener noreferrer"
       title={label}
-      className="inline-flex animate-pulse items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-2.5 py-1.5 text-xs font-bold text-white shadow-lg shadow-amber-500/40 ring-2 ring-amber-300/60 transition-transform hover:scale-105 sm:px-3"
+      className="inline-flex shrink-0 animate-pulse items-center gap-1 rounded-full bg-gradient-to-r from-orange-500 to-rose-600 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide text-white shadow-md shadow-rose-500/40 ring-1 ring-white/30 transition-transform hover:scale-105"
     >
-      <Megaphone className="size-3.5 shrink-0" />
-      <span className="max-w-[26vw] truncate sm:max-w-none">{label}</span>
+      <Megaphone className="size-3 shrink-0" />
+      <span className="max-w-[24vw] truncate sm:max-w-none">{label}</span>
     </a>
   );
 }
