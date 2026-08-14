@@ -106,7 +106,14 @@ async def _post(path: str, body: dict[str, Any]) -> dict[str, Any]:
         logger.error("divinepay_http_%s %s: %s", resp.status_code, path, data or resp.text)
         msg = (data or {}).get("message") or f"HTTP {resp.status_code}"
         raise DivinepayError(f"Divinepay: {msg}")
-    return data or {}
+    data = data or {}
+    # Divinepay wraps every result in a {success, message, data:{...}} envelope.
+    # Flatten the inner `data` up so callers can read order_id / paymentUrl /
+    # status uniformly regardless of nesting.
+    inner = data.get("data")
+    if isinstance(inner, dict):
+        return {**data, **inner}
+    return data
 
 
 # ── Gateway calls ────────────────────────────────────────────────────
