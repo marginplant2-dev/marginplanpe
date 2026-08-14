@@ -32,7 +32,7 @@
  * regression ships. NEVER reuse an old version string.
  */
 
-const VERSION = "marginplant-pwa-v6";
+const VERSION = "marginplant-pwa-v7";
 // How long a navigation waits for the network before it paints the last
 // cached shell instead. Short enough to feel instant on weak networks,
 // long enough that a healthy connection almost always wins the race and
@@ -211,8 +211,17 @@ self.addEventListener("fetch", (event) => {
   }
 
   // 3) Hashed Next.js chunks — immutable, cache-first.
+  //    /charting_library/* is the TradingView bundle (standalone.js + its
+  //    lazily-loaded sub-chunks/fonts, several MB total). It's versioned,
+  //    immutable static content served from /public, so cache-first makes the
+  //    FIRST-of-session chart open the only slow one — every subsequent
+  //    terminal open serves the whole library from Cache Storage instantly
+  //    (APK-like) and works offline. This is the biggest single "chart opens
+  //    fast" win. PagePrewarmer downloads standalone.js on dashboard idle so
+  //    even that first open is usually warm.
   if (
     url.pathname.startsWith("/_next/static/") ||
+    url.pathname.startsWith("/charting_library/") ||
     url.pathname.startsWith("/icons/") ||
     url.pathname === "/icon.svg" ||
     url.pathname === "/manifest.webmanifest"

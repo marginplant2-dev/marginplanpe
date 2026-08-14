@@ -67,6 +67,27 @@ export function PagePrewarmer() {
         : (window as any).setTimeout(cb, 1200);
 
     idle(() => {
+      // 0) Warm the TradingView charting library (several MB, served from
+      //    /public so next/link's router.prefetch can't reach it) while the
+      //    user is idling on the dashboard. A low-priority <link rel=prefetch>
+      //    downloads standalone.js in the background; the v7 service worker
+      //    then cache-first stores it (and its sub-chunks on first real use),
+      //    so tapping the chart opens instantly instead of waiting on the
+      //    multi-MB download. Guarded so it's injected at most once.
+      try {
+        const CHART_LIB = "/charting_library/charting_library.standalone.js";
+        if (!document.querySelector(`link[data-mp-prewarm="chart"]`)) {
+          const link = document.createElement("link");
+          link.rel = "prefetch";
+          link.as = "script";
+          link.href = CHART_LIB;
+          link.setAttribute("data-mp-prewarm", "chart");
+          document.head.appendChild(link);
+        }
+      } catch {
+        /* non-fatal */
+      }
+
       // 1) Warm route chunks (best-effort).
       for (const href of PREFETCH_ROUTES) {
         try {
