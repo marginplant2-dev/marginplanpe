@@ -95,6 +95,14 @@ async def _resolve_user(token: str) -> User:
     # token_version=0, so this stays backward-compatible until the first bump.
     if int(payload.get("ver", 0) or 0) != int(getattr(user, "token_version", 0) or 0):
         raise TokenInvalidError("Session expired — please log in again")
+    # Per-admin maintenance gate. If this user's owning admin flipped the pool
+    # into maintenance, every live session is kicked here on its next request
+    # (and the frontend shows the maintenance popup + logs out).
+    from app.core.exceptions import MaintenanceModeError
+    from app.services import user_service
+
+    if await user_service.is_under_admin_maintenance(user):
+        raise MaintenanceModeError()
     return user
 
 

@@ -230,6 +230,23 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // Per-admin maintenance mode. The backend returns 503 MAINTENANCE_MODE on
+    // every request once the user's owning admin locks the pool — this is how a
+    // LIVE session gets kicked: wipe creds and bounce to /login with a flag so
+    // the login page shows the "platform under maintenance" popup. Login itself
+    // also 503s here (handled on the login page); the pathname guard stops a
+    // redirect loop when we're already there.
+    if (status === 503) {
+      const code = error.response?.data?.error?.code;
+      if (code === "MAINTENANCE_MODE" && typeof window !== "undefined") {
+        clearTokens();
+        if (!window.location.pathname.startsWith("/login")) {
+          window.location.href = "/login?maintenance=1";
+        }
+      }
+      return Promise.reject(error);
+    }
+
     if (status === 401 && original && !original._retry) {
       original._retry = true;
       const newToken = await ensureFreshAccessToken();

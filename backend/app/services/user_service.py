@@ -163,6 +163,27 @@ async def get_user_or_404(user_id: str | PydanticObjectId) -> User:
     return user
 
 
+async def is_under_admin_maintenance(user: User) -> bool:
+    """True when the user's OWNING admin has maintenance mode ON.
+
+    Used to block login and kick live sessions for a whole pool when the
+    super-admin flips an admin into maintenance. Admins / super-admins are
+    never blocked by it, and a user with no owning admin (the super-admin's
+    own pool) isn't either — the switch is strictly per-admin.
+
+    ponytail: one extra _id lookup per authenticated request; add a short
+    Redis cache keyed by admin_id only if the auth hot-path shows up in
+    profiling.
+    """
+    if user.role in (UserRole.SUPER_ADMIN, UserRole.ADMIN):
+        return False
+    admin_id = user.assigned_admin_id
+    if not admin_id:
+        return False
+    admin = await User.get(admin_id)
+    return bool(admin and getattr(admin, "maintenance_mode", False))
+
+
 async def descendants_of(user_id: PydanticObjectId, *, max_depth: int = 6) -> list[User]:
     """BFS through hierarchy. max_depth caps cost; trees deeper than 6 are
     almost certainly a misconfiguration."""

@@ -31,6 +31,10 @@ class UpdatePnlShareRequest(BaseModel):
     pct: Decimal = Field(ge=0, le=100)
 
 
+class SetMaintenanceRequest(BaseModel):
+    enabled: bool
+
+
 class AssignUserRequest(BaseModel):
     sub_admin_id: str | None = None  # None → return user to super-admin pool
 
@@ -64,6 +68,7 @@ class SubAdminDTO(BaseModel):
     pnl_share_pct: str
     user_count: int = 0  # active trading clients (CLOSED + broker rows excluded)
     broker_count: int = 0  # broker + sub-broker login accounts under this admin
+    maintenance_mode: bool = False  # ON → this admin's whole pool is login-locked
     created_at: datetime | None = None
 
 

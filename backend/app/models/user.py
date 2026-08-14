@@ -346,6 +346,13 @@ class User(TimestampMixin):
     # other admins are unaffected.
     registration_enabled: bool = True
 
+    # Per-admin maintenance switch (set on an ADMIN row by the super-admin).
+    # When True, EVERY non-admin user in this admin's pool is blocked from
+    # logging in AND any already-logged-in session is kicked on its next
+    # request (enforced in the auth dependency). Default False so pools run
+    # normally. Only affects this admin's own pool — other admins unaffected.
+    maintenance_mode: bool = False
+
     # Custom domain (sparse-unique — see Settings.indexes). Stored
     # lowercased, no scheme: "mybroker.com".
     custom_domain: str | None = None

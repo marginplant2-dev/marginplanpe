@@ -208,6 +208,31 @@ async def unblock_sub_admin(
     return sa
 
 
+async def set_maintenance(
+    sub_admin_id: str | PydanticObjectId,
+    enabled: bool,
+    actor_id: PydanticObjectId,
+) -> User:
+    """Flip this admin's whole pool into (or out of) maintenance. When ON,
+    every non-admin user under this admin is blocked from logging in and any
+    live session is kicked on its next request (enforced in the auth
+    dependency + the frontend maintenance interceptor). No bulk session revoke
+    is needed — the app polls every few seconds, so the kick is effectively
+    immediate."""
+    sa = await _get_sub_admin_or_404(sub_admin_id)
+    sa.maintenance_mode = bool(enabled)
+    await sa.save()
+    await log_event(
+        action=AuditAction.UPDATE,
+        entity_type="User",
+        entity_id=sa.id,
+        actor_id=actor_id,
+        target_user_id=sa.id,
+        metadata={"kind": "SUB_ADMIN", "maintenance_mode": bool(enabled)},
+    )
+    return sa
+
+
 async def list_sub_admins(
     *, status: str | None = None, q: str | None = None, page: int = 1, page_size: int = 20
 ) -> tuple[list[User], int]:

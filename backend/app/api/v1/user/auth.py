@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from app.core.dependencies import CurrentUser
 from app.core.exceptions import (
     InvalidCredentialsError,
+    MaintenanceModeError,
     NotFoundError,
     ValidationFailedError,
 )
@@ -167,6 +168,13 @@ async def login(payload: LoginRequest, request: Request):
         # auth_service enforce multi-tenant login isolation when enabled.
         login_host=_signup_host(request),
     )
+    # Per-admin maintenance gate — block the login itself so the login form
+    # shows the maintenance popup (the auth dependency also kicks live sessions).
+    # pair.user is a DTO without assigned_admin_id, so re-load the full row
+    # (credentials are already verified above).
+    _full = await user_service.find_by_identifier(payload.identifier)
+    if _full and await user_service.is_under_admin_maintenance(_full):
+        raise MaintenanceModeError()
     await log_event(
         action=AuditAction.LOGIN,
         entity_type="User",

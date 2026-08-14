@@ -15,6 +15,7 @@ import {
   EyeOff,
   KeyRound,
   Trash2,
+  Wrench,
 } from "lucide-react";
 
 import { BrokerMgmtAPI, ManagementAPI, setTokens } from "@/lib/api";
@@ -188,6 +189,20 @@ export default function SubAdminsPage() {
     },
     onError: (e: any) => toast.error(e.message),
   });
+  const maintenanceMut = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      ManagementAPI.setSubAdminMaintenance(id, enabled),
+    onSuccess: (_d, v) => {
+      toast.success(
+        v.enabled
+          ? "Maintenance ON — this admin's users are logged out & login-locked"
+          : "Maintenance OFF — login restored for this admin's users",
+      );
+      qc.invalidateQueries({ queryKey: ["admin", "sub-admins"] });
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.detail ?? e?.message ?? "Failed"),
+  });
   const resetPwMut = useMutation({
     mutationFn: ({ id, pw }: { id: string; pw: string }) =>
       ManagementAPI.resetSubAdminPassword(id, pw),
@@ -298,6 +313,27 @@ export default function SubAdminsPage() {
                   Unblock
                 </DropdownMenuItem>
               )}
+              <DropdownMenuItem
+                onSelect={() => {
+                  const turningOn = !r.maintenance_mode;
+                  if (
+                    turningOn &&
+                    !confirm(
+                      `Turn ON maintenance for ${r.user_code}? All ${r.full_name || "this admin"}'s users will be logged out and blocked from logging in until you turn it off.`,
+                    )
+                  ) {
+                    return;
+                  }
+                  maintenanceMut.mutate({ id: r.id, enabled: turningOn });
+                }}
+              >
+                <Wrench
+                  className={`size-4 ${r.maintenance_mode ? "text-emerald-500" : "text-amber-500"}`}
+                />
+                {r.maintenance_mode
+                  ? "Turn OFF maintenance"
+                  : "Maintenance mode (lock pool)"}
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={() =>
                   setResetPwTarget({

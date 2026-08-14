@@ -103,6 +103,17 @@ class TenantLoginNotAllowedError(AuthError):
     )
 
 
+class MaintenanceModeError(AuthError):
+    # The user's owning admin has turned maintenance mode ON for their whole
+    # pool. Blocks new logins AND kicks existing sessions (raised from the
+    # per-request auth dependency). 503 so it reads as "platform temporarily
+    # down" rather than an account problem. The frontend matches on the code
+    # to show a maintenance popup and log the user out.
+    code = "MAINTENANCE_MODE"
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    message = "The platform is under maintenance. Please try again later."
+
+
 class InsufficientPermissionsError(AppError):
     code = "FORBIDDEN"
     status_code = status.HTTP_403_FORBIDDEN

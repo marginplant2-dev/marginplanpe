@@ -7,7 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Eye, EyeOff, Loader2, Mail, Lock, Send, ShieldCheck, Smartphone, Zap } from "lucide-react";
+import { Eye, EyeOff, Loader2, Mail, Lock, Send, ShieldCheck, Smartphone, Wrench, Zap } from "lucide-react";
 import { useBranding } from "@/lib/branding-context";
 import { useAuthStore } from "@/stores/authStore";
 import { ApiError, AuthAPI, ProfileAPI, setTokens } from "@/lib/api";
@@ -57,6 +57,17 @@ function LoginPageInner() {
   const [showPwd, setShowPwd] = useState(false);
   const [needs2fa, setNeeds2fa] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
+  // Maintenance popup — shown both when a live session gets kicked here
+  // (?maintenance=1, set by the api interceptor) and when a fresh login is
+  // rejected with MAINTENANCE_MODE below.
+  const [maintenanceMsg, setMaintenanceMsg] = useState<string | null>(null);
+  useEffect(() => {
+    if (searchParams?.get("maintenance") === "1") {
+      setMaintenanceMsg(
+        "The platform is under maintenance. Please try again later.",
+      );
+    }
+  }, [searchParams]);
 
   // Capture a shared referral link's ?ref= BEFORE the user tries the demo,
   // so admin/broker/sub-broker attribution survives demo-login → logout →
@@ -137,6 +148,11 @@ function LoginPageInner() {
           toast.info("Enter your 2FA code to continue");
           return;
         }
+        if (err.code === "MAINTENANCE_MODE") {
+          // Pool locked by the admin → prominent popup, not a toast.
+          setMaintenanceMsg(err.message);
+          return;
+        }
         toast.error(err.message);
       } else {
         toast.error("Login failed. Please try again.");
@@ -158,6 +174,28 @@ function LoginPageInner() {
 
   return (
     <div className="space-y-4 lg:space-y-6">
+      {/* Maintenance popup — pool locked by the admin. Blocks login and is
+          also shown when a live session was just kicked (?maintenance=1). */}
+      {maintenanceMsg && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setMaintenanceMsg(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-card p-6 text-center shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto mb-3 grid size-12 place-items-center rounded-full bg-amber-500/15 text-amber-500">
+              <Wrench className="size-6" />
+            </div>
+            <h3 className="text-lg font-semibold">Under maintenance</h3>
+            <p className="mt-1.5 text-sm text-muted-foreground">{maintenanceMsg}</p>
+            <Button className="mt-5 w-full" onClick={() => setMaintenanceMsg(null)}>
+              OK
+            </Button>
+          </div>
+        </div>
+      )}
       {/* Compact header on mobile — tab bar in layout already labels
           the page, so headline + sub-line are sized just enough for
           context. Desktop keeps the larger treatment since there's

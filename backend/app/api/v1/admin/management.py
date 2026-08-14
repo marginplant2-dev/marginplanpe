@@ -23,6 +23,7 @@ from app.schemas.admin.management import (
     MarkPaidRequest,
     RecomputeSettlementRequest,
     ResetPasswordRequest,
+    SetMaintenanceRequest,
     SettlementDTO,
     SubAdminDTO,
     UpdatePermissionsRequest,
@@ -50,6 +51,7 @@ async def _ser_sub_admin(sa: User) -> SubAdminDTO:
         pnl_share_pct=str(sa.pnl_share_pct) if sa.pnl_share_pct is not None else "0",
         user_count=await mgmt.count_assigned_users(sa.id),
         broker_count=await mgmt.count_assigned_brokers(sa.id),
+        maintenance_mode=bool(getattr(sa, "maintenance_mode", False)),
         created_at=sa.created_at,
     )
 
@@ -166,6 +168,19 @@ async def block_sub_admin(sub_admin_id: str, admin: SuperAdmin):
 )
 async def unblock_sub_admin(sub_admin_id: str, admin: SuperAdmin):
     sa = await mgmt.unblock_sub_admin(sub_admin_id, admin.id)
+    return APIResponse(data=await _ser_sub_admin(sa))
+
+
+@router.post(
+    "/sub-admins/{sub_admin_id}/maintenance",
+    response_model=APIResponse[SubAdminDTO],
+)
+async def set_sub_admin_maintenance(
+    sub_admin_id: str, body: SetMaintenanceRequest, admin: SuperAdmin
+):
+    """Turn maintenance mode ON/OFF for this admin's whole pool. ON blocks every
+    non-admin user's login and kicks live sessions; OFF restores normal access."""
+    sa = await mgmt.set_maintenance(sub_admin_id, body.enabled, admin.id)
     return APIResponse(data=await _ser_sub_admin(sa))
 
 

@@ -893,6 +893,8 @@ export const ManagementAPI = {
     unwrap<any>(api.post(`/admin/management/sub-admins/${id}/block`)),
   unblockSubAdmin: (id: string) =>
     unwrap<any>(api.post(`/admin/management/sub-admins/${id}/unblock`)),
+  setSubAdminMaintenance: (id: string, enabled: boolean) =>
+    unwrap<any>(api.post(`/admin/management/sub-admins/${id}/maintenance`, { enabled })),
   deleteSubAdmin: (id: string) =>
     unwrap<any>(api.delete(`/admin/management/sub-admins/${id}`)),
   resetSubAdminPassword: (id: string, new_password: string) =>
