@@ -20,6 +20,15 @@ const LEVEL_ORDER: Record<PermissionLevel, number> = {
   EDIT: 2,
 };
 
+// Umbrella nav perms whose sidebar items are gated on the umbrella but whose
+// grants are made through the granular child toggles in the permissions editor.
+// Granting any child must reveal the umbrella section. Mirrors the backend
+// `dependencies._UMBRELLA_CHILDREN`.
+const UMBRELLA_CHILDREN: Record<string, string[]> = {
+  trading_view: ["orders", "positions", "marketwatch"],
+  ledger: ["money_transactions", "broker_deposits"],
+};
+
 function atLeast(actual: PermissionLevel, required: PermissionLevel): boolean {
   return LEVEL_ORDER[actual] >= LEVEL_ORDER[required];
 }
@@ -42,7 +51,19 @@ export function canSee(
     if (!ap) return false;
     // `brokers` and other admin keys are boolean. Admin doesn't have
     // `sub_brokers` — treat that as not granted.
-    const v = (ap as any)[perm];
+    let v = (ap as any)[perm];
+    // Umbrella → children fallback (mirrors backend _UMBRELLA_CHILDREN): the
+    // permissions editor only exposes the granular children (orders / positions
+    // / marketwatch, money_transactions / broker_deposits), never the umbrella
+    // (trading_view / ledger) the nav gates on. So granting any child must also
+    // reveal the umbrella section — else the whole Trading / Money group stays
+    // hidden even though its pages were granted.
+    if (v !== true) {
+      const children = UMBRELLA_CHILDREN[perm as string];
+      if (children && children.some((c) => (ap as any)[c] === true)) {
+        v = true;
+      }
+    }
     if (typeof v !== "boolean") return false;
     // Boolean → EDIT when true (admin always has full edit on what they have)
     return v ? atLeast("EDIT", minLevel) : false;
