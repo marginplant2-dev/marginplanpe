@@ -137,6 +137,11 @@ class AdminPermissions(BaseModel):
     broker_deposits: bool = False     # Money → Broker Deposits    (child of ledger)
     download_app: bool = False    # System → Download App
     bonuses: bool = False         # Bonus Management (gated by BONUSES_ENABLED)
+    # Lets a NON-super admin transfer their own users to ANOTHER admin on the
+    # platform (the super-admin's cross-admin reassign capability, delegated).
+    # Default False — only the super-admin has it until granted. Gates the
+    # "Transfer User" sidebar section + the /management/transfer/* endpoints.
+    transfer_users: bool = False
 
 
 # Tri-state permissions granted by an admin to a broker (or by a broker to

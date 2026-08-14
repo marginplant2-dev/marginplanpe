@@ -9,6 +9,7 @@
  */
 
 import {
+  ArrowRightLeft,
   Bitcoin,
   Activity,
   Banknote,
@@ -131,6 +132,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         hideForSuperAdmin: true,
       },
       { href: "/management/pnl-sharing", label: "P&L Sharing", icon: Handshake, empPerm: "pnl_sharing" },
+      { href: "/management/transfer-users", label: "Transfer User", icon: ArrowRightLeft, perm: "transfer_users" },
     ],
   },
   {

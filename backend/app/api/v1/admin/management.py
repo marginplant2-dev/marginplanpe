@@ -11,11 +11,14 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
-from beanie import PydanticObjectId
-from fastapi import APIRouter
+from typing import Annotated
 
-from app.core.dependencies import SuperAdmin
-from app.models.user import User
+from beanie import PydanticObjectId
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from app.core.dependencies import SuperAdmin, require_perm
+from app.models.user import User, UserRole
 from app.schemas.admin.management import (
     AssignUserRequest,
     BulkAssignRequest,
@@ -33,6 +36,7 @@ from app.schemas.admin.management import (
 from app.schemas.common import APIResponse
 from app.services import admin_management_service as mgmt
 from app.services import admin_settlement_service as stl
+from app.services import user_service
 from app.utils.time_utils import IST
 
 router = APIRouter(prefix="/management", tags=["admin-management"])
@@ -287,6 +291,61 @@ async def bulk_assign_users(payload: BulkAssignRequest, admin: SuperAdmin):
         payload.user_ids, payload.sub_admin_id, admin.id
     )
     return APIResponse(data=result)
+
+
+# ── Cross-admin transfer (delegated to permitted admins) ─────────────
+# Lets a NON-super admin move THEIR OWN users to another admin, gated by the
+# `transfer_users` permission. Super-admin already has this via /users/{id}/
+# assign; these endpoints are the admin-facing, scope-checked equivalent that
+# power the "Transfer User" sidebar section.
+TransferAdmin = Annotated[User, Depends(require_perm("transfer_users"))]
+
+
+class TransferToAdminRequest(BaseModel):
+    target_admin_id: str
+
+
+@router.get("/transfer/admins", response_model=APIResponse[dict])
+async def transfer_admin_targets(admin: TransferAdmin):
+    """Every admin on the platform (except the caller) as a transfer target."""
+    rows = await User.find(User.role == UserRole.ADMIN).to_list()
+    items = [
+        {
+            "id": str(a.id),
+            "user_code": a.user_code,
+            "full_name": a.full_name,
+            "email": a.email,
+        }
+        for a in rows
+        if a.id != admin.id
+    ]
+    return APIResponse(data={"items": items})
+
+
+@router.post("/transfer/to-admin/{user_id}", response_model=APIResponse[dict])
+async def transfer_user_to_admin(
+    user_id: str, body: TransferToAdminRequest, admin: TransferAdmin
+):
+    """Move one of the caller's users to another admin. Ownership, positions,
+    wallet, and trade history all travel with the user; the user then logs in
+    under the new admin's link only."""
+    target = await user_service.get_user_or_404(user_id)
+    # A non-super admin may only transfer users inside their OWN pool.
+    if admin.role != UserRole.SUPER_ADMIN:
+        owns = target.assigned_admin_id == admin.id or admin.id in (
+            getattr(target, "broker_ancestry", None) or []
+        )
+        if not owns:
+            raise HTTPException(status_code=403, detail="This user isn't in your pool")
+    if str(body.target_admin_id) == str(admin.id):
+        raise HTTPException(status_code=400, detail="Pick a different admin")
+    moved = await mgmt.reassign_user(user_id, body.target_admin_id, admin.id)
+    return APIResponse(
+        data={
+            "id": str(moved.id),
+            "assigned_admin_id": str(moved.assigned_admin_id) if moved.assigned_admin_id else None,
+        }
+    )
 
 
 # ── Settlements ──────────────────────────────────────────────────────

@@ -910,6 +910,11 @@ export const ManagementAPI = {
     unwrap<any>(api.post(`/admin/management/users/${userId}/assign`, { sub_admin_id })),
   bulkAssign: (user_ids: string[], sub_admin_id: string | null) =>
     unwrap<any>(api.post("/admin/management/users/bulk-assign", { user_ids, sub_admin_id })),
+  // Cross-admin transfer (permitted admins) — list target admins + move a user.
+  transferAdminTargets: () =>
+    unwrap<{ items: any[] }>(api.get("/admin/management/transfer/admins")),
+  transferUserToAdmin: (userId: string, target_admin_id: string) =>
+    unwrap<any>(api.post(`/admin/management/transfer/to-admin/${userId}`, { target_admin_id })),
   // Settlements
   listSettlements: (week_start?: string) =>
     unwrap<{

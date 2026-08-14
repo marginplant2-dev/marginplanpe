@@ -68,6 +68,7 @@ const PERMISSION_LABELS: Array<{ key: keyof AdminPermissions; label: string }> =
   { key: "support", label: "Support" },
   { key: "download_app", label: "Download App" },
   { key: "bonuses", label: "Bonuses" },
+  { key: "transfer_users", label: "Transfer users (to other admins)" },
 ];
 
 const ALL_OFF: AdminPermissions = {
@@ -95,6 +96,7 @@ const ALL_OFF: AdminPermissions = {
   broker_deposits: false,
   download_app: false,
   bonuses: false,
+  transfer_users: false,
 };
 
 export default function SubAdminsPage() {

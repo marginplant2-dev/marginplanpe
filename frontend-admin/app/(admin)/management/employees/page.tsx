@@ -71,7 +71,7 @@ const ALL_OFF: AdminPermissions = {
   accounts: false, pnl_sharing: false, audit: false, support: false,
   orders: false, positions: false, marketwatch: false,
   money_transactions: false, broker_deposits: false, download_app: false,
-  bonuses: false,
+  bonuses: false, transfer_users: false,
 };
 
 export default function EmployeesPage() {

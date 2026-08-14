@@ -34,6 +34,8 @@ export interface AdminPermissions {
   download_app: boolean;
   // Bonus Management (gated by backend BONUSES_ENABLED).
   bonuses: boolean;
+  // Transfer User section — move own users to another admin (super-admin grants).
+  transfer_users: boolean;
 }
 
 // Tri-state permission level (admin → broker grant, or broker → sub-broker).

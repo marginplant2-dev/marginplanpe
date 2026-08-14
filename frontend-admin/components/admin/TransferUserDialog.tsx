@@ -34,6 +34,11 @@ interface Props {
    *  ["admin","users"] query on its own, but onChange covers any
    *  page-local cache the parent maintains. */
   onChange?: () => void;
+  /** Cross-admin transfer: a NON-super admin (with the `transfer_users`
+   *  permission) moves their user to ANOTHER admin. Lists platform admins and
+   *  hits the scope-checked /transfer/to-admin endpoint instead of the broker
+   *  flow. Ignored for SUPER_ADMIN (already lists admins). */
+  toAdmin?: boolean;
 }
 
 /**
@@ -59,10 +64,13 @@ interface Props {
  * owner's dashboard from the very next poll — full trade / wallet /
  * position history travels with the user.
  */
-export function TransferUserDialog({ user, open, onClose, onChange }: Props) {
+export function TransferUserDialog({ user, open, onClose, onChange, toAdmin }: Props) {
   const qc = useQueryClient();
   const admin = useAdminAuthStore((s) => s.admin);
   const callerRole = admin?.role;
+  // toAdmin routes a permitted ADMIN caller down the cross-admin path (list all
+  // admins, hit /transfer/to-admin). SUPER_ADMIN already lists admins natively.
+  const crossAdmin = !!toAdmin && callerRole !== "SUPER_ADMIN";
   const [query, setQuery] = useState("");
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -75,20 +83,29 @@ export function TransferUserDialog({ user, open, onClose, onChange }: Props) {
     staleTime: 60_000,
   });
 
+  // Cross-admin destinations — every platform admin (permitted ADMIN caller).
+  const adminTargetsQ = useQuery({
+    queryKey: ["admin", "transfer-admins"],
+    queryFn: () => ManagementAPI.transferAdminTargets(),
+    enabled: open && crossAdmin,
+    staleTime: 60_000,
+  });
+
   // ADMIN + BROKER destinations — backend-scoped broker list.
   // ADMIN gets their top brokers; BROKER gets their sub-brokers.
   const brokersQ = useQuery({
     queryKey: ["admin", "brokers", "all-for-transfer"],
     queryFn: () => BrokerMgmtAPI.list({ page_size: 200 }),
-    enabled: open && (callerRole === "ADMIN" || callerRole === "BROKER"),
+    enabled: open && !crossAdmin && (callerRole === "ADMIN" || callerRole === "BROKER"),
     staleTime: 60_000,
   });
 
-  const loading = subAdminsQ.isLoading || brokersQ.isLoading;
+  const loading = subAdminsQ.isLoading || brokersQ.isLoading || adminTargetsQ.isLoading;
   const rawList: any[] = useMemo(() => {
+    if (crossAdmin) return adminTargetsQ.data?.items ?? [];
     if (callerRole === "SUPER_ADMIN") return subAdminsQ.data?.items ?? [];
     return brokersQ.data?.items ?? [];
-  }, [callerRole, subAdminsQ.data, brokersQ.data]);
+  }, [crossAdmin, callerRole, subAdminsQ.data, brokersQ.data, adminTargetsQ.data]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -117,7 +134,9 @@ export function TransferUserDialog({ user, open, onClose, onChange }: Props) {
     }
     setSubmitting(true);
     try {
-      if (callerRole === "SUPER_ADMIN") {
+      if (crossAdmin) {
+        await ManagementAPI.transferUserToAdmin(user.id, pickedId);
+      } else if (callerRole === "SUPER_ADMIN") {
         await ManagementAPI.assignUser(user.id, pickedId);
       } else {
         // ADMIN + BROKER both hit the broker-assign endpoint; backend
@@ -145,7 +164,7 @@ export function TransferUserDialog({ user, open, onClose, onChange }: Props) {
   }
 
   const destinationLabel =
-    callerRole === "SUPER_ADMIN"
+    crossAdmin || callerRole === "SUPER_ADMIN"
       ? "Pick an admin"
       : callerRole === "ADMIN"
         ? "Pick a broker"
@@ -189,7 +208,7 @@ export function TransferUserDialog({ user, open, onClose, onChange }: Props) {
             {!loading && filtered.length === 0 && (
               <div className="py-6 text-center text-xs text-muted-foreground">
                 {rawList.length === 0
-                  ? `No ${callerRole === "SUPER_ADMIN" ? "admins" : "brokers"} available.`
+                  ? `No ${crossAdmin || callerRole === "SUPER_ADMIN" ? "admins" : "brokers"} available.`
                   : "No matches."}
               </div>
             )}
