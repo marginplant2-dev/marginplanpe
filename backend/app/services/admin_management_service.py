@@ -355,6 +355,16 @@ async def reassign_user(
 
     old = str(target.assigned_admin_id) if target.assigned_admin_id else None
     target.assigned_admin_id = new_oid
+    # Detach from the OLD owner's broker subtree. Without this the user keeps
+    # its `assigned_broker_id` / `broker_ancestry` pointing at a broker that
+    # belongs to the previous admin, so the OLD admin's dashboard (scoped by
+    # broker_ancestry) still lists the transferred user. Clearing them makes the
+    # user a DIRECT client of the destination admin — it disappears from the
+    # source admin and shows cleanly under the new one. (A BROKER being moved
+    # likewise becomes a top-level broker of the new admin; its own downline is
+    # re-stamped below.)
+    target.assigned_broker_id = None
+    target.broker_ancestry = []
     # Stamp transfer telemetry so the destination dashboard can render
     # a "Transferred" badge and the audit trail of last-owner-change is
     # readable without joining audit_logs.

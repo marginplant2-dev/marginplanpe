@@ -305,6 +305,19 @@ class TransferToAdminRequest(BaseModel):
     target_admin_id: str
 
 
+class TransferBulkRequest(BaseModel):
+    user_ids: list[str]
+    target_admin_id: str
+
+
+async def _assert_owns(admin: User, target: User) -> bool:
+    if admin.role == UserRole.SUPER_ADMIN:
+        return True
+    return target.assigned_admin_id == admin.id or admin.id in (
+        getattr(target, "broker_ancestry", None) or []
+    )
+
+
 @router.get("/transfer/admins", response_model=APIResponse[dict])
 async def transfer_admin_targets(admin: TransferAdmin):
     """Every admin on the platform (except the caller) as a transfer target."""
@@ -330,13 +343,8 @@ async def transfer_user_to_admin(
     wallet, and trade history all travel with the user; the user then logs in
     under the new admin's link only."""
     target = await user_service.get_user_or_404(user_id)
-    # A non-super admin may only transfer users inside their OWN pool.
-    if admin.role != UserRole.SUPER_ADMIN:
-        owns = target.assigned_admin_id == admin.id or admin.id in (
-            getattr(target, "broker_ancestry", None) or []
-        )
-        if not owns:
-            raise HTTPException(status_code=403, detail="This user isn't in your pool")
+    if not await _assert_owns(admin, target):
+        raise HTTPException(status_code=403, detail="This user isn't in your pool")
     if str(body.target_admin_id) == str(admin.id):
         raise HTTPException(status_code=400, detail="Pick a different admin")
     moved = await mgmt.reassign_user(user_id, body.target_admin_id, admin.id)
@@ -346,6 +354,27 @@ async def transfer_user_to_admin(
             "assigned_admin_id": str(moved.assigned_admin_id) if moved.assigned_admin_id else None,
         }
     )
+
+
+@router.post("/transfer/to-admin-bulk", response_model=APIResponse[dict])
+async def transfer_users_to_admin_bulk(body: TransferBulkRequest, admin: TransferAdmin):
+    """Move several of the caller's users to another admin in one go. Each user
+    is scope-checked; out-of-pool / bad ids are skipped, not fatal."""
+    if str(body.target_admin_id) == str(admin.id):
+        raise HTTPException(status_code=400, detail="Pick a different admin")
+    moved = 0
+    skipped = 0
+    for uid in body.user_ids:
+        try:
+            target = await user_service.get_user_or_404(uid)
+            if not await _assert_owns(admin, target):
+                skipped += 1
+                continue
+            await mgmt.reassign_user(uid, body.target_admin_id, admin.id)
+            moved += 1
+        except Exception:
+            skipped += 1
+    return APIResponse(data={"transferred": moved, "skipped": skipped})
 
 
 # ── Settlements ──────────────────────────────────────────────────────
