@@ -22,7 +22,6 @@ import { WalletAPI, BonusesUserAPI } from "@/lib/api";
 import { API_URL } from "@/lib/constants";
 import { useAuthStore } from "@/stores/authStore";
 import { DemoUpgradeDialog } from "@/components/wallet/DemoUpgradeDialog";
-import { GatewayDepositFlow } from "@/components/wallet/GatewayDepositFlow";
 import { UpiQR } from "@/components/common/UpiQR";
 import { cn, formatINR } from "@/lib/utils";
 import { buildWhatsappUrl, useSupportContacts } from "@/lib/useSupport";
@@ -189,6 +188,12 @@ export function AddFundsWizard({
   const [chooseMethod, setChooseMethod] = useState(false);
   const [cryptoMode, setCryptoMode] = useState(false);
   const [cryptoTx, setCryptoTx] = useState("");
+  // Divinepay UPI gateway (auto-crediting). When a gateway order exists we swap
+  // the amount step for the UTR-verify step; the amount step keeps the exact
+  // same "Paying …" UI so nothing visual changes vs the manual flow.
+  const [gwOrder, setGwOrder] = useState<{ order_id: string; payment_url: string; amount: string } | null>(null);
+  const [gwUtr, setGwUtr] = useState("");
+  const [gwBusy, setGwBusy] = useState(false);
   const { data: cryptoCfg } = useQuery({
     queryKey: ["wallet-crypto-config"],
     queryFn: () => WalletAPI.cryptoConfig(),
@@ -226,6 +231,8 @@ export function AddFundsWizard({
       setAmtStr("");
       setScreenshotUrl("");
       setSelectedBankId(null);
+      setGwOrder(null);
+      setGwUtr("");
     }
   }, [open]);
 
@@ -284,19 +291,6 @@ export function AddFundsWizard({
     return <DemoUpgradeDialog open={open} onClose={onClose} />;
   }
 
-  // Online (Divinepay UPI) auto-crediting flow — fully separate from the manual
-  // bank-QR + screenshot flow below, so nothing about MANUAL changes.
-  if (isGateway) {
-    return (
-      <GatewayDepositFlow
-        onClose={onClose}
-        onSuccess={onSuccess}
-        adminMin={minAmount}
-        gatewayMin={Number(depMode?.min_amount ?? 100)}
-      />
-    );
-  }
-
   function bump(n: number) {
     setAmtStr(String((Number(amtStr) || 0) + n));
   }
@@ -307,6 +301,45 @@ export function AddFundsWizard({
   // the QR or copying the UPI ID, then uploads the screenshot.
   function payViaUpiApp() {
     setStep(3);
+  }
+
+  // ── Divinepay UPI gateway ───────────────────────────────────────────
+  async function gatewayPay() {
+    if (amount < minAmount) return toast.error(`Minimum deposit is ${formatINR(minAmount)}`);
+    if (gwBusy) return;
+    setGwBusy(true);
+    try {
+      const res = await WalletAPI.createGatewayDeposit(amount);
+      setGwOrder({ order_id: res.order_id, payment_url: res.payment_url, amount: res.amount });
+      window.open(res.payment_url, "_blank", "noopener,noreferrer");
+    } catch (e: any) {
+      toast.error(e?.message || "Could not start payment");
+    } finally {
+      setGwBusy(false);
+    }
+  }
+
+  async function gatewayVerify() {
+    if (!gwOrder) return;
+    if (!/^\d{12}$/.test(gwUtr.trim())) return toast.error("Enter the 12-digit UPI reference (UTR)");
+    if (gwBusy) return;
+    setGwBusy(true);
+    try {
+      const res = await WalletAPI.submitGatewayUtr(gwOrder.order_id, gwUtr.trim());
+      if (res.status === "success" || res.credited || res.already_credited) {
+        toast.success("Payment confirmed — wallet credited");
+        onSuccess?.();
+        onClose();
+      } else {
+        toast.message("Not confirmed yet", {
+          description: "We haven't received your payment from the bank yet — it credits automatically once confirmed. Try Verify again in a moment.",
+        });
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Verification failed");
+    } finally {
+      setGwBusy(false);
+    }
   }
 
   async function onPickFile(file: File) {
@@ -451,7 +484,7 @@ export function AddFundsWizard({
     <div className="fixed inset-0 z-[60] flex justify-center overflow-y-auto bg-background">
       <div className="relative flex min-h-full w-full max-w-md flex-col">
         {/* ─────────────── STEP 1 + 2: Amount (step 2 dims it) ─────────────── */}
-        {(step === 1 || step === 2) && (
+        {(step === 1 || step === 2) && !gwOrder && (
           <div className={cn("flex flex-1 flex-col", step === 2 && "pointer-events-none opacity-40")}>
             <Header onBack={onClose} />
             <div className="flex flex-1 flex-col px-5 pt-6">
@@ -500,10 +533,11 @@ export function AddFundsWizard({
               )}
 
               <button
-                onClick={() => (cryptoAvailable ? setChooseMethod(true) : setStep(2))}
-                disabled={amount < minAmount}
+                onClick={isGateway ? gatewayPay : () => (cryptoAvailable ? setChooseMethod(true) : setStep(2))}
+                disabled={amount < minAmount || gwBusy}
                 className="mt-7 flex h-12 w-full items-center justify-center gap-1.5 rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
+                {gwBusy ? <Loader2 className="size-4 animate-spin" /> : null}
                 Next <ChevronRight className="size-4" />
               </button>
 
@@ -516,6 +550,61 @@ export function AddFundsWizard({
                   <li>1. Minimum deposit amount is {minAmount}</li>
                   <li>2. Upload a clear screenshot including UTR no, date and time</li>
                 </ol>
+              </div>
+
+              <PoweredFooter />
+            </div>
+          </div>
+        )}
+
+        {/* ─────────────── Divinepay UPI — verify UTR after paying ─────────────── */}
+        {gwOrder && (
+          <div className="flex flex-1 flex-col">
+            <Header onBack={() => setGwOrder(null)} />
+            <div className="flex flex-1 flex-col px-5 pt-6">
+              <div className="flex flex-col items-center">
+                <div className="grid size-24 place-items-center rounded-full bg-muted text-3xl font-bold text-foreground/70">
+                  {payee.charAt(0).toUpperCase()}
+                </div>
+                <div className="mt-3 inline-flex items-center gap-1.5 text-base font-semibold">
+                  <ShieldCheck className="size-4 text-primary" /> Paying {payee}
+                </div>
+                <div className="mt-4 text-4xl font-bold tabular-nums">{formatINR(Number(gwOrder.amount))}</div>
+                <div className="mt-1 font-mono text-[11px] text-muted-foreground">Order {gwOrder.order_id}</div>
+              </div>
+
+              <button
+                onClick={() => window.open(gwOrder.payment_url, "_blank", "noopener,noreferrer")}
+                className="mt-6 flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-primary/40 bg-primary/5 text-sm font-semibold text-primary transition hover:bg-primary/10"
+              >
+                <ChevronRight className="size-4" /> Reopen payment page
+              </button>
+
+              <div className="mt-5">
+                <div className="mb-1.5 text-sm font-semibold">Enter 12-digit UPI reference (UTR)</div>
+                <input
+                  inputMode="numeric"
+                  maxLength={12}
+                  value={gwUtr}
+                  onChange={(e) => setGwUtr(e.target.value.replace(/[^0-9]/g, ""))}
+                  placeholder="123456789012"
+                  className="h-12 w-full rounded-xl border border-border bg-muted/40 px-3 font-mono text-lg tracking-widest outline-none focus:border-primary"
+                />
+                <div className="mt-1.5 text-[11px] text-muted-foreground">
+                  Find the 12-digit UTR / reference number in your UPI app's payment receipt.
+                </div>
+              </div>
+
+              <button
+                onClick={gatewayVerify}
+                disabled={gwBusy || gwUtr.trim().length !== 12}
+                className="mt-5 flex h-12 w-full items-center justify-center gap-1.5 rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {gwBusy ? <Loader2 className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
+                {gwBusy ? "Verifying…" : "Verify & credit"}
+              </button>
+              <div className="mt-2 text-center text-[11px] text-muted-foreground">
+                Already paid? It also credits automatically within a minute.
               </div>
 
               <PoweredFooter />
