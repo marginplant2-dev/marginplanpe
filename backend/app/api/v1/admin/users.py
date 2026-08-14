@@ -822,25 +822,35 @@ async def delete_user(
     if admin.role != UserRole.SUPER_ADMIN and u.role == UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Cannot delete an admin user")
 
-    # Demo users: hard delete everything from DB immediately
-    if u.is_demo:
-        import asyncio as _asyncio
-        from app.models.order import Order
-        from app.models.position import Position
-        from app.models.trade import Trade
-        from app.models.transaction import DepositRequest, WalletTransaction, WithdrawalRequest
-        from app.models.wallet import Wallet
+    # Full financial purge on EVERY delete (demo AND real). Without this a
+    # deleted real user was only soft-closed, so their Position / Trade rows
+    # lingered and kept showing up in the admin's live aggregates — open
+    # positions, Open PNL, This/Last Week's Net P&L on the Positions page,
+    # position-card P&L — even though the user was "deleted". Deleting the
+    # financial rows drops them out of every one of those queries at once
+    # (all scope by Position/Trade user_id). The user row itself is still
+    # tombstoned below (not for demo) so re-registration + the delete audit
+    # trail survive.
+    import asyncio as _asyncio
+    from app.models.order import Order
+    from app.models.position import Position
+    from app.models.trade import Trade
+    from app.models.transaction import DepositRequest, WalletTransaction, WithdrawalRequest
+    from app.models.wallet import Wallet
 
-        uid = u.id
-        await _asyncio.gather(
-            Order.find({"user_id": uid}).delete(),
-            Position.find({"user_id": uid}).delete(),
-            Trade.find({"user_id": uid}).delete(),
-            Wallet.find({"user_id": uid}).delete(),
-            WalletTransaction.find({"user_id": uid}).delete(),
-            DepositRequest.find({"user_id": uid}).delete(),
-            WithdrawalRequest.find({"user_id": uid}).delete(),
-        )
+    uid = u.id
+    await _asyncio.gather(
+        Order.find({"user_id": uid}).delete(),
+        Position.find({"user_id": uid}).delete(),
+        Trade.find({"user_id": uid}).delete(),
+        Wallet.find({"user_id": uid}).delete(),
+        WalletTransaction.find({"user_id": uid}).delete(),
+        DepositRequest.find({"user_id": uid}).delete(),
+        WithdrawalRequest.find({"user_id": uid}).delete(),
+    )
+
+    # Demo users: also drop the row entirely (shared throwaway accounts).
+    if u.is_demo:
         await u.delete()
         await log_event(
             action=AuditAction.DELETE, entity_type="User", entity_id=uid, actor_id=admin.id, target_user_id=uid
