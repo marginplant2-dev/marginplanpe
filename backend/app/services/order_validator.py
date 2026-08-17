@@ -290,6 +290,36 @@ async def validate(
     projected_net = signed_held + delta
     is_reducing = abs(projected_net) < abs(signed_held)  # closing / partial close
 
+    # ── Stop-trigger directional sanity (SL / SL-M) ───────────────────
+    # A stop must sit on the side the market has to MOVE to reach it:
+    #   • BUY stop  → trigger ABOVE the current price (fires on a rise).
+    #   • SELL stop → trigger BELOW the current price (fires on a fall).
+    # A wrong-side stop (e.g. a SELL SL-M with trigger 64,700 while BTCUSD is
+    # 64,115) satisfies its trigger condition the instant it's parked, so the
+    # poller fires it immediately and books the fill at the trigger — an
+    # UNTRADED price → fake P&L (user-reported: SELL SL-M filling at 64,700 the
+    # market never hit). This runs UNCONDITIONALLY — independent of
+    # `limit_percentage` (which admins may set to 0, disabling the distance
+    # band below) — because it's a correctness gate, not a distance policy.
+    if (
+        order_type in (OrderType.SL, OrderType.SL_M)
+        and trigger_price is not None
+        and trigger_price > 0
+        and ltp is not None
+        and ltp > 0
+        and not is_squareoff
+    ):
+        if action == OrderAction.BUY and trigger_price <= ltp:
+            raise OrderRejectedError(
+                f"Buy stop trigger ₹{trigger_price} must be ABOVE the current price ₹{ltp:.2f}.",
+                code="STOP_TRIGGER_WRONG_SIDE",
+            )
+        if action == OrderAction.SELL and trigger_price >= ltp:
+            raise OrderRejectedError(
+                f"Sell stop trigger ₹{trigger_price} must be BELOW the current price ₹{ltp:.2f}.",
+                code="STOP_TRIGGER_WRONG_SIDE",
+            )
+
     # ── Square-off / Exit must be REDUCE-ONLY ──────────────────────────
     # An Exit / square-off order exists only to FLATTEN existing exposure.
     # If there is NO open position, or the order is on the SAME side as the
