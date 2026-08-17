@@ -462,6 +462,43 @@ async def get_user(
 ):
     u = await assert_user_in_scope(admin, user_id)
     detail = _ser(u)
+    wallet = await wallet_service.summary(u.id)
+    # Realized P&L that reconciles with deposits (balance = deposits + realised).
+    # The wallet's running `realized_pnl` field only tracks PNL ledger rows and
+    # MISSES the REVERSAL booked when an admin deletes a closed trade — so it
+    # drifted (e.g. showed −192.50 while the true lifetime loss was −416.75).
+    # Recompute from the closed positions — the SAME figure the Live Trading
+    # Stats dialog shows — so the card, the stats dialog and (deposits − balance)
+    # all agree. FX positions are converted to INR at their close/open rate.
+    try:
+        from app.models.position import Position, PositionStatus
+        from app.services import market_data_service as _mds
+
+        _usd_inr = _mds.get_usd_inr_rate()
+
+        def _real_inr(p) -> float:
+            raw = float(str(p.realized_pnl or 0))
+            is_usd = _mds.is_usd_quoted_segment(p.segment_type) or (
+                p.instrument and _mds.is_usd_quoted_segment(p.instrument.segment)
+            )
+            if not is_usd:
+                return raw
+            rate = (
+                float(str(p.close_usd_inr_rate))
+                if p.close_usd_inr_rate is not None
+                else float(str(p.open_usd_inr_rate))
+                if p.open_usd_inr_rate is not None
+                else _usd_inr
+            )
+            return raw * rate
+
+        _closed = await Position.find(
+            {"user_id": u.id, "status": PositionStatus.CLOSED.value}
+        ).to_list()
+        wallet["realized_pnl"] = str(round(sum(_real_inr(p) for p in _closed), 2))
+    except Exception:
+        pass  # on any error keep the wallet's own realized_pnl field
+
     detail.update(
         {
             "kyc": u.kyc.model_dump() if u.kyc else None,
@@ -469,7 +506,7 @@ async def get_user(
             "trading_hours": u.trading_hours.model_dump() if u.trading_hours else None,
             "risk": u.risk.model_dump() if u.risk else None,
             "communication": u.communication.model_dump() if u.communication else None,
-            "wallet": await wallet_service.summary(u.id),
+            "wallet": wallet,
         }
     )
     return APIResponse(data=detail)
