@@ -381,13 +381,52 @@ export default function BrokersPage() {
         }
       />
 
-      <DataTable
-        columns={cols}
-        rows={data?.items}
-        keyExtractor={(r) => r.id}
-        loading={isFetching && !data}
-        onRowClick={(r) => router.push(`/management/brokers/${r.id}`)}
-      />
+      {/* Desktop table */}
+      <div className="hidden md:block">
+        <DataTable
+          columns={cols}
+          rows={data?.items}
+          keyExtractor={(r) => r.id}
+          loading={isFetching && !data}
+          onRowClick={(r) => router.push(`/management/brokers/${r.id}`)}
+        />
+      </div>
+
+      {/* Mobile cards — same shape as the sub-admin / user cards */}
+      <div className="md:hidden">
+        {isFetching && !data ? (
+          <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
+        ) : (data?.items ?? []).length === 0 ? (
+          <div className="py-10 text-center text-sm text-muted-foreground">
+            No {nounPlural.toLowerCase()} yet.
+          </div>
+        ) : (
+          <ul className="space-y-2">
+            {(data?.items ?? []).map((r: any) => (
+              <BrokerMobileCard
+                key={r.id}
+                row={r}
+                noun={noun}
+                loginAsBusy={loginAsId === r.id}
+                onOpen={() => router.push(`/management/brokers/${r.id}`)}
+                onLoginAs={() => loginAs(r)}
+                onEdit={() => setEditing(r)}
+                onBlock={() => blockMut.mutate(r.id)}
+                onUnblock={() => unblockMut.mutate(r.id)}
+                onPaymentGateway={() =>
+                  brokerGwMut.mutate({ id: r.id, enabled: !r.payment_gateway_enabled })
+                }
+                onResetPw={() =>
+                  setResetPwTarget({
+                    id: r.id,
+                    label: r.full_name || r.user_code || "broker",
+                  })
+                }
+              />
+            ))}
+          </ul>
+        )}
+      </div>
 
       <CreateBrokerDialog
         open={creating}
@@ -929,5 +968,159 @@ function EditBrokerDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── Mobile broker card — mirrors the sub-admin / user card layout so the
+//    Brokers list reads cleanly on a phone instead of a cramped table. ──
+function BrokerMobileCard({
+  row,
+  noun,
+  loginAsBusy,
+  onOpen,
+  onLoginAs,
+  onEdit,
+  onBlock,
+  onUnblock,
+  onPaymentGateway,
+  onResetPw,
+}: {
+  row: any;
+  noun: string;
+  loginAsBusy: boolean;
+  onOpen: () => void;
+  onLoginAs: () => void;
+  onEdit: () => void;
+  onBlock: () => void;
+  onUnblock: () => void;
+  onPaymentGateway: () => void;
+  onResetPw: () => void;
+}) {
+  const initials = (row.full_name || row.user_code || "?")
+    .split(/\s+/)
+    .map((s: string) => s[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+  const isActive = row.status === "ACTIVE";
+  const users = row.user_count ?? 0;
+  const subtree = row.subtree_user_count ?? users;
+  return (
+    <li
+      onClick={onOpen}
+      className="cursor-pointer rounded-lg border border-border bg-card p-3 transition-colors hover:bg-accent/30 active:bg-accent/40"
+    >
+      <div className="flex items-start gap-3">
+        <div className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/15 text-xs font-bold text-primary">
+          {initials}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold">
+            {row.full_name || row.user_code || "—"}
+          </div>
+          <div className="truncate font-mono text-[10px] text-muted-foreground">
+            {row.user_code || "—"}
+          </div>
+        </div>
+        <span
+          className={
+            "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider " +
+            (isActive
+              ? "bg-emerald-500/10 text-emerald-500 ring-1 ring-inset ring-emerald-500/30"
+              : "bg-red-500/10 text-red-500 ring-1 ring-inset ring-red-500/30")
+          }
+        >
+          {row.status || "—"}
+        </span>
+        <div onClick={(e) => e.stopPropagation()}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Open actions"
+                disabled={loginAsBusy}
+                className="-mr-1 size-8"
+              >
+                <MoreVertical className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={onLoginAs}>
+                <LogIn className="size-4 text-primary" />
+                Login
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onOpen}>
+                <Eye className="size-4" />
+                View {noun.toLowerCase()} profile
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onEdit}>
+                <Pencil className="size-4" />
+                Edit permissions
+              </DropdownMenuItem>
+              {isActive ? (
+                <DropdownMenuItem onSelect={onBlock}>
+                  <ShieldOff className="size-4 text-red-500" />
+                  Block
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem onSelect={onUnblock}>
+                  <ShieldCheck className="size-4 text-emerald-500" />
+                  Unblock
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onSelect={onPaymentGateway}>
+                <CreditCard
+                  className={`size-4 ${row.payment_gateway_enabled ? "text-emerald-500" : "text-muted-foreground"}`}
+                />
+                {row.payment_gateway_enabled
+                  ? "Online payment: ON (turn off)"
+                  : "Online payment: OFF (turn on)"}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onResetPw}>
+                <KeyRound className="size-4" />
+                Reset Password
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-1 text-xs">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <span className="w-12 text-[10px] uppercase tracking-wider">Email</span>
+          <span className="truncate text-foreground">{row.email || "—"}</span>
+        </div>
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <span className="w-12 text-[10px] uppercase tracking-wider">Mobile</span>
+          <span className="truncate text-foreground">{row.mobile || "—"}</span>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2 border-t border-border pt-3 text-center">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Users</div>
+          <div className="text-sm font-semibold">
+            {users}
+            {subtree !== users ? (
+              <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+                ({subtree} subtree)
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">PNL share</div>
+          <div className="text-sm font-semibold">{row.pnl_share_pct ?? "0"}%</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Brokerage</div>
+          <div className="text-sm font-semibold">
+            {row.brokerage_share_pct ?? row.pnl_share_pct ?? "0"}%
+          </div>
+        </div>
+      </div>
+    </li>
   );
 }

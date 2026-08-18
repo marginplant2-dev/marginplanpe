@@ -453,6 +453,21 @@ export default function SubAdminsPage() {
                 onEdit={() => setEditing(r)}
                 onBlock={() => blockMut.mutate(r.id)}
                 onUnblock={() => unblockMut.mutate(r.id)}
+                onMaintenance={() => {
+                  const turningOn = !r.maintenance_mode;
+                  if (
+                    turningOn &&
+                    !confirm(
+                      `Turn ON maintenance for ${r.user_code}? All ${r.full_name || "this admin"}'s users will be logged out and blocked from logging in until you turn it off.`,
+                    )
+                  ) {
+                    return;
+                  }
+                  maintenanceMut.mutate({ id: r.id, enabled: turningOn });
+                }}
+                onPaymentGateway={() =>
+                  paymentGwMut.mutate({ id: r.id, enabled: !r.payment_gateway_enabled })
+                }
                 onResetPw={() =>
                   setResetPwTarget({
                     id: r.id,
@@ -585,6 +600,8 @@ function SubAdminMobileCard({
   onEdit,
   onBlock,
   onUnblock,
+  onMaintenance,
+  onPaymentGateway,
   onResetPw,
   onDelete,
   loginAsBusy,
@@ -596,6 +613,8 @@ function SubAdminMobileCard({
   onEdit: () => void;
   onBlock: () => void;
   onUnblock: () => void;
+  onMaintenance: () => void;
+  onPaymentGateway: () => void;
   onResetPw: () => void;
   onDelete: () => void;
   loginAsBusy: boolean;
@@ -678,6 +697,22 @@ function SubAdminMobileCard({
                   Unblock
                 </DropdownMenuItem>
               )}
+              <DropdownMenuItem onSelect={onMaintenance}>
+                <Wrench
+                  className={`size-4 ${row.maintenance_mode ? "text-emerald-500" : "text-amber-500"}`}
+                />
+                {row.maintenance_mode
+                  ? "Turn OFF maintenance"
+                  : "Maintenance mode (lock pool)"}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onPaymentGateway}>
+                <CreditCard
+                  className={`size-4 ${row.payment_gateway_enabled ? "text-emerald-500" : "text-muted-foreground"}`}
+                />
+                {row.payment_gateway_enabled
+                  ? "Online payment: ON (turn off)"
+                  : "Online payment: OFF (turn on)"}
+              </DropdownMenuItem>
               <DropdownMenuItem onSelect={onResetPw}>
                 <KeyRound className="size-4" />
                 Reset Password
