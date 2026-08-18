@@ -15,6 +15,7 @@ import {
   EyeOff,
   KeyRound,
   CreditCard,
+  Trash2,
 } from "lucide-react";
 
 import { BrokerMgmtAPI, ManagementAPI, setTokens } from "@/lib/api";
@@ -164,6 +165,15 @@ export default function BrokersPage() {
     },
     onError: (e: any) =>
       toast.error(e?.response?.data?.detail ?? e?.message ?? "Failed"),
+  });
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => BrokerMgmtAPI.deleteBroker(id),
+    onSuccess: () => {
+      toast.success(`${noun} deleted`);
+      qc.invalidateQueries({ queryKey: ["admin", "brokers"] });
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.detail ?? e?.message ?? "Delete failed"),
   });
   const resetPwMut = useMutation({
     mutationFn: ({ id, pw }: { id: string; pw: string }) =>
@@ -353,6 +363,21 @@ export default function BrokersPage() {
                 <KeyRound className="size-4" />
                 Reset Password
               </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-red-500"
+                onSelect={() => {
+                  if (
+                    confirm(
+                      `Permanently delete ${r.user_code}? Their users and sub-${noun.toLowerCase()}s move up to the parent.`,
+                    )
+                  ) {
+                    deleteMut.mutate(r.id);
+                  }
+                }}
+              >
+                <Trash2 className="size-4 text-red-500" />
+                Delete
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -422,6 +447,15 @@ export default function BrokersPage() {
                     label: r.full_name || r.user_code || "broker",
                   })
                 }
+                onDelete={() => {
+                  if (
+                    confirm(
+                      `Permanently delete ${r.user_code}? Their users and sub-${noun.toLowerCase()}s move up to the parent.`,
+                    )
+                  ) {
+                    deleteMut.mutate(r.id);
+                  }
+                }}
               />
             ))}
           </ul>
@@ -984,6 +1018,7 @@ function BrokerMobileCard({
   onUnblock,
   onPaymentGateway,
   onResetPw,
+  onDelete,
 }: {
   row: any;
   noun: string;
@@ -995,6 +1030,7 @@ function BrokerMobileCard({
   onUnblock: () => void;
   onPaymentGateway: () => void;
   onResetPw: () => void;
+  onDelete: () => void;
 }) {
   const initials = (row.full_name || row.user_code || "?")
     .split(/\s+/)
@@ -1081,6 +1117,10 @@ function BrokerMobileCard({
               <DropdownMenuItem onSelect={onResetPw}>
                 <KeyRound className="size-4" />
                 Reset Password
+              </DropdownMenuItem>
+              <DropdownMenuItem className="text-red-500" onSelect={onDelete}>
+                <Trash2 className="size-4 text-red-500" />
+                Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

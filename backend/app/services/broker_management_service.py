@@ -371,6 +371,38 @@ async def block_broker(actor: User, broker_id: str | PydanticObjectId) -> User:
     return b
 
 
+async def delete_broker(actor: User, broker_id: str | PydanticObjectId) -> User:
+    """Permanently delete a broker / sub-broker. Their direct children (users +
+    sub-brokers) are moved UP to this broker's parent so nobody is orphaned, and
+    the broker is dropped from every descendant's ancestry chain. Scope-checked:
+    an admin can delete their brokers; a broker can delete their sub-brokers."""
+    b = await assert_broker_in_scope(actor, broker_id)
+    coll = User.get_motor_collection()
+    parent_broker = b.assigned_broker_id  # None → children become direct clients of the admin
+    # 1) Move direct children up one level (assigned_broker_id B → B's parent).
+    await coll.update_many(
+        {"assigned_broker_id": b.id},
+        {"$set": {"assigned_broker_id": parent_broker}},
+    )
+    # 2) Drop B from every descendant's broker_ancestry chain (keeps the rest of
+    #    the hierarchy intact; assigned_admin_id is unchanged so they stay in the
+    #    same admin's pool).
+    await coll.update_many(
+        {"broker_ancestry": b.id},
+        {"$pull": {"broker_ancestry": b.id}},
+    )
+    await b.delete()
+    await log_event(
+        action=AuditAction.DELETE,
+        entity_type="User",
+        entity_id=b.id,
+        actor_id=actor.id,
+        target_user_id=b.id,
+        metadata={"kind": "BROKER", "user_code": b.user_code},
+    )
+    return b
+
+
 async def set_broker_payment_gateway(
     actor: User, broker_id: str | PydanticObjectId, enabled: bool
 ) -> User:

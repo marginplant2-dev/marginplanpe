@@ -269,6 +269,15 @@ async def unblock_broker(broker_id: str, actor: CurrentAdmin):
     return APIResponse(data=await _ser_broker(b))
 
 
+@router.delete("/brokers/{broker_id}", response_model=APIResponse[dict])
+async def delete_broker(broker_id: str, actor: CurrentAdmin):
+    """Delete a broker / sub-broker. Their users + sub-brokers move up to the
+    parent (no orphans). Scope-checked — admin deletes their brokers, broker
+    deletes their sub-brokers."""
+    b = await svc.delete_broker(actor, broker_id)
+    return APIResponse(data={"deleted": str(b.id)})
+
+
 class _SetBrokerGatewayBody(BaseModel):
     enabled: bool
 
