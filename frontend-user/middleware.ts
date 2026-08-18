@@ -21,6 +21,22 @@ const HIDE = process.env.HIDE_PUBLIC_SITE === "true";
 
 const FLAGSHIP_HOSTS = new Set(["marginplant.com", "www.marginplant.com"]);
 
+// Platform hosts (flagship + dev/preview). Anything NOT in here is a branded
+// tenant domain (trade5x.in, marginx.in, …) — those are login portals, so their
+// bare domain opens /login instead of the marketing site.
+const PLATFORM_HOSTS = new Set([
+  "marginplant.com",
+  "www.marginplant.com",
+  "localhost",
+  "127.0.0.1",
+]);
+
+function isBrandedHost(host: string): boolean {
+  if (!host || PLATFORM_HOSTS.has(host)) return false;
+  // Preview/deploy hosts are platform, not tenant domains.
+  return !/\.(vercel\.app|netlify\.app|fly\.dev)$/.test(host);
+}
+
 // The `(marketing)` route group — the ONLY paths that get hidden. Login,
 // register, and every authenticated app route are deliberately absent.
 const MARKETING_PREFIXES = [
@@ -56,12 +72,19 @@ function isMarketingPath(path: string): boolean {
 }
 
 export function middleware(req: NextRequest) {
-  if (!HIDE) return NextResponse.next();
-
   const host = (req.headers.get("host") ?? "").toLowerCase().split(":")[0];
-  if (!FLAGSHIP_HOSTS.has(host)) return NextResponse.next();
-
   const path = req.nextUrl.pathname;
+
+  // Branded tenant domains are login portals — the bare domain opens /login,
+  // not the MarginPlant marketing site. Login / register / the app are untouched.
+  if (isBrandedHost(host) && path === "/") {
+    const url = req.nextUrl.clone();
+    url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+
+  if (!HIDE) return NextResponse.next();
+  if (!FLAGSHIP_HOSTS.has(host)) return NextResponse.next();
 
   // De-index the flagship domain wholesale so search engines drop it.
   if (path === "/robots.txt") {
