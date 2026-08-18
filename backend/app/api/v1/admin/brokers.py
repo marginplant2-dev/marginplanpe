@@ -18,6 +18,7 @@ from decimal import Decimal
 
 from beanie import PydanticObjectId
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from app.core.dependencies import (
     CurrentAdmin,
@@ -85,6 +86,7 @@ async def _ser_broker(b: User) -> BrokerDTO:
         broker_ancestry=[str(x) for x in (b.broker_ancestry or [])],
         assigned_admin_id=str(b.assigned_admin_id) if b.assigned_admin_id else None,
         assigned_broker_id=str(b.assigned_broker_id) if b.assigned_broker_id else None,
+        payment_gateway_enabled=bool(getattr(b, "payment_gateway_enabled", False)),
         created_at=b.created_at,
     )
 
@@ -264,6 +266,23 @@ async def block_broker(broker_id: str, actor: CurrentAdmin):
 )
 async def unblock_broker(broker_id: str, actor: CurrentAdmin):
     b = await svc.unblock_broker(actor, broker_id)
+    return APIResponse(data=await _ser_broker(b))
+
+
+class _SetBrokerGatewayBody(BaseModel):
+    enabled: bool
+
+
+@router.put(
+    "/brokers/{broker_id}/payment-gateway", response_model=APIResponse[BrokerDTO]
+)
+async def set_broker_payment_gateway(
+    broker_id: str, body: _SetBrokerGatewayBody, actor: CurrentAdmin
+):
+    """Admin turns the Divinepay UPI gateway ON/OFF for this broker's users.
+    Only takes effect when the owning admin's own gateway is enabled (enforced
+    in gateway_on_for)."""
+    b = await svc.set_broker_payment_gateway(actor, broker_id, body.enabled)
     return APIResponse(data=await _ser_broker(b))
 
 

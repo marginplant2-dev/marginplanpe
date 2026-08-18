@@ -14,6 +14,7 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  CreditCard,
 } from "lucide-react";
 
 import { BrokerMgmtAPI, ManagementAPI, setTokens } from "@/lib/api";
@@ -149,6 +150,20 @@ export default function BrokersPage() {
       qc.invalidateQueries({ queryKey: ["admin", "brokers"] });
     },
     onError: (e: any) => toast.error(e.message),
+  });
+  const brokerGwMut = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      BrokerMgmtAPI.setPaymentGateway(id, enabled),
+    onSuccess: (_d, v) => {
+      toast.success(
+        v.enabled
+          ? `Online payment ON — this ${noun}'s users get the UPI pay-in`
+          : `Online payment OFF — this ${noun}'s users use manual deposits`,
+      );
+      qc.invalidateQueries({ queryKey: ["admin", "brokers"] });
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.detail ?? e?.message ?? "Failed"),
   });
   const resetPwMut = useMutation({
     mutationFn: ({ id, pw }: { id: string; pw: string }) =>
@@ -315,6 +330,18 @@ export default function BrokersPage() {
                   Unblock
                 </DropdownMenuItem>
               )}
+              <DropdownMenuItem
+                onSelect={() =>
+                  brokerGwMut.mutate({ id: r.id, enabled: !r.payment_gateway_enabled })
+                }
+              >
+                <CreditCard
+                  className={`size-4 ${r.payment_gateway_enabled ? "text-emerald-500" : "text-muted-foreground"}`}
+                />
+                {r.payment_gateway_enabled
+                  ? "Online payment: ON (turn off)"
+                  : "Online payment: OFF (turn on)"}
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={() =>
                   setResetPwTarget({

@@ -79,6 +79,7 @@ class BrokerDTO(BaseModel):
     broker_ancestry: list[str] = Field(default_factory=list)
     assigned_admin_id: str | None = None
     assigned_broker_id: str | None = None
+    payment_gateway_enabled: bool = False  # ON → this broker's users get the UPI gateway
     created_at: datetime | None = None
 
 

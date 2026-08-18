@@ -821,6 +821,8 @@ export const BrokerMgmtAPI = {
     unwrap<any>(api.put(`/admin/management/brokers/${id}/pnl-share`, { pct, brokerage_pct })),
   block: (id: string) => unwrap<any>(api.post(`/admin/management/brokers/${id}/block`)),
   unblock: (id: string) => unwrap<any>(api.post(`/admin/management/brokers/${id}/unblock`)),
+  setPaymentGateway: (id: string, enabled: boolean) =>
+    unwrap<any>(api.put(`/admin/management/brokers/${id}/payment-gateway`, { enabled })),
   resetPassword: (id: string, new_password: string) =>
     unwrap<any>(
       api.post(`/admin/management/brokers/${id}/reset-password`, { new_password }),

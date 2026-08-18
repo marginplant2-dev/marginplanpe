@@ -78,7 +78,22 @@ async def gateway_on_for(user) -> bool:
     from app.models.user import User
 
     admin = await User.get(admin_id)
-    return bool(admin and getattr(admin, "payment_gateway_enabled", False))
+    # Admin gate (prerequisite): the super-admin must have enabled this admin.
+    # If the admin isn't allowed, NONE of their users get the gateway — a broker
+    # toggle can't override this.
+    if not (admin and getattr(admin, "payment_gateway_enabled", False)):
+        return False
+    # Broker layer: if the user sits under a broker, the ADMIN decides per broker
+    # whether that broker's users get the gateway (broker.payment_gateway_enabled,
+    # default OFF). Users directly under the admin (no broker) follow the admin.
+    broker_id = getattr(user, "assigned_broker_id", None)
+    if broker_id is None:
+        anc = getattr(user, "broker_ancestry", None) or []
+        broker_id = anc[-1] if anc else None
+    if broker_id is not None:
+        broker = await User.get(broker_id)
+        return bool(broker and getattr(broker, "payment_gateway_enabled", False))
+    return True
 
 
 def is_success(d: dict[str, Any] | None) -> bool:

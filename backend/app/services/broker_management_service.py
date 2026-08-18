@@ -371,6 +371,27 @@ async def block_broker(actor: User, broker_id: str | PydanticObjectId) -> User:
     return b
 
 
+async def set_broker_payment_gateway(
+    actor: User, broker_id: str | PydanticObjectId, enabled: bool
+) -> User:
+    """Turn the Divinepay UPI gateway ON/OFF for this broker's users. The admin
+    (whose own gateway the super-admin enabled) decides per broker. Enforced in
+    divinepay_service.gateway_on_for — the owning admin must ALSO be enabled, so
+    a broker toggle can't grant the gateway when the admin isn't allowed."""
+    b = await assert_broker_in_scope(actor, broker_id)
+    b.payment_gateway_enabled = bool(enabled)
+    await b.save()
+    await log_event(
+        action=AuditAction.UPDATE,
+        entity_type="User",
+        entity_id=b.id,
+        actor_id=actor.id,
+        target_user_id=b.id,
+        metadata={"kind": "BROKER", "payment_gateway_enabled": bool(enabled)},
+    )
+    return b
+
+
 async def unblock_broker(actor: User, broker_id: str | PydanticObjectId) -> User:
     b = await assert_broker_in_scope(actor, broker_id)
     b.status = UserStatus.ACTIVE
