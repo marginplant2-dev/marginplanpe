@@ -144,6 +144,18 @@ const CLOSE_REASON_META: Record<
     label: "Admin Close",
     cls: "bg-purple-500/10 text-purple-400 ring-purple-500/30",
   },
+  // Saturday mark-to-market settlement — position booked + re-opened at the
+  // settlement price. Violet so it's clearly a system event, not a user close.
+  WEEKLY_SETTLEMENT: {
+    label: "Weekly Settle",
+    cls: "bg-violet-500/15 text-violet-400 ring-violet-500/40",
+  },
+  // Contract expired → settled at its clearing price (terminal). Teal, distinct
+  // from the amber stop-out / carry-forward chips.
+  EXPIRY_SETTLED: {
+    label: "Expiry Settled",
+    cls: "bg-teal-500/15 text-teal-400 ring-teal-500/40",
+  },
   AUTO: {
     label: "Auto",
     cls: "bg-muted/40 text-muted-foreground ring-border",
@@ -194,7 +206,7 @@ function CloseReasonChip({ reason }: { reason?: string | null }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ring-inset",
+        "inline-flex items-center rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ring-inset",
         meta.cls,
       )}
     >
