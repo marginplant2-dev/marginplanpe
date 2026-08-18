@@ -1105,10 +1105,16 @@ async def list_closed_trade_events_fifo(
     def _naive(dt: Any) -> Any:
         return dt.replace(tzinfo=None) if dt else _datetime.min
 
-    # One boundary per WEEKLY_SETTLEMENT close, to be merged into the walk.
+    # One boundary per settlement-style close (WEEKLY_SETTLEMENT or
+    # EXPIRY_SETTLED), to be merged into the walk. Both close the position
+    # WITHOUT writing a Trade row — weekly re-opens at the settlement price,
+    # expiry is terminal (contract dead) — so the FIFO walk can't see either on
+    # its own and the closed blotter / tradebook would miss them (they showed on
+    # the admin's Position-based view but not the user's Trade-based one).
+    _SETTLE_REASONS = ("WEEKLY_SETTLEMENT", "EXPIRY_SETTLED")
     _settle_boundaries: list[dict] = []
     for _p in closed_pos:
-        if _p.close_reason != "WEEKLY_SETTLEMENT" or not _p.closed_at:
+        if _p.close_reason not in _SETTLE_REASONS or not _p.closed_at:
             continue
         # quantity is left intact on a settlement close; fall back to
         # opening_quantity for any legacy/edited row that zeroed it.
@@ -1132,6 +1138,7 @@ async def list_closed_trade_events_fifo(
             "instrument": _p.instrument,
             "product_type": _p.product_type,
             "pid": _p.id,
+            "close_reason": _p.close_reason,
         })
 
     def _charge(tr: Any) -> float:
@@ -1185,22 +1192,23 @@ async def list_closed_trade_events_fifo(
                 "opened_at": b["ts"],
                 "closed_at": b["ts"],
                 "instrument_token": b["key"][0],
-                "close_reason": "WEEKLY_SETTLEMENT",
+                "close_reason": b.get("close_reason", "WEEKLY_SETTLEMENT"),
             })
-            # Reset the FIFO basis: the original opening fills are now closed
-            # out by this settlement; the position carries on from the
-            # settlement price. Clear the queue and reseed one fill there so
-            # the next close prices off the settlement price.
+            # The original opening fills are now closed out by this settlement.
+            # Clear the queue for both. WEEKLY re-opens at the settlement price
+            # (reseed one fill so the next close prices off it); EXPIRY is
+            # terminal (contract dead) — leave the queue empty, no reseed.
             _sq = open_queues.setdefault(b["key"], deque())
             _sq.clear()
-            _sq.append({
-                "price": b["settle_price"],
-                "qty": b["qty"],
-                "opened_at": b["ts"],
-                "side": b["side"],
-                "open_brk": 0.0,
-                "original_qty": b["qty"],
-            })
+            if b.get("close_reason") == "WEEKLY_SETTLEMENT":
+                _sq.append({
+                    "price": b["settle_price"],
+                    "qty": b["qty"],
+                    "opened_at": b["ts"],
+                    "side": b["side"],
+                    "open_brk": 0.0,
+                    "original_qty": b["qty"],
+                })
             continue
 
         t = _obj

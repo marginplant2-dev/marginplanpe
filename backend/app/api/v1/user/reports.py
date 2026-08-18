@@ -172,7 +172,7 @@ async def _tradebook_payload(
         if to_date:
             q["executed_at"]["$lte"] = to_date
     rows = await Trade.find(q).sort("-executed_at").limit(limit).to_list()
-    return [
+    out = [
         {
             "id": str(t.id),
             "trade_number": t.trade_number,
@@ -189,6 +189,54 @@ async def _tradebook_payload(
         }
         for t in rows
     ]
+
+    # Settlement-style closes (WEEKLY_SETTLEMENT / EXPIRY_SETTLED) write NO Trade
+    # row — synthesize a closing-side entry so the tradebook is complete. These
+    # showed on the admin's Position-based view but were missing from the user's
+    # fill-based tradebook (operator: expiry-settled trades "tradebook me nahi").
+    from app.models.position import Position, PositionStatus
+
+    pq: dict[str, Any] = {
+        "user_id": user.id,
+        "status": PositionStatus.CLOSED.value,
+        "close_reason": {"$in": ["WEEKLY_SETTLEMENT", "EXPIRY_SETTLED"]},
+    }
+    if from_date or to_date:
+        pq["closed_at"] = {}
+        if from_date:
+            pq["closed_at"]["$gte"] = from_date
+        if to_date:
+            pq["closed_at"]["$lte"] = to_date
+    async for p in Position.find(pq):
+        if not p.closed_at:
+            continue
+        qty = abs(float(p.quantity or 0)) or abs(float(getattr(p, "opening_quantity", 0) or 0))
+        if qty <= 0:
+            continue
+        opened_side = (
+            p.opened_side.value
+            if getattr(p, "opened_side", None) is not None
+            else ("BUY" if float(p.quantity or 0) >= 0 else "SELL")
+        )
+        close_side = "SELL" if opened_side == "BUY" else "BUY"
+        price = float(str(p.ltp))
+        out.append({
+            "id": f"settle_{p.id}",
+            "trade_number": None,
+            "order_id": str(p.id),
+            "symbol": p.instrument.symbol,
+            "exchange": str(p.instrument.exchange),
+            "action": close_side,
+            "quantity": qty,
+            "price": str(p.ltp),
+            "value": str(round(price * qty, 2)),
+            "brokerage": "0",
+            "total_charges": "0",
+            "executed_at": p.closed_at,
+        })
+
+    out.sort(key=lambda r: r["executed_at"] or datetime.min, reverse=True)
+    return out[:limit]
 
 
 async def _brokerage_payload(
