@@ -1238,3 +1238,22 @@ export const AccountsAPI = {
     return res.data;
   },
 };
+
+// ── Super-admin platform reports (cross-pool order + login activity) ──
+export type PlatformReport = {
+  orders: { today: number; this_week: number; last_week: number };
+  logins: { today: number; this_week: number; last_week: number };
+  admins: Array<{
+    admin_id: string | null;
+    admin_name: string;
+    admin_code: string;
+    orders_today: number;
+    active_today: number;
+    active_week: number;
+    active_last_week: number;
+  }>;
+};
+
+export const PlatformReportsAPI = {
+  get: () => unwrap<PlatformReport>(api.get("/admin/platform-reports")),
+};

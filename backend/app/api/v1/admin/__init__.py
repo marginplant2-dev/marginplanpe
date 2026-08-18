@@ -23,6 +23,7 @@ from app.api.v1.admin import (
     netting,
     notifications,
     payin_out,
+    platform_reports,
     pnl_sharing,
     push,
     reports,
@@ -52,6 +53,7 @@ router.include_router(marketwatch.router)
 router.include_router(ledger.router)
 router.include_router(money_transactions.router)
 router.include_router(reports.router)
+router.include_router(platform_reports.router)
 router.include_router(settings.router)
 router.include_router(expiry_overrides.router)
 router.include_router(zerodha.router)
