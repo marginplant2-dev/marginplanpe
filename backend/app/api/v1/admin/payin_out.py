@@ -86,6 +86,7 @@ async def list_deposits(
     search: str | None = None,
     page: int = 1,
     page_size: int = 15,
+    gateway: bool = False,
     _: None = Depends(require_perm("deposits", "read")),
 ):
     """Admin deposit inbox.
@@ -106,7 +107,14 @@ async def list_deposits(
     # Gateway-initiated (unpaid) and failed/abandoned crypto deposits are never
     # shown to the admin — only real, paid/pending money enters the queue.
     _hidden = ["INITIATED", "FAILED"]
-    if status and status not in _hidden:
+    if gateway:
+        # Divinepay gateway inbox — show EVERY status (pending / approved /
+        # failed) so the admin sees which online payments succeeded and which
+        # are still pending, per the dedicated "Gateway Payments" tab.
+        q["gateway"] = "divinepay"
+        if status:
+            q["status"] = status
+    elif status and status not in _hidden:
         q["status"] = status
     else:
         q["status"] = {"$nin": _hidden}
@@ -186,6 +194,55 @@ async def list_deposits(
                 "total": total,
                 "total_pages": (total + page_size - 1) // page_size,
             },
+        }
+    )
+
+
+@router.get("/gateway-summary", response_model=APIResponse[dict])
+async def gateway_summary(
+    admin: CurrentAdmin,
+    _: None = Depends(require_perm("deposits", "read")),
+):
+    """Divinepay gateway deposit rollup for the "Gateway Payments" tab —
+    `enabled` (is the gateway on for this admin, so the tab shows) plus today's
+    and the last-7-days credited totals. Only APPROVED (successfully credited)
+    deposits count toward the money totals."""
+    from datetime import timedelta
+
+    from app.utils.decimal_utils import to_decimal
+    from app.utils.time_utils import start_of_day_ist, to_utc
+
+    enabled = admin.role == UserRole.SUPER_ADMIN or bool(
+        getattr(admin, "payment_gateway_enabled", False)
+    )
+    base: dict[str, Any] = {"gateway": "divinepay", "status": DepositStatus.APPROVED.value}
+    scope = await scoped_user_ids(admin)
+    if scope is not None:
+        if not scope:
+            return APIResponse(
+                data={
+                    "enabled": enabled,
+                    "today_total": "0", "today_count": 0,
+                    "week_total": "0", "week_count": 0,
+                }
+            )
+        base["user_id"] = {"$in": scope}
+
+    today_start = to_utc(start_of_day_ist())
+    week_start = today_start - timedelta(days=6)  # today + previous 6 = 7-day window
+    today_rows = await DepositRequest.find(
+        {**base, "processed_at": {"$gte": today_start}}
+    ).to_list()
+    week_rows = await DepositRequest.find(
+        {**base, "processed_at": {"$gte": week_start}}
+    ).to_list()
+    today_total = sum((to_decimal(r.amount) for r in today_rows), to_decimal(0))
+    week_total = sum((to_decimal(r.amount) for r in week_rows), to_decimal(0))
+    return APIResponse(
+        data={
+            "enabled": enabled,
+            "today_total": str(today_total), "today_count": len(today_rows),
+            "week_total": str(week_total), "week_count": len(week_rows),
         }
     )
 

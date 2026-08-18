@@ -438,9 +438,13 @@ export const BonusesAdminAPI = {
 export const PayinOutAPI = {
   // Deposits / withdrawals are paginated (15 per page by default).
   // Pass `status` empty / undefined to get every status.
-  deposits: (params?: { status?: string; search?: string; page?: number; page_size?: number }) =>
+  deposits: (params?: { status?: string; search?: string; page?: number; page_size?: number; gateway?: boolean }) =>
     unwrap<{ items: any[]; meta: { page: number; page_size: number; total: number; total_pages: number } }>(
       api.get("/admin/deposits", { params }),
+    ),
+  gatewaySummary: () =>
+    unwrap<{ enabled: boolean; today_total: string; today_count: number; week_total: string; week_count: number }>(
+      api.get("/admin/gateway-summary"),
     ),
   approveDeposit: (id: string, admin_remark?: string) =>
     unwrap<any>(api.post(`/admin/deposits/${id}/approve`, { admin_remark })),

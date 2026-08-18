@@ -2,8 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/common/PageHeader";
+import { PayinOutAPI } from "@/lib/api";
 import { DepositsPanel } from "@/components/admin/payments/DepositsPanel";
+import { GatewayPaymentsPanel } from "@/components/admin/payments/GatewayPaymentsPanel";
 import { WithdrawalsPanel } from "@/components/admin/payments/WithdrawalsPanel";
 import { RejectedPanel } from "@/components/admin/payments/RejectedPanel";
 import { HistoryPanel } from "@/components/admin/payments/HistoryPanel";
@@ -16,6 +19,7 @@ import { canSee, type PermissionKey } from "@/lib/permissions";
 
 type Tab =
   | "deposits"
+  | "gateway"
   | "withdrawals"
   | "settlements"
   | "history"
@@ -58,11 +62,40 @@ export default function PaymentsPage() {
   const sp = useSearchParams();
   const admin = useAdminAuthStore((s) => s.admin);
 
-  // Filter tabs to what this admin/broker may see.
-  const visibleTabs = useMemo(
-    () => TABS.filter((t) => !t.perm || canSee(admin, t.perm)),
-    [admin],
-  );
+  // Divinepay gateway rollup — drives whether the "Gateway Payments" tab shows
+  // (only for admins the super-admin enabled the gateway for) + the summary cards.
+  const { data: gwSummary } = useQuery({
+    queryKey: ["admin", "gateway-summary"],
+    queryFn: () => PayinOutAPI.gatewaySummary(),
+    enabled: !!admin && canSee(admin, "deposits"),
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+  });
+  const gatewayEnabled = !!gwSummary?.enabled;
+
+  // Filter tabs to what this admin/broker may see, then splice the gateway tab
+  // in right after Deposits when it's enabled for this admin.
+  const visibleTabs = useMemo(() => {
+    const base = TABS.filter((t) => !t.perm || canSee(admin, t.perm));
+    if (!gatewayEnabled) return base;
+    const gwTab: TabDef = {
+      id: "gateway",
+      label: "Gateway Payments",
+      description:
+        "Online (Divinepay UPI) deposits — see which succeeded and which are still pending, plus today's and this week's credited totals.",
+    };
+    const out: TabDef[] = [];
+    let inserted = false;
+    for (const t of base) {
+      out.push(t);
+      if (t.id === "deposits") {
+        out.push(gwTab);
+        inserted = true;
+      }
+    }
+    if (!inserted) out.unshift(gwTab);
+    return out;
+  }, [admin, gatewayEnabled]);
 
   const initialTab = (sp.get("tab") as Tab) || visibleTabs[0]?.id || "deposits";
   const [tab, setTab] = useState<Tab>(initialTab);
@@ -101,6 +134,7 @@ export default function PaymentsPage() {
       </div>
 
       {tab === "deposits" && <DepositsPanel />}
+      {tab === "gateway" && <GatewayPaymentsPanel summary={gwSummary} />}
       {tab === "withdrawals" && <WithdrawalsPanel />}
       {tab === "settlements" && <SettlementRequestsPanel />}
       {tab === "history" && <HistoryPanel />}
