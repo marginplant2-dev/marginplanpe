@@ -239,32 +239,87 @@ async def credit_deposit(req: DepositRequest, utr: str | None = None) -> bool:
     return True
 
 
-# ── Reconcile (self-heal paid-but-not-credited deposits) ─────────────
+# Gateway statuses that mean the pay-in is dead. A PENDING deposit that hits
+# any of these — or that the user simply abandoned (see STALE_MINUTES) — is
+# flipped to FAILED so the admin's Gateway Payments tab never shows an eternal
+# "PENDING". A real UPI collect completes in a minute or two.
+_FAILURE_STATUSES = {
+    "failed", "fail", "expired", "expire", "cancelled", "canceled",
+    "declined", "decline", "rejected", "reject", "timeout", "error",
+}
+STALE_MINUTES = 20  # unpaid after this long → treat as abandoned → FAILED
+
+
 async def reconcile_deposits(user_id=None, max_age_hours: int = 24) -> int:
-    """Find recent PENDING Divinepay deposits, ask the gateway, and credit the
-    paid ones. Covers a user who paid then closed the tab before verifying."""
+    """Sweep PENDING Divinepay deposits: credit the paid ones and mark the dead
+    ones FAILED so the status is always terminal (SUCCESS / FAILED), never a
+    stale PENDING. `max_age_hours` bounds how long we still try to CREDIT a
+    late-confirmed payment; anything older is only ever failed, never credited."""
     if not is_configured():
         return 0
     from datetime import timedelta
 
-    cutoff = now_utc() - timedelta(hours=max_age_hours)
+    now = now_utc()
+    credit_window = now - timedelta(hours=max_age_hours)
+    stale_before = now - timedelta(minutes=STALE_MINUTES)
+    # Bound the scan to 30 days so ancient rows don't get re-swept forever.
+    scan_from = now - timedelta(days=30)
     q: dict[str, Any] = {
         "gateway": GATEWAY,
         "status": DepositStatus.PENDING.value,
-        "created_at": {"$gte": cutoff},
+        "created_at": {"$gte": scan_from},
     }
     if user_id is not None:
         q["user_id"] = user_id
     credited = 0
+    failed = 0
     rows = await DepositRequest.find(q).to_list()
     for r in rows:
-        try:
-            if await credit_deposit(r):
-                credited += 1
-        except Exception:
-            logger.exception("divinepay_reconcile_credit_failed deposit=%s", r.id)
-    if credited:
-        logger.info("divinepay_reconcile credited=%s", credited)
+        order_id = (r.gateway_ref or "").strip()
+        if not order_id and r.idempotency_key and ":" in r.idempotency_key:
+            order_id = r.idempotency_key.split(":", 1)[1]
+        if not order_id:
+            continue
+
+        status = ""
+        # Only ping the gateway while the deposit is still creditable (< max_age)
+        # — for older rows we just fail them without a call.
+        if r.created_at is None or r.created_at >= credit_window:
+            try:
+                st = await check_status(order_id)
+                status = str((st or {}).get("status", "")).strip().lower()
+            except DivinepayError:
+                continue  # gateway hiccup — retry on the next sweep
+
+        if status == "success":
+            try:
+                if await credit_deposit(r):
+                    credited += 1
+            except Exception:
+                logger.exception("divinepay_reconcile_credit_failed deposit=%s", r.id)
+            continue
+
+        # Dead: the gateway said so, OR the user abandoned it (unpaid past the
+        # stale window). Atomic guard so we never fail a row that just credited.
+        is_dead = status in _FAILURE_STATUSES or (
+            r.created_at is not None and r.created_at < stale_before
+        )
+        if is_dead:
+            res = await DepositRequest.get_motor_collection().update_one(
+                {"_id": r.id, "status": DepositStatus.PENDING.value},
+                {
+                    "$set": {
+                        "status": DepositStatus.FAILED.value,
+                        "gateway_status": status or "abandoned",
+                        "updated_at": now,
+                    }
+                },
+            )
+            if getattr(res, "modified_count", 0):
+                failed += 1
+
+    if credited or failed:
+        logger.info("divinepay_reconcile credited=%s failed=%s", credited, failed)
     return credited
 
 
