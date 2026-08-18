@@ -242,13 +242,28 @@ async def list_users(
         )
     )
     wk_pnl_map: dict[str, float] = {}
+    # NET realized P&L for the week = booked P&L − brokerage ± any admin
+    # reversals. Summing ONLY PNL rows made the column (a) gross (brokerage
+    # never subtracted) and (b) sticky after a delete — deleting a closed
+    # trade posts a REVERSAL row (not a PNL row), so the deleted trade's P&L
+    # lingered here forever. Include CHARGES (brokerage), REVERSAL
+    # (delete/reopen/edit undo), and the stop-out settlement legs so a delete
+    # of any close nets its whole footprint back to zero. Operator: "trade
+    # delete karne par pnl and brokerage dono weekly se hat jaye."
+    _WK_TYPES = [
+        TransactionType.PNL.value,
+        TransactionType.CHARGES.value,
+        TransactionType.REVERSAL.value,
+        TransactionType.SETTLEMENT_OUTSTANDING_BOOKED.value,
+        TransactionType.SETTLEMENT_OUTSTANDING_RECOVERY.value,
+    ]
     try:
         _cur = WalletTransaction.get_motor_collection().aggregate(
             [
                 {
                     "$match": {
                         "user_id": {"$in": user_ids},
-                        "transaction_type": TransactionType.PNL.value,
+                        "transaction_type": {"$in": _WK_TYPES},
                         "created_at": {"$gte": _wk_start},
                     }
                 },

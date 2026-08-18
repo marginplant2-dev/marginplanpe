@@ -2784,6 +2784,7 @@ async def delete_position(
     try:
         from datetime import timedelta as _td_sup
         from app.models.trade import Trade as _TradeSup
+        from app.models.order import Order as _OrderSup
         _lo = (p.opened_at or p.closed_at)
         if p.closed_at is not None and _lo is not None:
             _sup_q: dict[str, Any] = {
@@ -2795,9 +2796,25 @@ async def delete_position(
                     "$lte": p.closed_at + _td_sup(seconds=3),
                 },
             }
+            # Collect the fills' parent orders BEFORE flagging, so we can wipe
+            # them from the user's order blotter too.
+            _sup_trades = await _TradeSup.find(_sup_q).to_list()
+            _order_ids = list(
+                {t.order_id for t in _sup_trades if getattr(t, "order_id", None)}
+            )
             await _TradeSup.get_motor_collection().update_many(
                 _sup_q, {"$set": {"superseded_by_reopen": True}}
             )
+            # Bug: a deleted position's EXECUTED orders lingered in the user's
+            # Orders → Executed tab (the user list reads Order docs directly,
+            # which carry no superseded flag). Hard-remove them so a delete
+            # wipes the order everywhere, not just the trade/position/ledger.
+            # Operator: "trade delete karne par user side ke execute orders se
+            # bhi hat jaye."
+            if _order_ids:
+                await _OrderSup.get_motor_collection().delete_many(
+                    {"_id": {"$in": _order_ids}}
+                )
     except Exception:
         logger.exception("delete_supersede_trades_failed", extra={"pos_id": str(p.id)})
 
