@@ -9,6 +9,7 @@ otherwise no one could log in. We rely on rate-limiting + correct credentials
 from __future__ import annotations
 
 from fastapi import APIRouter, Request, status
+from pydantic import BaseModel, Field
 
 from app.core.dependencies import CurrentAdmin
 from app.core.exceptions import InvalidCredentialsError
@@ -256,3 +257,38 @@ async def admin_me(admin: CurrentAdmin):
             **(await _branding_fields_for(admin)),
         )
     )
+
+
+class AdminChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+@router.post(
+    "/change-password",
+    response_model=APIResponse[OkResponse],
+    dependencies=[rate_limit("auth")],
+)
+async def admin_change_password(payload: AdminChangePasswordRequest, admin: CurrentAdmin):
+    """Any admin-tier user (SUPER_ADMIN / ADMIN / BROKER / sub-broker / EMPLOYEE)
+    changes their OWN password: verify the current one, then set the new hash.
+    The current session stays valid — no forced re-login."""
+    from app.core.security import hash_password, verify_password
+    from app.services.audit_service import log_event
+
+    if not verify_password(payload.current_password, admin.password_hash):
+        raise InvalidCredentialsError("Current password is incorrect")
+    if verify_password(payload.new_password, admin.password_hash):
+        raise InvalidCredentialsError("New password must be different from the current one")
+    admin.password_hash = hash_password(payload.new_password)
+    admin.must_change_password = False
+    await admin.save()
+    await log_event(
+        action=AuditAction.PASSWORD_CHANGE,
+        entity_type="User",
+        entity_id=admin.id,
+        actor_id=admin.id,
+        target_user_id=admin.id,
+        metadata={"self": True},
+    )
+    return APIResponse(data=OkResponse(message="Password changed successfully"))

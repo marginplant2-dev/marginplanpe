@@ -8,6 +8,7 @@ import {
   CalendarClock,
   Check,
   CreditCard,
+  KeyRound,
   Loader2,
   Mail,
   Megaphone,
@@ -22,7 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAdminAuthStore } from "@/stores/authStore";
-import { SettingsAPI } from "@/lib/api";
+import { SettingsAPI, AdminAuthAPI } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -74,6 +75,7 @@ export default function PlatformSettingsPage() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <ThemeCard />
         <ProfileCard />
+        <ChangePasswordCard />
         <NotificationsCard />
         <WeeklySettlementCard />
         <PromoButtonCard />
@@ -711,6 +713,84 @@ function PaymentGatewayCard() {
             />
           </button>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Change my password (every admin-tier user: admin / broker / sub-broker) ──
+function ChangePasswordCard() {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    if (!current) return toast.error("Enter your current password");
+    if (next.length < 8) return toast.error("New password must be at least 8 characters");
+    if (next !== confirm) return toast.error("New passwords don't match");
+    if (next === current) return toast.error("New password must be different");
+    setSaving(true);
+    try {
+      await AdminAuthAPI.changePassword(current, next);
+      toast.success("Password changed successfully");
+      setCurrent("");
+      setNext("");
+      setConfirm("");
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail ?? e?.message ?? "Could not change password");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <KeyRound className="size-4 text-primary" /> Change password
+        </CardTitle>
+        <CardDescription>Update your own login password.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Current password</label>
+          <Input
+            type="password"
+            autoComplete="current-password"
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+            placeholder="Current password"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">New password</label>
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+            placeholder="At least 8 characters"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Confirm new password</label>
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            placeholder="Re-enter new password"
+          />
+        </div>
+        <Button
+          onClick={submit}
+          disabled={saving || !current || !next || !confirm}
+          size="sm"
+          className="w-full"
+        >
+          {saving ? "Saving…" : "Change password"}
+        </Button>
       </CardContent>
     </Card>
   );

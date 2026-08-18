@@ -215,6 +215,8 @@ export const AdminAuthAPI = {
   refresh: (refresh_token: string) => unwrap<AdminTokenPair>(api.post("/admin/auth/refresh", { refresh_token })),
   logout: (refresh_token?: string) => unwrap<any>(api.post("/admin/auth/logout", { refresh_token })),
   me: () => unwrap<any>(api.get("/admin/auth/me")),
+  changePassword: (current_password: string, new_password: string) =>
+    unwrap<any>(api.post("/admin/auth/change-password", { current_password, new_password })),
 };
 
 // Employee (staff) management — available to every admin (super + sub) for
