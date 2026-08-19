@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, RefreshCw, Search, Star, X } from "lucide-react";
+import { RefreshCw, Search, Star, X } from "lucide-react";
 import { InstrumentAPI, MarketwatchAPI, SegmentSettingsAPI } from "@/lib/api";
 import { cn, formatPrice } from "@/lib/utils";
 import { useMarketStream } from "@/lib/useMarketStream";
@@ -590,18 +590,18 @@ export function InstrumentsPanel({ onClose }: Props) {
                   }}
                   aria-label={`Add ${q.symbol}`}
                   title={`Add to ${bucket.label}`}
-                  className="grid size-6 shrink-0 place-items-center rounded text-primary hover:bg-primary/10"
+                  className="shrink-0 rounded border border-primary/40 px-2 py-1 text-[11px] font-semibold text-primary hover:bg-primary/10"
                 >
-                  <Plus className="size-4" />
+                  Add
                 </button>
               );
             } else if (inSearchMode && alreadyAdded) {
               rightAction = (
                 <span
                   title="Already added"
-                  className="grid size-6 shrink-0 place-items-center text-[10px] font-bold text-emerald-500"
+                  className="shrink-0 rounded px-2 py-1 text-[11px] font-semibold text-emerald-500"
                 >
-                  ✓
+                  Added
                 </span>
               );
             } else {
@@ -636,9 +636,9 @@ export function InstrumentsPanel({ onClose }: Props) {
                     }}
                     aria-label={`Remove ${q.symbol}`}
                     title={`Remove from ${bucket.label}`}
-                    className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                    className="shrink-0 rounded border border-border px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-muted/40 hover:text-foreground"
                   >
-                    <X className="size-3.5" />
+                    Remove
                   </button>
                 </div>
               );
@@ -654,9 +654,9 @@ export function InstrumentsPanel({ onClose }: Props) {
                 }}
                 aria-label={`Remove ${q.symbol} from favorites`}
                 title="Remove from favorites"
-                className="grid size-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                className="shrink-0 rounded border border-border px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-muted/40 hover:text-foreground"
               >
-                <X className="size-3.5" />
+                Remove
               </button>
             );
           } else {
