@@ -391,7 +391,7 @@ async def count_admin_pool_brokers(admin_id: PydanticObjectId) -> int:
 
 
 async def assert_user_in_scope(
-    admin: User, target_user_id: str | PydanticObjectId
+    admin: User, target_user_id: str | PydanticObjectId, *, for_read: bool = False
 ) -> User:
     """Loads the target user and 403s if the actor doesn't own them.
 
@@ -401,6 +401,13 @@ async def assert_user_in_scope(
       - SUPER_ADMIN: target.assigned_admin_id IS NULL
       - ADMIN: target.assigned_admin_id == admin.id
       - BROKER: admin.id in target.broker_ancestry
+
+    ``for_read=True`` relaxes ONLY the super-admin path: the platform owner
+    oversees every pool, so a read-only view (e.g. a user's ledger / txn
+    history) may target any client — even one assigned to a sub-admin. WRITES
+    keep the default strict check (super-admin must reassign the user into
+    their own pool before adjusting its wallet). Sub-admin / broker scope is
+    unchanged either way — cross-pool isolation between admins still holds.
     """
     # EMPLOYEE actors operate on their parent admin's pool.
     admin = await effective_scope_actor(admin)
@@ -416,7 +423,7 @@ async def assert_user_in_scope(
             "Cannot operate on an admin/broker user via this endpoint"
         )
     if admin.role == UserRole.SUPER_ADMIN:
-        if target.assigned_admin_id is not None:
+        if target.assigned_admin_id is not None and not for_read:
             raise InsufficientPermissionsError(
                 "User is assigned to a sub-admin. Reassign to your pool first."
             )

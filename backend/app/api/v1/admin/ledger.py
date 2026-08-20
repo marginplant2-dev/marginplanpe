@@ -34,8 +34,9 @@ async def list_all(
 ):
     q: dict[str, Any] = {}
     if user_id:
-        # Sub-admin: refuse user_id outside their scope.
-        await assert_user_in_scope(admin, user_id)
+        # Read-only view: super-admin may inspect ANY user's ledger (even a
+        # sub-admin's client); sub-admins stay scoped to their own pool.
+        await assert_user_in_scope(admin, user_id, for_read=True)
         q["user_id"] = PydanticObjectId(user_id)
     else:
         scope = await scoped_user_ids(admin)
