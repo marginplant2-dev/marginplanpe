@@ -351,6 +351,8 @@ export const AuthAPI = {
 export const ProfileAPI = {
   me: () => unwrap<any>(api.get("/user/users/me")),
   update: (body: Record<string, unknown>) => unwrap<any>(api.put("/user/users/me", body)),
+  // Terms & Conditions text set by the user's owning admin (Platform Settings).
+  terms: () => unwrap<{ terms: string }>(api.get("/user/users/terms")),
 };
 
 // Shape returned by `WalletAPI.wdRules`. Both rules carry the same set of

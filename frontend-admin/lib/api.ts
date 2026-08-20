@@ -970,6 +970,9 @@ export const SettingsAPI = {
   getPaymentGateway: () => unwrap<any>(api.get("/admin/settings/payment-gateway")),
   setPaymentGateway: (enabled: boolean) =>
     unwrap<any>(api.put("/admin/settings/payment-gateway", { setting_value: enabled })),
+  // Per-admin Terms & Conditions shown to this admin's users on their profile.
+  getTerms: () => unwrap<{ terms: string }>(api.get("/admin/settings/terms")),
+  setTerms: (terms: string) => unwrap<{ terms: string }>(api.put("/admin/settings/terms", { terms })),
   // Weekly mark-to-market settlement engine (super-admin only).
   weeklySettlementRun: () =>
     unwrap<{ week_key?: string; batch_id?: string; total?: number; settled?: number; skipped?: number; failed?: number; skipped_reason?: string }>(

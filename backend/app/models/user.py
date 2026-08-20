@@ -351,6 +351,12 @@ class User(TimestampMixin):
     # other admins are unaffected.
     registration_enabled: bool = True
 
+    # Per-admin Terms & Conditions text shown to THIS admin's users on their
+    # profile. The admin types/edits it from Platform Settings; empty ⇒ the
+    # profile falls back to the super-admin's platform default, else hides the
+    # T&C link. Plain text (newline-separated); the app renders it read-only.
+    terms_and_conditions: str | None = None
+
     # Divinepay UPI gateway switch (set on an ADMIN row by the super-admin).
     # When True, this admin's users get the auto-crediting online pay-in flow;
     # False → the manual bank-QR + screenshot + admin-approval deposit flow.

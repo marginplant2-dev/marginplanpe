@@ -8,6 +8,7 @@ import {
   CalendarClock,
   Check,
   CreditCard,
+  FileText,
   KeyRound,
   Loader2,
   Mail,
@@ -80,8 +81,81 @@ export default function PlatformSettingsPage() {
         <WeeklySettlementCard />
         <PromoButtonCard />
         <PaymentGatewayCard />
+        <TermsCard />
       </div>
     </div>
+  );
+}
+
+// ── Terms & Conditions (per-admin) ───────────────────────────────────
+// The admin types their trading terms here; they show on every one of
+// their users' profile under "Terms & Conditions". Each admin has their
+// own — a user sees their owning admin's text (super-admin's is the
+// platform default fallback).
+function TermsCard() {
+  const [terms, setTerms] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    SettingsAPI.getTerms()
+      .then((r) => {
+        if (alive) {
+          setTerms(r?.terms ?? "");
+          setLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (alive) setLoaded(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await SettingsAPI.setTerms(terms);
+      toast.success(
+        terms.trim()
+          ? "Terms & Conditions saved — live on your users' profile"
+          : "Terms & Conditions cleared",
+      );
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card className="overflow-hidden lg:col-span-3">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <FileText className="size-4 text-primary" /> Terms &amp; Conditions
+        </CardTitle>
+        <CardDescription>
+          Type your trading terms — they appear on every one of your users&apos;
+          profile under &quot;Terms &amp; Conditions&quot;. A line ending with
+          &quot;:&quot; or a numbered line (1., 2.) renders as a bold heading.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <textarea
+          value={terms}
+          onChange={(e) => setTerms(e.target.value)}
+          disabled={!loaded}
+          rows={12}
+          placeholder={"1. Trading Rules:\nAll trades are subject to broker approval.\n\n2. Risk Disclosure:\nTrading in derivatives involves risk of loss."}
+          className="w-full resize-y rounded-md border border-border bg-background p-3 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
+        />
+        <Button onClick={save} disabled={saving || !loaded} size="sm" className="w-full sm:w-auto">
+          {saving ? "Saving…" : "Save Terms & Conditions"}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 

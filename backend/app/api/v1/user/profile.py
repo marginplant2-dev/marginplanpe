@@ -93,3 +93,18 @@ def _user_to_me(user) -> UserMeOut:
         last_login_at=user.last_login_at,
         created_at=user.created_at,
     )
+
+
+@router.get("/terms", response_model=APIResponse[dict])
+async def get_terms(user: CurrentUser):
+    """The Terms & Conditions this user should see — their owning admin's text
+    (admins set it in Platform Settings), falling back to the super-admin's
+    platform default. Empty string when nobody has set one yet."""
+    admin = None
+    if getattr(user, "assigned_admin_id", None):
+        admin = await User.get(user.assigned_admin_id)
+    terms = (getattr(admin, "terms_and_conditions", None) or "").strip() if admin else ""
+    if not terms:
+        sa = await User.find_one(User.role == UserRole.SUPER_ADMIN)
+        terms = (getattr(sa, "terms_and_conditions", None) or "").strip() if sa else ""
+    return APIResponse(data={"terms": terms})

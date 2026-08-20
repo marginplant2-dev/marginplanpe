@@ -146,6 +146,38 @@ async def set_payment_gateway(payload: UpdatePlatformSettingRequest, admin: Curr
     return APIResponse(data={"enabled": enabled})
 
 
+# ── Terms & Conditions (per-admin, shown to that admin's users) ──────
+from pydantic import BaseModel  # noqa: E402
+
+
+class _TermsPayload(BaseModel):
+    terms: str
+
+
+@router.get("/settings/terms", response_model=APIResponse[dict])
+async def get_terms(admin: CurrentAdmin):
+    """This admin's own Terms & Conditions text (edited here, shown to their
+    users on the profile). Super-admin's copy is the platform default."""
+    return APIResponse(data={"terms": getattr(admin, "terms_and_conditions", None) or ""})
+
+
+@router.put("/settings/terms", response_model=APIResponse[dict])
+async def set_terms(payload: _TermsPayload, admin: CurrentAdmin):
+    admin.terms_and_conditions = (payload.terms or "").strip() or None
+    await admin.save()
+    await log_event(
+        action=AuditAction.SETTING_CHANGE,
+        entity_type="User",
+        entity_id=str(admin.id),
+        actor_id=admin.id,
+        new_values={"terms_chars": len(payload.terms or "")},
+    )
+    return APIResponse(
+        data={"terms": admin.terms_and_conditions or ""},
+        message="Terms & Conditions saved." if admin.terms_and_conditions else "Terms & Conditions cleared.",
+    )
+
+
 # ── Platform settings ────────────────────────────────────────────────
 @router.get("/settings/platform", response_model=APIResponse[list])
 async def list_platform_settings(admin: CurrentAdmin, category: str | None = None):

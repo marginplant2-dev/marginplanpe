@@ -59,6 +59,7 @@ type SubView =
   | "personal"
   | "brokerage"
   | "leverage"
+  | "terms"
   | "security"
   | "appearance"
   | "support";
@@ -137,6 +138,7 @@ export default function ProfilePage() {
         )}
         {subView === "brokerage" && <SegmentOverview kind="brokerage" />}
         {subView === "leverage" && <SegmentOverview kind="leverage" />}
+        {subView === "terms" && <TermsScreen />}
         {subView === "security" && <SecurityForm me={me} />}
         {subView === "appearance" && <AppearanceForm />}
         {subView === "support" && <SupportLinks />}
@@ -254,17 +256,12 @@ export default function ProfilePage() {
       </ListGroup>
 
       <ListGroup title="About">
-        <ListRowLink
+        <ListRow
           icon={FileText}
           tone="muted"
-          label="Terms of service"
-          href="/about"
-        />
-        <ListRowLink
-          icon={FileText}
-          tone="muted"
-          label="Privacy policy"
-          href="/about#privacy"
+          label="Terms & Conditions"
+          sub="Your broker's trading terms"
+          onClick={() => setSubView("terms")}
         />
       </ListGroup>
 
@@ -285,6 +282,8 @@ function subViewTitle(v: SubView): string {
       return "Brokerage details";
     case "leverage":
       return "Leverage";
+    case "terms":
+      return "Terms & Conditions";
     case "security":
       return "Security";
     case "appearance":
@@ -833,6 +832,56 @@ function SegmentOverview({ kind }: { kind: "brokerage" | "leverage" }) {
         </div>
       ))}
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Terms & Conditions — text the user's broker set in Platform Settings
+// ─────────────────────────────────────────────────────────────────
+function TermsScreen() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["terms"],
+    queryFn: () => ProfileAPI.terms(),
+    staleTime: 60_000,
+  });
+  if (isLoading) return <div className="text-sm text-muted-foreground">Loading…</div>;
+  const terms = (data?.terms ?? "").trim();
+  if (!terms)
+    return (
+      <section className="rounded-xl border border-border bg-card p-8 text-center">
+        <FileText className="mx-auto mb-2 size-8 text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">
+          Your broker hasn&apos;t published Terms &amp; Conditions yet.
+        </p>
+      </section>
+    );
+  const lines = terms.split(/\r?\n/);
+  return (
+    <section className="rounded-2xl border border-border bg-card p-4">
+      <div className="space-y-1.5">
+        {lines.map((ln, i) => {
+          const t = ln.trim();
+          if (!t) return <div key={i} className="h-2" />;
+          const isHeading =
+            t.endsWith(":") ||
+            /^\d+[.)]\s/.test(t) ||
+            (t === t.toUpperCase() && /[A-Z]/.test(t) && t.length <= 60);
+          return (
+            <p
+              key={i}
+              className={cn(
+                "leading-relaxed",
+                isHeading
+                  ? "mt-1.5 text-[13px] font-bold text-foreground first:mt-0"
+                  : "text-[13px] text-foreground/80",
+              )}
+            >
+              {t}
+            </p>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
