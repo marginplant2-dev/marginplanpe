@@ -2382,10 +2382,19 @@ async def position_netting_entries(
     # realistic same-instrument re-entry.
     from datetime import timedelta as _td
 
+    # A carried-forward position flips MIS→NRML at the EOD rollover, but its
+    # OPENING trades keep product_type=MIS — only the position row + the
+    # closing fill become NRML. A strict `product_type == p.product_type`
+    # filter then dropped every entry leg, so the dialog showed ONLY the exit
+    # (operator: "sirf exit dikh raha, saare entry missing" on a carried NFO
+    # position). Accept the position's product type PLUS its MIS intraday
+    # origin so a carried position lists all of its legs. The time window
+    # already isolates this incarnation, so this can't pull in a later cycle.
+    _pt = p.product_type.value if hasattr(p.product_type, "value") else str(p.product_type)
     query: dict = {
         "user_id": p.user_id,
         "instrument.token": p.instrument.token,
-        "product_type": p.product_type,
+        "product_type": {"$in": list({_pt, "MIS"})},
     }
     time_q: dict = {}
     if p.opened_at:
