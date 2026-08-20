@@ -453,19 +453,27 @@ function HomeTicker() {
   const { data } = useHomeTicker();
   const msgs = (data?.messages ?? []).filter((m) => m && m.trim());
   if (msgs.length === 0) return null;
-  const line = msgs.join("        •        ");
-  // Scale duration to length so speed stays comfortable regardless of text.
-  const dur = Math.max(18, Math.round(line.length * 0.32));
+  // One continuous string with a bullet between EVERY line INCLUDING the wrap
+  // (trailing separator) so the loop seam reads the same as any other gap — the
+  // text joins directly, no big carve between repeats.
+  const sep = " • "; // em-space · bullet · em-space
+  const content = msgs.join(sep) + sep;
+  const dur = Math.max(16, Math.round(content.length * 0.3));
+  // Soft fade at both inner edges so the scroll blends into the box instead of
+  // hard-cutting at the border ("carve"). Kept inside the rounded container.
+  const fade =
+    "linear-gradient(to right, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%)";
   return (
-    <div className="relative overflow-hidden rounded-lg border border-primary/25 bg-primary/5">
+    <div
+      className="relative overflow-hidden rounded-lg border border-primary/25 bg-primary/5"
+      style={{ WebkitMaskImage: fade, maskImage: fade }}
+    >
       <div
         className="mp-ticker-track flex w-max whitespace-nowrap py-1.5 text-[13px] font-semibold text-primary"
         style={{ animationDuration: `${dur}s` }}
       >
-        <span className="px-8">{line}</span>
-        <span className="px-8" aria-hidden>
-          {line}
-        </span>
+        <span>{content}</span>
+        <span aria-hidden>{content}</span>
       </div>
       <style>{`
         .mp-ticker-track { animation: mp-ticker linear infinite; }
