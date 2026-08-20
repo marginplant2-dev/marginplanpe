@@ -48,6 +48,8 @@ class OrderOut(BaseModel):
     symbol: str
     exchange: str
     segment: str
+    # Real contract-expiry date (ISO) from the Instrument collection.
+    expiry: str | None = None
     token: str | None = None
     instrument_token: str | None = None
     action: str
@@ -105,6 +107,10 @@ class PositionOut(BaseModel):
     # which option contract a closed row belonged to without tapping in.
     trading_symbol: str | None = None
     exchange: str
+    # Real contract-expiry date (ISO `YYYY-MM-DD`) from the Instrument
+    # collection, so the UI shows the true expiry (SILVER26SEPFUT → 2026-09-04)
+    # instead of parsing the symbol (whose "26" is the YEAR, not the day).
+    expiry: str | None = None
     segment_type: str
     product_type: str
     quantity: float

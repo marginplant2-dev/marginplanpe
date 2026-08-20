@@ -25,7 +25,7 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "0.0.0.0"
 
 
-def _serialize(o: Order, *, pnl_inr: str | None = None) -> dict:
+def _serialize(o: Order, *, pnl_inr: str | None = None, expiry: str | None = None) -> dict:
     return {
         "id": str(o.id),
         "order_number": o.order_number,
@@ -33,6 +33,9 @@ def _serialize(o: Order, *, pnl_inr: str | None = None) -> dict:
         "symbol": o.instrument.symbol,
         "exchange": str(o.instrument.exchange),
         "segment": o.instrument.segment,
+        # Real contract expiry (ISO) resolved from the Instrument collection so
+        # the UI shows the true expiry day, not the symbol's year-as-day.
+        "expiry": expiry,
         # Instrument token — needed by the Orders page to fetch live LTP
         # per symbol so the P&L column works for all executed orders, not
         # just those that still have an open position.
@@ -109,7 +112,26 @@ async def list_orders(
 ):
     rows = await order_service.list_for_user(user.id, status=status, limit=limit, skip=skip)
     pnl_map = await _pnl_inr_by_order(rows)
-    return APIResponse(data=[_serialize(o, pnl_inr=pnl_map.get(str(o.id))) for o in rows])
+    # Real contract expiries in one batch so executed / open / rejected order
+    # cards show the true expiry day instead of parsing it off the symbol.
+    emap: dict[str, str] = {}
+    try:
+        from app.models.instrument import Instrument
+
+        _toks = list({o.instrument.token for o in rows if o.instrument and o.instrument.token})
+        if _toks:
+            for _d in await Instrument.find({"token": {"$in": _toks}}).to_list():
+                _e = getattr(_d, "expiry", None)
+                if _e is not None:
+                    emap[_d.token] = _e.isoformat() if hasattr(_e, "isoformat") else str(_e)
+    except Exception:
+        emap = {}
+    return APIResponse(
+        data=[
+            _serialize(o, pnl_inr=pnl_map.get(str(o.id)), expiry=emap.get(o.instrument.token))
+            for o in rows
+        ]
+    )
 
 
 @router.post("", response_model=APIResponse[OrderOut], dependencies=[rate_limit("trading")])

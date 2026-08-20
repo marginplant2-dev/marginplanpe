@@ -174,8 +174,14 @@ def _effective_qty(p: Position) -> tuple[float, float, int]:
     return qty, lots, stored_lot
 
 
-def _pos(p: Position) -> dict:
+def _pos(p: Position, expiry: str | None = None) -> dict:
     """Position view.
+
+    ``expiry`` is the instrument's REAL contract-expiry date (ISO ``YYYY-MM-DD``),
+    resolved by the caller from the Instrument collection and threaded in so the
+    UI shows the true expiry (e.g. SILVER26SEPFUT → 2026-09-04) instead of
+    guessing it from the symbol (which encodes the YEAR, not the day, for
+    monthly contracts — the old symbol-parse showed "26 SEP" for a 4-SEP future).
 
     For USD-quoted instruments (crypto / forex) the live feed quotes in
     USD, so we keep ``avg_price`` and ``ltp`` in dollars — the UI renders
@@ -256,6 +262,10 @@ def _pos(p: Position) -> dict:
         "trading_symbol": getattr(p.instrument, "trading_symbol", None),
         "exchange": str(p.instrument.exchange),
         "instrument_token": p.instrument.token,
+        # Real contract expiry (ISO date) from the Instrument collection — the
+        # UI prefers this over parsing the symbol so monthly futures show the
+        # true expiry day, not the year read as a day.
+        "expiry": expiry,
         "segment_type": p.segment_type,
         "product_type": p.product_type.value,
         # Quantity reported in CONTRACTS (the number the exchange would
@@ -301,6 +311,28 @@ def _pos(p: Position) -> dict:
             else ("BUY" if p.quantity > 0 else ("SELL" if p.quantity < 0 else None))
         ),
     }
+
+
+async def _expiry_map(tokens: list[str]) -> dict[str, str]:
+    """Batch-resolve REAL contract expiries (ISO `YYYY-MM-DD`) for instrument
+    tokens from the Instrument collection. The position's embedded
+    InstrumentRef carries no expiry, so we look it up here rather than let the
+    UI mis-parse it from the symbol. Missing / non-derivative rows are omitted."""
+    toks = list({t for t in tokens if t})
+    if not toks:
+        return {}
+    try:
+        from app.models.instrument import Instrument
+
+        docs = await Instrument.find({"token": {"$in": toks}}).to_list()
+    except Exception:
+        return {}
+    out: dict[str, str] = {}
+    for d in docs:
+        exp = getattr(d, "expiry", None)
+        if exp is not None:
+            out[d.token] = exp.isoformat() if hasattr(exp, "isoformat") else str(exp)
+    return out
 
 
 @router.get("/open", response_model=APIResponse[list[PositionOut]])
@@ -409,9 +441,10 @@ async def open_positions(user: CurrentUser):
         return_exceptions=True,
     )
 
+    emap = await _expiry_map(tokens)
     out = []
     for r, resolved in zip(rows, ovn_resolved):
-        d = _pos(r)
+        d = _pos(r, expiry=emap.get(r.instrument.token))
         k = (r.instrument.token, str(r.product_type.value))
         charges_amt = charges_map.get(k, 0.0)
         d["charges"] = f"{charges_amt:.2f}"
@@ -492,6 +525,7 @@ async def closed_positions(
     if not fifo_events and page == 1:
         return APIResponse(data=[], total=0)
 
+    emap = await _expiry_map([ev["instrument"].token for ev in fifo_events])
     out: list[dict] = []
     for ev in fifo_events:
         inst = ev["instrument"]
@@ -512,6 +546,7 @@ async def closed_positions(
             "symbol": inst.symbol,
             "trading_symbol": getattr(inst, "trading_symbol", None) or inst.symbol,
             "exchange": str(inst.exchange),
+            "expiry": emap.get(inst.token),
             "segment_type": seg,
             "product_type": ev["product_type"].value,
             "quantity": 0.0,
@@ -861,6 +896,7 @@ async def list_active_trades(user: CurrentUser):
     }
     pos_by_token: dict[str, Position] = {p.instrument.token: p for p in open_positions}
     tokens = [p.instrument.token for p in open_positions]
+    emap = await _expiry_map(tokens)
 
     # Pull every trade for these (user, instrument) pairs — no date
     # filter. Earlier the query used `executed_at >= oldest_open - 5s`
@@ -1314,6 +1350,7 @@ async def list_active_trades(user: CurrentUser):
             "symbol": p.instrument.symbol,
             "trading_symbol": getattr(p.instrument, "trading_symbol", None),
             "exchange": str(p.instrument.exchange),
+            "expiry": emap.get(p.instrument.token),
             "segment": p.segment_type,
             "instrument_token": p.instrument.token,
             "currency_quote": "USD" if is_usd else "INR",
@@ -1422,6 +1459,7 @@ async def list_active_trades(user: CurrentUser):
             "symbol": p.instrument.symbol,
             "trading_symbol": getattr(p.instrument, "trading_symbol", None),
             "exchange": str(p.instrument.exchange),
+            "expiry": emap.get(p.instrument.token),
             "segment": p.segment_type,
             "instrument_token": p.instrument.token,
             "currency_quote": "USD" if is_usd else "INR",

@@ -110,6 +110,28 @@ function extractExpiryLabel(symbol: string | null | undefined): string | null {
   return null;
 }
 
+/** Format the REAL contract expiry (backend-supplied ISO `YYYY-MM-DD`) as
+ *  `4 SEP 2026`. Preferred over `extractExpiryLabel` — the symbol encodes the
+ *  YEAR ("26") not the day for monthly contracts, so parsing it showed the
+ *  wrong day (e.g. SILVER26SEPFUT → "26 SEP" when the real expiry is 4 SEP). */
+function formatRealExpiry(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+  if (!m) return null;
+  const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                  "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const day = parseInt(m[3], 10);
+  const monIdx = parseInt(m[2], 10) - 1;
+  if (monIdx < 0 || monIdx > 11) return null;
+  return `${day} ${MONTHS[monIdx]} ${m[1]}`;
+}
+
+/** Expiry chip preferring the backend's real expiry date, falling back to
+ *  the (best-effort) symbol parse only when the row carries no expiry. */
+function expiryChip(row: any): string | null {
+  return formatRealExpiry(row?.expiry) ?? extractExpiryLabel(row?.symbol);
+}
+
 // Compact pill that translates Position.close_reason into a human label
 // with a tone-matching color. Same legal set as
 // marginplant_ind/backend/app/models/position.py:close_reason.
@@ -2034,7 +2056,7 @@ function ClosedMobileCard({ row: r }: { row: any }) {
     r.trading_symbol && r.trading_symbol !== r.symbol
       ? r.trading_symbol
       : r.exchange;
-  const expiry = extractExpiryLabel(r.symbol);
+  const expiry = expiryChip(r);
 
   function timeOnly(v: string | null | undefined): string {
     if (!v) return "—";
@@ -2372,7 +2394,7 @@ function ActiveMobileCard({
   // user can see at a glance how far out the contract is — was
   // missing entirely on the mobile card before, the only way to tell
   // was to mentally parse the symbol.
-  const expiry = extractExpiryLabel(r.symbol);
+  const expiry = expiryChip(r);
 
   // Tap-anywhere-on-card → open the slide-up trade sheet for this
   // instrument so the user can place a fresh BUY / SELL on the same
