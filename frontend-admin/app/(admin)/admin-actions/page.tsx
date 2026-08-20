@@ -77,6 +77,37 @@ function plain(x: any): string {
   return String(x);
 }
 
+/** BUY = profit-green, SELL = loss-red (matches the locked trade theme). */
+function sideTone(side: any): string {
+  const s = String(side ?? "").toUpperCase();
+  if (s === "BUY") return "text-profit";
+  if (s === "SELL") return "text-loss";
+  return "text-foreground";
+}
+
+/** "N lot · Q qty" from a deleted-position's opening_quantity + lot_size. */
+function lotsLabel(md: any): string {
+  const qty = Number(md?.opening_quantity);
+  const ls = Number(md?.lot_size);
+  if (!Number.isFinite(qty) || qty <= 0) return "—";
+  if (Number.isFinite(ls) && ls > 0) {
+    const lots = qty / ls;
+    const lotStr = Number.isInteger(lots) ? String(lots) : lots.toFixed(2);
+    return `${lotStr} lot · ${qty} qty`;
+  }
+  return `${qty} qty`;
+}
+
+/** Small label (muted) over a BOLD value — deleted-position detail grid. */
+function Detail({ label, value, valueClass }: { label: string; value: any; valueClass?: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={cn("truncate font-bold", valueClass)}>{value ?? "—"}</div>
+    </div>
+  );
+}
+
 type Tone = "money" | "price" | "plain";
 function hasChanged(before: any, after: any): boolean {
   const b = Number(before),
@@ -257,10 +288,12 @@ export default function AdminActionsPage() {
                 <tr>
                   <th className="px-4 py-3">User</th>
                   <th className="px-4 py-3">Symbol</th>
+                  <th className="px-4 py-3">Side / Lots</th>
+                  <th className="px-4 py-3">Opened (IST)</th>
+                  <th className="px-4 py-3">Closed (IST)</th>
                   <th className="px-4 py-3 text-right">P&L reversed</th>
-                  <th className="px-4 py-3">Status before</th>
                   <th className="px-4 py-3">Deleted by</th>
-                  <th className="px-4 py-3 text-right">Date & Time (IST)</th>
+                  <th className="px-4 py-3 text-right">Deleted at (IST)</th>
                 </tr>
               )}
               {tab === "edited_positions" && (
@@ -287,21 +320,32 @@ export default function AdminActionsPage() {
                 ))}
 
               {tab === "deleted_positions" &&
-                items.map((r) => (
-                  <tr key={r.id} className="border-b border-border/40 last:border-0 hover:bg-muted/20">
+                items.map((r) => {
+                  const md = r.metadata ?? {};
+                  return (
+                  <tr key={r.id} className="border-b border-border/40 last:border-0 align-top hover:bg-muted/20">
                     <td className="px-4 py-3"><User u={r.target} /></td>
-                    <td className="px-4 py-3 font-medium">{r.metadata?.symbol ?? "—"}</td>
-                    <td className={cn(
-                      "px-4 py-3 text-right font-tabular tabular-nums font-semibold",
-                      Number(r.metadata?.realized_pnl_reversed_inr) < 0 ? "text-loss" : Number(r.metadata?.realized_pnl_reversed_inr) > 0 ? "text-profit" : "text-muted-foreground",
-                    )}>
-                      {money(r.metadata?.realized_pnl_reversed_inr)}
+                    <td className="px-4 py-3">
+                      <div className="font-semibold">{md.symbol ?? "—"}</div>
+                      <div className="text-[11px] text-muted-foreground">{[md.exchange, md.product_type].filter(Boolean).join(" · ")}</div>
                     </td>
-                    <td className="px-4 py-3 text-xs">{r.metadata?.status_before_delete ?? "—"}</td>
+                    <td className="px-4 py-3">
+                      <div className={cn("font-bold", sideTone(md.opened_side))}>{md.opened_side ?? "—"}</div>
+                      <div className="text-[11px] text-muted-foreground">{lotsLabel(md)}</div>
+                    </td>
+                    <td className="px-4 py-3 text-xs font-medium">{fmtDT(md.opened_at)}</td>
+                    <td className="px-4 py-3 text-xs font-medium">{fmtDT(md.closed_at)}</td>
+                    <td className={cn(
+                      "px-4 py-3 text-right font-tabular tabular-nums font-bold",
+                      Number(md.realized_pnl_reversed_inr) < 0 ? "text-loss" : Number(md.realized_pnl_reversed_inr) > 0 ? "text-profit" : "text-muted-foreground",
+                    )}>
+                      {money(md.realized_pnl_reversed_inr)}
+                    </td>
                     <td className="px-4 py-3"><User u={r.actor} /></td>
-                    <td className="px-4 py-3 text-right text-xs text-muted-foreground">{fmtDT(r.created_at)}</td>
+                    <td className="px-4 py-3 text-right text-xs font-medium text-foreground">{fmtDT(r.created_at)}</td>
                   </tr>
-                ))}
+                  );
+                })}
 
               {tab === "edited_positions" &&
                 items.map((r) => {
@@ -391,17 +435,28 @@ export default function AdminActionsPage() {
                   </div>
                 )}
 
-                {/* Deleted position: P&L reversed */}
+                {/* Deleted position: full bold detail — side, lots, open /
+                    close time, and exactly when the admin deleted it. */}
                 {tab === "deleted_positions" && (
-                  <div className="mt-2.5 flex items-center justify-between rounded-lg bg-muted/30 px-2.5 py-2 text-xs">
-                    <span className="text-muted-foreground">P&L reversed</span>
-                    <span className={cn(
-                      "font-tabular tabular-nums font-semibold",
-                      Number(r.metadata?.realized_pnl_reversed_inr) < 0 ? "text-loss" : Number(r.metadata?.realized_pnl_reversed_inr) > 0 ? "text-profit" : "text-foreground",
-                    )}>
-                      {money(r.metadata?.realized_pnl_reversed_inr)}
-                    </span>
-                  </div>
+                  <>
+                    <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-2.5 rounded-lg bg-muted/30 p-3">
+                      <Detail label="Buy / Sell" value={md.opened_side ?? "—"} valueClass={sideTone(md.opened_side)} />
+                      <Detail label="Lots / Qty" value={lotsLabel(md)} />
+                      <Detail label="Open time" value={fmtDT(md.opened_at)} />
+                      <Detail label="Close time" value={fmtDT(md.closed_at)} />
+                      <Detail label="Deleted at" value={fmtDT(r.created_at)} />
+                      <Detail label="Deleted by" value={userLabel(r.actor).name} />
+                    </div>
+                    <div className="mt-2 flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2.5">
+                      <span className="text-xs font-medium text-muted-foreground">P&L reversed</span>
+                      <span className={cn(
+                        "font-tabular text-base tabular-nums font-bold",
+                        Number(md.realized_pnl_reversed_inr) < 0 ? "text-loss" : Number(md.realized_pnl_reversed_inr) > 0 ? "text-profit" : "text-foreground",
+                      )}>
+                        {money(md.realized_pnl_reversed_inr)}
+                      </span>
+                    </div>
+                  </>
                 )}
 
                 {/* Edited: ALL four metrics, each before → after (same value

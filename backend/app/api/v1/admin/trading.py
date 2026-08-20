@@ -2874,6 +2874,26 @@ async def delete_position(
                 "margin_released_inr": (
                     str(to_decimal(p.margin_used or 0)) if is_open else "0"
                 ),
+                # Position lifecycle detail for the Admin Actions card — open /
+                # close time, side, and the traded lots (quantity is 0 on a
+                # closed row, so carry opening_quantity + lot_size).
+                "opened_at": p.opened_at.isoformat() if p.opened_at else None,
+                "closed_at": p.closed_at.isoformat() if p.closed_at else None,
+                "opened_side": (
+                    p.opened_side.value if getattr(p, "opened_side", None) else None
+                ),
+                "opening_quantity": (
+                    p.opening_quantity
+                    if p.opening_quantity is not None
+                    else abs(float(p.quantity or 0))
+                ),
+                "lot_size": getattr(p.instrument, "lot_size", None),
+                "exchange": (
+                    p.instrument.exchange.value
+                    if hasattr(p.instrument.exchange, "value")
+                    else str(p.instrument.exchange)
+                ),
+                "product_type": p.product_type.value if p.product_type else None,
             },
         )
     except Exception:
