@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { CreditCard, Calendar, Search } from "lucide-react";
 import { PayinOutAPI } from "@/lib/api";
 import { Input } from "@/components/ui/input";
@@ -43,13 +43,27 @@ function StatusPill({ status }: { status: string }) {
 export function GatewayPaymentsPanel({ summary }: { summary?: GwSummary }) {
   const [search, setSearch] = useState("");
 
-  const { data, isFetching } = useQuery({
-    queryKey: ["admin", "gateway-deposits", search],
-    queryFn: () =>
-      PayinOutAPI.deposits({ gateway: true, search: search || undefined, page_size: 100 }),
-    refetchInterval: 15_000,
-  });
-  const items: any[] = data?.items ?? [];
+  // Paged 25 at a time — load the first 25, then "Load more" fetches the next
+  // 25 and appends. Avoids pulling the whole gateway history in one shot.
+  const { data, isFetching, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    useInfiniteQuery({
+      queryKey: ["admin", "gateway-deposits", search],
+      queryFn: ({ pageParam }) =>
+        PayinOutAPI.deposits({
+          gateway: true,
+          search: search || undefined,
+          page: pageParam,
+          page_size: 25,
+        }),
+      initialPageParam: 1,
+      getNextPageParam: (lastPage: any) => {
+        const m = lastPage?.meta;
+        return m && m.page < m.total_pages ? m.page + 1 : undefined;
+      },
+      refetchInterval: 15_000,
+    });
+  const items: any[] = (data?.pages ?? []).flatMap((p: any) => p?.items ?? []);
+  const total: number = (data?.pages?.[0] as any)?.meta?.total ?? items.length;
 
   return (
     <div className="space-y-4">
@@ -166,6 +180,25 @@ export function GatewayPaymentsPanel({ summary }: { summary?: GwSummary }) {
           ))
         )}
       </div>
+
+      {/* Load more — pulls the next 25 and appends. */}
+      {items.length > 0 ? (
+        <div className="flex flex-col items-center gap-1.5 pt-1">
+          {hasNextPage ? (
+            <button
+              type="button"
+              onClick={() => fetchNextPage()}
+              disabled={isFetchingNextPage}
+              className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted/40 disabled:opacity-50"
+            >
+              {isFetchingNextPage ? "Loading…" : "Load more"}
+            </button>
+          ) : null}
+          <span className="text-[11px] text-muted-foreground">
+            Showing {items.length} of {total}
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }
