@@ -97,6 +97,32 @@ async def execute_market_order(
     except Exception:
         logger.exception("matching_engine_quote_fetch_failed")
 
+    # ── Crossed / locked-quote guard (anti-arbitrage) ───────────────────
+    # A valid market ALWAYS has ask >= bid. A stale or bad tick — common in the
+    # last seconds before an exchange close / auction — can invert them
+    # (bid > ask). Because BUY fills at the ask and SELL at the bid, a crossed
+    # quote lets a user BUY at the LOW ask and SELL at the HIGH bid — a
+    # risk-free round-trip. That is exactly what happened on RELIANCE
+    # (20-Aug ~15:28–15:29): the feed froze at bid ₹1352 / ask ₹1273.40 around
+    # the real ₹1313, and one user farmed ~₹99k in ~2 minutes of 100/500-qty
+    # round-trips. Discard a crossed quote entirely so BOTH sides fall back to
+    # the single (non-arbitrageable) LTP — a round-trip then nets ~0. The
+    # expected_price anti-tamper check below also references LTP once bid/ask
+    # are gone, so a tampered client price outside 1% of LTP is rejected too.
+    if bid is not None and ask is not None and bid > ask:
+        logger.warning(
+            "matching_engine_crossed_quote_discarded",
+            extra={
+                "token": order.instrument.token,
+                "symbol": order.instrument.symbol,
+                "bid": str(bid),
+                "ask": str(ask),
+                "ltp": str(ltp),
+                "user_id": str(order.user_id),
+            },
+        )
+        bid = ask = None
+
     # Choose the live close-side price for this action.
     live_side: Decimal | None
     if order.action == OrderAction.BUY:
