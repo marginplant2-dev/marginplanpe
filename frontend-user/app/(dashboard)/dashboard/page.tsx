@@ -23,6 +23,7 @@ import { cn, formatINR, formatPrice, pnlColor } from "@/lib/utils";
 import { AddFundsWizard } from "@/components/wallet/AddFundsWizard";
 import { MarketOverview } from "@/components/trading/MarketOverview";
 import { TopMovers } from "@/components/trading/TopMovers";
+import { useHomeTicker } from "@/lib/useSupport";
 
 export default function DashboardPage() {
   const user = useAuthStore((s) => s.user);
@@ -86,6 +87,9 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-5">
+      {/* ── Announcement ticker (home only, admin-managed) ───────── */}
+      <HomeTicker />
+
       {/* ── Greeting ─────────────────────────────────────────────── */}
       <header className="flex items-center justify-between">
         <div>
@@ -436,6 +440,38 @@ function EmptyState({ message, cta }: { message: string; cta?: { label: string; 
           </Link>
         </Button>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Home announcement ticker — admin-managed scrolling strip. Renders ONLY
+// on this (home) page; other routes never mount it. Hidden when the admin
+// has no lines. Seamless loop = content duplicated + translateX 0 → -50%.
+// ─────────────────────────────────────────────────────────────────
+function HomeTicker() {
+  const { data } = useHomeTicker();
+  const msgs = (data?.messages ?? []).filter((m) => m && m.trim());
+  if (msgs.length === 0) return null;
+  const line = msgs.join("        •        ");
+  // Scale duration to length so speed stays comfortable regardless of text.
+  const dur = Math.max(18, Math.round(line.length * 0.32));
+  return (
+    <div className="relative overflow-hidden rounded-lg border border-primary/25 bg-primary/5">
+      <div
+        className="mp-ticker-track flex w-max whitespace-nowrap py-1.5 text-[13px] font-semibold text-primary"
+        style={{ animationDuration: `${dur}s` }}
+      >
+        <span className="px-8">{line}</span>
+        <span className="px-8" aria-hidden>
+          {line}
+        </span>
+      </div>
+      <style>{`
+        .mp-ticker-track { animation: mp-ticker linear infinite; }
+        .mp-ticker-track:hover { animation-play-state: paused; }
+        @keyframes mp-ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+      `}</style>
     </div>
   );
 }

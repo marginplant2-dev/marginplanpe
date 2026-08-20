@@ -103,6 +103,35 @@ async def _resolve_terms_for_user(user: User) -> tuple[str, bool]:
     return "", False
 
 
+async def _resolve_ticker_for_user(user: User) -> list[str]:
+    """Walk the assignment chain and return the FIRST non-empty
+    `ticker_messages` list — the closest admin-tier ancestor's home-page
+    ticker. Same cascade + 8-hop cap as the WhatsApp resolver."""
+    cur: User | None = user
+    seen: set[PydanticObjectId] = set()
+    hops = 0
+    while cur is not None and hops < 8:
+        if cur.id in seen:
+            break
+        seen.add(cur.id)
+        msgs = [m.strip() for m in (cur.ticker_messages or []) if m and m.strip()]
+        if msgs:
+            return msgs
+        next_id = cur.assigned_broker_id or cur.assigned_admin_id
+        if next_id is None or next_id in seen:
+            break
+        cur = await User.get(next_id)
+        hops += 1
+    return []
+
+
+@router.get("/ticker", response_model=APIResponse[dict])
+async def get_ticker_for_user(user: CurrentUser):
+    """Home-page ticker lines for the calling user (their broker/admin's).
+    Empty list ⇒ the app renders no ticker."""
+    return APIResponse(data={"messages": await _resolve_ticker_for_user(user)})
+
+
 @router.get("/terms", response_model=APIResponse[dict])
 async def get_terms_for_user(user: CurrentUser):
     """Effective T&C for the calling user — text + enabled flag from

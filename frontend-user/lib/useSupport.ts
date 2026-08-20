@@ -33,6 +33,20 @@ export function useAcceptTerms() {
   });
 }
 
+/** Admin-managed home-page ticker lines (cascades up the broker chain).
+ *  Empty ⇒ the home ticker is hidden. Refetched periodically so a line the
+ *  broker just added shows up without a reload. */
+export function useHomeTicker() {
+  return useQuery<{ messages: string[] }>({
+    queryKey: ["user", "ticker"],
+    queryFn: () => unwrap<{ messages: string[] }>(api.get("/user/support/ticker")),
+    staleTime: 30_000,
+    refetchInterval: 120_000,
+    refetchOnMount: "always",
+    retry: 1,
+  });
+}
+
 /**
  * Admin-managed WhatsApp + support email. Pulled from `/user/support`
  * — backed by `platform.support_whatsapp` + `platform.support_email`

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { FileText, MessageCircle, Save } from "lucide-react";
+import { FileText, Megaphone, MessageCircle, Plus, Save, Trash2 } from "lucide-react";
 import { SupportAPI } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -154,9 +154,110 @@ export default function AdminSupportPage() {
         </CardContent>
       </Card>
 
+      {/* ── Home-page ticker card ────────────────────────────────── */}
+      <TickerCard />
+
       {/* ── Terms & Conditions card ──────────────────────────────── */}
       <TermsCard />
     </div>
+  );
+}
+
+/** Per-admin home-page ticker editor. Add multiple lines; they scroll
+ *  continuously on the user's HOME screen until cleared. */
+function TickerCard() {
+  const qc = useQueryClient();
+  const { data, isFetching } = useQuery({
+    queryKey: ["admin", "support", "ticker"],
+    queryFn: () => SupportAPI.getTicker(),
+  });
+  const [items, setItems] = useState<string[]>([""]);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    if (!data || hydrated) return;
+    setItems(data.messages && data.messages.length ? data.messages : [""]);
+    setHydrated(true);
+  }, [data, hydrated]);
+
+  const saveMut = useMutation({
+    mutationFn: (msgs: string[]) => SupportAPI.setTicker(msgs),
+    onSuccess: (resp) => {
+      toast.success(
+        resp.messages.length
+          ? `${resp.messages.length} ticker line(s) live on home`
+          : "Ticker cleared",
+      );
+      qc.setQueryData(["admin", "support", "ticker"], { messages: resp.messages, role: data?.role });
+      qc.invalidateQueries({ queryKey: ["user", "ticker"] });
+      setItems(resp.messages.length ? resp.messages : [""]);
+    },
+    onError: (e: any) => toast.error(e?.message || "Could not save ticker"),
+  });
+
+  const setAt = (i: number, v: string) =>
+    setItems((a) => a.map((x, idx) => (idx === i ? v : x)));
+  const removeAt = (i: number) =>
+    setItems((a) => (a.length <= 1 ? [""] : a.filter((_, idx) => idx !== i)));
+  const add = () => setItems((a) => (a.length >= 20 ? a : [...a, ""]));
+  const cleaned = items.map((s) => s.trim()).filter(Boolean);
+
+  return (
+    <Card className="max-w-2xl">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Megaphone className="size-5 text-primary" />
+          Home ticker
+        </CardTitle>
+        <CardDescription>
+          A scrolling notice strip shown on your users&apos; HOME page only. Add
+          multiple lines — they scroll one after another, continuously, until you
+          remove them. Cascades to your pool (closest admin with lines wins).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-2">
+          {items.map((val, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="w-5 shrink-0 text-center text-xs font-medium text-muted-foreground">
+                {i + 1}
+              </span>
+              <input
+                value={val}
+                onChange={(e) => setAt(i, e.target.value)}
+                maxLength={300}
+                disabled={isFetching && !hydrated}
+                placeholder="e.g. Dollar rate USD → INR is 96 today"
+                className="flex-1 rounded-md border border-border bg-muted/20 px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-primary disabled:opacity-50"
+              />
+              <button
+                type="button"
+                onClick={() => removeAt(i)}
+                aria-label="Remove line"
+                className="grid size-9 shrink-0 place-items-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted/40 hover:text-destructive"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={add} disabled={items.length >= 20}>
+          <Plus className="size-4" /> Add line
+        </Button>
+        <div className="flex items-center gap-2 pt-1">
+          <Button
+            type="button"
+            onClick={() => saveMut.mutate(cleaned)}
+            loading={saveMut.isPending}
+          >
+            <Save className="size-4" /> Save ticker
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            {cleaned.length} line(s) · {cleaned.length ? "scrolls on home page" : "ticker hidden when empty"}
+          </span>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

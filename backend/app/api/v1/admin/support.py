@@ -108,6 +108,46 @@ async def set_my_support(
     return APIResponse(data={"whatsapp": new_value, "role": admin.role.value})
 
 
+# ── Home-page notification ticker (per-admin, cascades to clients) ──
+
+class TickerPayload(BaseModel):
+    messages: list[str] = Field(default_factory=list)
+
+
+@router.get("/ticker", response_model=APIResponse[dict])
+async def get_my_ticker(admin: CurrentAdmin):
+    """This admin's home-page ticker lines. Empty ⇒ the ticker is hidden for
+    their users (unless a parent admin has one — the app resolves that)."""
+    return APIResponse(
+        data={"messages": list(admin.ticker_messages or []), "role": admin.role.value}
+    )
+
+
+@router.put("/ticker", response_model=APIResponse[dict])
+async def set_my_ticker(payload: TickerPayload, admin: CurrentAdmin):
+    """Replace this admin's ticker lines. Frontend sends the full list (add /
+    remove happen client-side). Blanks dropped; capped at 20 lines × 300 chars
+    so a runaway paste can't bloat the marquee. Empty list clears the ticker."""
+    cleaned = [m.strip()[:300] for m in (payload.messages or []) if m and m.strip()][:20]
+    user_doc = await User.get(admin.id)
+    if user_doc is None:
+        raise HTTPException(status_code=404, detail="Admin user not found")
+    user_doc.ticker_messages = cleaned
+    await user_doc.save()
+    await log_event(
+        action=AuditAction.SETTING_CHANGE,
+        entity_type="User",
+        entity_id=admin.id,
+        actor_id=admin.id,
+        target_user_id=admin.id,
+        new_values={"ticker_count": len(cleaned)},
+    )
+    return APIResponse(
+        data={"messages": cleaned},
+        message=(f"{len(cleaned)} ticker line(s) live." if cleaned else "Ticker cleared."),
+    )
+
+
 # ── Terms & Conditions (per-admin, cascades to downstream clients) ──
 
 class TermsPayload(BaseModel):

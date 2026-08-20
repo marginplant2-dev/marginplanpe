@@ -620,6 +620,11 @@ export const SupportAPI = {
     unwrap<{ text: string; enabled: boolean; role: string }>(
       api.put("/admin/support/terms", { text, enabled }),
     ),
+  // Home-page scrolling ticker — per-admin announcement lines (multiple).
+  getTicker: () =>
+    unwrap<{ messages: string[]; role: string }>(api.get("/admin/support/ticker")),
+  setTicker: (messages: string[]) =>
+    unwrap<{ messages: string[] }>(api.put("/admin/support/ticker", { messages })),
 };
 
 export const LedgerAdminAPI = {

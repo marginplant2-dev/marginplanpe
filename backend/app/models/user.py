@@ -320,6 +320,13 @@ class User(TimestampMixin):
     # strips non-digits before composing the wa.me link.
     support_whatsapp: str | None = None
 
+    # Per-admin home-page ticker — a scrolling marquee of announcement lines
+    # shown ONLY on this admin's users' home screen. Cascades down the same
+    # chain as `support_whatsapp` (closest ancestor with a non-empty list
+    # wins). Empty list ⇒ no ticker. Admin adds/removes lines from the
+    # Support page; runs continuously until cleared.
+    ticker_messages: list[str] = Field(default_factory=list)
+
     # ── White-label branding (Phase 1: schema-only, gated by
     # `settings.BRANDING_ENABLED`). All optional, default `None`, so
     # existing 10k user rows behave exactly as today on read. Only
