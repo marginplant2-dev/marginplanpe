@@ -1558,7 +1558,60 @@ async def convert_intraday_to_carry(segment_set: frozenset[str] | set[str]) -> d
     # per-user aggregate carry-decision pass after it.
     by_user: dict = {}
 
+    # Per-user cache of "does this pool have the per-position Carry-Forward
+    # toggle enabled" so we resolve the admin cascade once per user, not per
+    # position.
+    _carry_feat_cache: dict = {}
+
     for pos in rows:
+        # ── Per-position user Carry-Forward opt-out ──────────────────────
+        # When the owning admin enabled the toggle feature, a position the user
+        # did NOT flip ON (default) is squared off at EOD — only opted-in
+        # positions carry overnight. Feature OFF for the pool ⇒ skip this gate
+        # entirely and the platform's normal auto-carry (below) runs unchanged.
+        try:
+            from app.models.user import User as _UserCF
+            from app.services import user_service as _usvc_cf
+
+            _uid = pos.user_id
+            if _uid not in _carry_feat_cache:
+                _ud = await _UserCF.get(_uid)
+                _carry_feat_cache[_uid] = bool(
+                    _ud and await _usvc_cf.carry_toggle_enabled_for(_ud)
+                )
+            if _carry_feat_cache[_uid] and not bool(getattr(pos, "user_carry_forward", False)):
+                from app.models._base import OrderAction as _OAcf, OrderType as _OTcf
+
+                _udoc = await _UserCF.get(pos.user_id)
+                if _udoc is not None:
+                    _qty_open = abs(pos.quantity)
+                    _lots_open = max(0.01, _qty_open / max(1, pos.instrument.lot_size or 1))
+                    _act = _OAcf.SELL if pos.quantity > 0 else _OAcf.BUY
+                    await order_service.place_order(
+                        user=_udoc,
+                        payload={
+                            "token": pos.instrument.token,
+                            "action": _act.value,
+                            "order_type": _OTcf.MARKET.value,
+                            "product_type": pos.product_type.value,
+                            "lots": _lots_open,
+                            "force_quantity": _qty_open,
+                            "is_squareoff": True,
+                            "placed_from": "CARRY_FORWARD_OFF_CLOSE",
+                        },
+                    )
+                    try:
+                        _ref = await Position.get(pos.id)
+                        if _ref and _ref.status == PositionStatus.CLOSED and not _ref.close_reason:
+                            _ref.close_reason = "CARRY_FORWARD_OFF"
+                            await _ref.save()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    force_closed += 1
+                continue
+        except Exception:  # noqa: BLE001
+            logger.exception("carry_forward_optout_close_failed", extra={"pos_id": str(pos.id)})
+
         # Resolve NRML-side margin via the same resolver that runs at
         # order-placement time. Single source of truth — admin's segment
         # override stack is honoured.

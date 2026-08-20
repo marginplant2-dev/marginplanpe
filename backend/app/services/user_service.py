@@ -184,6 +184,30 @@ async def is_under_admin_maintenance(user: User) -> bool:
     return bool(admin and getattr(admin, "maintenance_mode", False))
 
 
+async def carry_toggle_enabled_for(user: User) -> bool:
+    """True when the per-position Carry-Forward toggle feature is enabled for
+    this user — i.e. any admin-tier ancestor (broker → admin → super-admin) has
+    ``carry_forward_toggle_enabled=True``. Walks the assignment chain (broker
+    first, then admin) exactly like the support-WhatsApp resolver, capped at 8
+    hops. When False the platform's normal auto-carry runs and the app hides
+    the per-position toggle."""
+    cur: User | None = user
+    seen: set[PydanticObjectId] = set()
+    hops = 0
+    while cur is not None and hops < 8:
+        if cur.id in seen:
+            break
+        seen.add(cur.id)
+        if bool(getattr(cur, "carry_forward_toggle_enabled", False)):
+            return True
+        nxt = getattr(cur, "assigned_broker_id", None) or getattr(cur, "assigned_admin_id", None)
+        if nxt is None or nxt in seen:
+            break
+        cur = await User.get(nxt)
+        hops += 1
+    return False
+
+
 async def descendants_of(user_id: PydanticObjectId, *, max_depth: int = 6) -> list[User]:
     """BFS through hierarchy. max_depth caps cost; trees deeper than 6 are
     almost certainly a misconfiguration."""

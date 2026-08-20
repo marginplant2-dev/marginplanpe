@@ -102,6 +102,12 @@ class Position(TimestampMixin):
     close_reason: str | None = None
     is_demo: bool = False  # True for demo-account positions; excluded from admin views
 
+    # Per-position user Carry-Forward opt-in. Only meaningful when the owning
+    # admin enabled `carry_forward_toggle_enabled`. Default False ⇒ the user
+    # has NOT opted this position into overnight carry, so the EOD rollover
+    # squares it off. Set True from the app's per-position toggle to carry it.
+    user_carry_forward: bool = False
+
     # Set by the admin reopen endpoint. Used by _charges_for to clamp the
     # Trade-row window to only include trades from THIS open cycle, not all
     # cycles since opened_at — prevents brokerage accumulation across

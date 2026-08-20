@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Inbox, Layers, Lock, LogOut, Pencil, Shield, Target, X } from "lucide-react";
@@ -160,6 +160,12 @@ const CLOSE_REASON_META: Record<
   // Segment doesn't allow overnight at all (intraday-only product).
   EOD_OVERNIGHT_DISABLED: {
     label: "EOD · Intraday only",
+    cls: "bg-amber-500/10 text-amber-400 ring-amber-500/30",
+  },
+  // User left the per-position Carry-Forward toggle OFF, so the EOD rollover
+  // squared it off instead of carrying it overnight.
+  CARRY_FORWARD_OFF: {
+    label: "EOD · Not carried",
     cls: "bg-amber-500/10 text-amber-400 ring-amber-500/30",
   },
   ADMIN_CLOSE: {
@@ -2669,7 +2675,147 @@ function ActiveMobileCard({
         </div>
         </>
       )}
+
+      {/* Per-position Carry-Forward toggle — only when the admin enabled the
+          feature. Default OFF ⇒ EOD squares off; ON ⇒ overnight carry. */}
+      {r.carry_forward_enabled ? <CarryForwardToggle row={r} /> : null}
     </li>
+  );
+}
+
+/** Short Web-Audio beep on toggle — higher pitch for ON, lower for OFF.
+ *  No asset needed; silently no-ops if the browser blocks audio. */
+function playCarryBeep(on: boolean) {
+  try {
+    const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!AC) return;
+    const ctx = new AC();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.type = "sine";
+    o.frequency.value = on ? 880 : 420;
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.16, ctx.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+    o.start();
+    o.stop(ctx.currentTime + 0.22);
+    o.onended = () => ctx.close();
+  } catch {
+    /* audio blocked — ignore */
+  }
+}
+
+function CarryForwardToggle({ row }: { row: any }) {
+  const qc = useQueryClient();
+  const [on, setOn] = useState(!!row.user_carry_forward);
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    setOn(!!row.user_carry_forward);
+  }, [row.user_carry_forward]);
+
+  async function apply(next: boolean) {
+    setBusy(true);
+    try {
+      await PositionAPI.setCarryForward(row.id, next);
+      setOn(next);
+      playCarryBeep(next);
+      toast.success(
+        next ? "Carry Forward ON — overnight hold" : "Carry Forward OFF — squares off at close",
+      );
+      qc.invalidateQueries({ queryKey: ["positions"] });
+    } catch (e: any) {
+      toast.error(e?.message || "Could not update carry-forward");
+    } finally {
+      setBusy(false);
+      setConfirm(false);
+    }
+  }
+
+  return (
+    <>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className={cn(
+          "mt-2.5 flex items-center justify-between rounded-lg border px-3 py-2",
+          on ? "border-amber-500/40 bg-amber-500/10" : "border-border bg-muted/20",
+        )}
+      >
+        <div className="flex items-center gap-1.5">
+          <span aria-hidden>⚡</span>
+          <span className="text-xs font-semibold">Carry Forward</span>
+          <span className={cn("text-[11px] font-bold", on ? "text-amber-500" : "text-muted-foreground")}>
+            {on ? "ON" : "OFF"}
+          </span>
+        </div>
+        <button
+          type="button"
+          disabled={busy}
+          aria-pressed={on}
+          aria-label={on ? "Turn carry-forward off" : "Turn carry-forward on"}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (busy) return;
+            if (!on) setConfirm(true); // turning ON → confirm popup
+            else void apply(false); // turning OFF → immediate
+          }}
+          className={cn(
+            "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
+            on ? "bg-emerald-500" : "bg-muted-foreground/30",
+          )}
+        >
+          <span
+            className={cn(
+              "inline-block size-4 rounded-full bg-white shadow transition-transform",
+              on ? "translate-x-6" : "translate-x-1",
+            )}
+          />
+        </button>
+      </div>
+
+      {confirm ? (
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            setConfirm(false);
+          }}
+          className="fixed inset-0 z-[60] grid place-items-center bg-black/50 p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl border border-border bg-card p-5 shadow-xl"
+          >
+            <div className="flex items-center gap-2 text-base font-bold">
+              <span aria-hidden>⚡</span> Carry this position forward?
+            </div>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              <b className="text-foreground">{row.symbol}</b> carry-forward me chali jayegi — market
+              close ke baad bhi <b className="text-foreground">overnight hold</b> rahegi (carry-forward
+              margin lagega). Warna EOD pe square-off ho jati.
+            </p>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirm(false)}
+                className="flex-1 rounded-lg border border-border py-2 text-sm font-semibold hover:bg-muted/40"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void apply(true)}
+                className="flex-1 rounded-lg bg-emerald-500 py-2 text-sm font-semibold text-white hover:bg-emerald-600 disabled:opacity-60"
+              >
+                {busy ? "…" : "Yes, carry forward"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 

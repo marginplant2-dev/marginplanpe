@@ -320,6 +320,14 @@ class User(TimestampMixin):
     # strips non-digits before composing the wa.me link.
     support_whatsapp: str | None = None
 
+    # Per-admin "user carry-forward toggle" feature switch. Default OFF ⇒ the
+    # platform's normal auto-carry runs at EOD (affordable MIS → NRML) and users
+    # see no per-position toggle. When an admin turns this ON for their pool,
+    # each of their users' open positions gets a per-position Carry-Forward
+    # toggle (default OFF): only positions the user flips ON carry overnight;
+    # the rest are squared off at EOD. Cascades to the pool like support_whatsapp.
+    carry_forward_toggle_enabled: bool = False
+
     # Per-admin home-page ticker — a scrolling marquee of announcement lines
     # shown ONLY on this admin's users' home screen. Cascades down the same
     # chain as `support_whatsapp` (closest ancestor with a non-empty list

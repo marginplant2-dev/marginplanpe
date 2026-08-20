@@ -81,9 +81,99 @@ export default function PlatformSettingsPage() {
         <WeeklySettlementCard />
         <PromoButtonCard />
         <PaymentGatewayCard />
+        <CarryForwardToggleCard />
         <TermsCard />
       </div>
     </div>
+  );
+}
+
+// ── Carry-Forward user toggle (per-admin) ────────────────────────────
+// OFF (default): the platform's normal auto-carry runs at EOD and users
+// see no toggle. ON: every user's open position gets a per-position
+// Carry-Forward switch (default OFF) — only positions the user flips ON
+// carry overnight; the rest are squared off at EOD.
+function CarryForwardToggleCard() {
+  const [enabled, setEnabled] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    SettingsAPI.getCarryToggle()
+      .then((r) => {
+        if (alive) {
+          setEnabled(!!r?.enabled);
+          setLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (alive) setLoaded(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function toggle(next: boolean) {
+    setSaving(true);
+    try {
+      await SettingsAPI.setCarryToggle(next);
+      setEnabled(next);
+      toast.success(
+        next
+          ? "Carry-Forward toggle ON — users choose per position"
+          : "Carry-Forward toggle OFF — normal auto-carry",
+      );
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to update");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <CalendarClock className="size-4 text-primary" /> Carry-Forward toggle
+        </CardTitle>
+        <CardDescription>
+          When ON, each of your users&apos; open positions shows a Carry-Forward
+          switch (default OFF). Only positions the user turns ON carry overnight;
+          the rest are squared off at market close. OFF = normal auto-carry.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-between rounded-md border border-border bg-card p-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold">Let users choose carry-forward</div>
+            <div className="text-[11px] text-muted-foreground">
+              {enabled
+                ? "On — per-position toggle live for your users"
+                : "Off — positions auto-carry when affordable"}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => toggle(!enabled)}
+            disabled={!loaded || saving}
+            aria-pressed={enabled}
+            className={cn(
+              "relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:opacity-50",
+              enabled ? "bg-emerald-500" : "bg-muted",
+            )}
+          >
+            <span
+              className={cn(
+                "inline-block size-5 transform rounded-full bg-white shadow transition-transform",
+                enabled ? "translate-x-6" : "translate-x-1",
+              )}
+            />
+          </button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

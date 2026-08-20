@@ -111,6 +111,9 @@ class PositionOut(BaseModel):
     # collection, so the UI shows the true expiry (SILVER26SEPFUT → 2026-09-04)
     # instead of parsing the symbol (whose "26" is the YEAR, not the day).
     expiry: str | None = None
+    # Per-position Carry-Forward toggle (feature gated per-admin).
+    carry_forward_enabled: bool = False
+    user_carry_forward: bool = False
     segment_type: str
     product_type: str
     quantity: float

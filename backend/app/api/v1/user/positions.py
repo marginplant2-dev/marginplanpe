@@ -174,7 +174,7 @@ def _effective_qty(p: Position) -> tuple[float, float, int]:
     return qty, lots, stored_lot
 
 
-def _pos(p: Position, expiry: str | None = None) -> dict:
+def _pos(p: Position, expiry: str | None = None, carry_enabled: bool = False) -> dict:
     """Position view.
 
     ``expiry`` is the instrument's REAL contract-expiry date (ISO ``YYYY-MM-DD``),
@@ -266,6 +266,12 @@ def _pos(p: Position, expiry: str | None = None) -> dict:
         # UI prefers this over parsing the symbol so monthly futures show the
         # true expiry day, not the year read as a day.
         "expiry": expiry,
+        # Per-position Carry-Forward toggle. `carry_forward_enabled` = the
+        # feature is on for this user's pool (show the toggle); `user_carry_forward`
+        # = this position's opt-in state. When the feature is off the UI hides
+        # the toggle and the platform's normal auto-carry runs.
+        "carry_forward_enabled": bool(carry_enabled),
+        "user_carry_forward": bool(getattr(p, "user_carry_forward", False)),
         "segment_type": p.segment_type,
         "product_type": p.product_type.value,
         # Quantity reported in CONTRACTS (the number the exchange would
@@ -442,9 +448,11 @@ async def open_positions(user: CurrentUser):
     )
 
     emap = await _expiry_map(tokens)
+    from app.services import user_service as _usvc
+    carry_enabled = await _usvc.carry_toggle_enabled_for(user)
     out = []
     for r, resolved in zip(rows, ovn_resolved):
-        d = _pos(r, expiry=emap.get(r.instrument.token))
+        d = _pos(r, expiry=emap.get(r.instrument.token), carry_enabled=carry_enabled)
         k = (r.instrument.token, str(r.product_type.value))
         charges_amt = charges_map.get(k, 0.0)
         d["charges"] = f"{charges_amt:.2f}"
@@ -764,6 +772,33 @@ async def squareoff(
     return APIResponse(data={"order_id": str(o.id), "status": o.status.value, "closed_lots": close_lots})
 
 
+@router.put("/{position_id}/carry-forward", response_model=APIResponse[dict])
+async def set_position_carry_forward(position_id: str, payload: dict, user: CurrentUser):
+    """Per-position Carry-Forward opt-in. Works only when the user's admin has
+    enabled the feature (`carry_forward_toggle_enabled`). ON ⇒ the position
+    carries overnight at EOD (still subject to the usual affordability + segment
+    checks); OFF (default) ⇒ the EOD rollover squares it off."""
+    from app.services import user_service as _usvc
+
+    if not await _usvc.carry_toggle_enabled_for(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Carry-Forward toggle is not enabled for your account.",
+        )
+    p = await Position.get(_parse_position_id(position_id))
+    if p is None or p.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Position not found")
+    if p.status != PositionStatus.OPEN:
+        raise HTTPException(status_code=400, detail="Only open positions can carry forward.")
+    enabled = bool(payload.get("enabled"))
+    p.user_carry_forward = enabled
+    await p.save()
+    return APIResponse(
+        data={"id": str(p.id), "user_carry_forward": enabled},
+        message=("Carry Forward ON — this position will hold overnight." if enabled else "Carry Forward OFF — squares off at EOD."),
+    )
+
+
 @router.put("/{position_id}/sl-tp", response_model=APIResponse[dict])
 async def update_sl_tp(position_id: str, payload: dict, user: CurrentUser):
     """Edit the stop-loss and target on an open position. Pass null/0 to clear."""
@@ -897,6 +932,8 @@ async def list_active_trades(user: CurrentUser):
     pos_by_token: dict[str, Position] = {p.instrument.token: p for p in open_positions}
     tokens = [p.instrument.token for p in open_positions]
     emap = await _expiry_map(tokens)
+    from app.services import user_service as _usvc_at
+    carry_enabled = await _usvc_at.carry_toggle_enabled_for(user)
 
     # Pull every trade for these (user, instrument) pairs — no date
     # filter. Earlier the query used `executed_at >= oldest_open - 5s`
@@ -1351,6 +1388,8 @@ async def list_active_trades(user: CurrentUser):
             "trading_symbol": getattr(p.instrument, "trading_symbol", None),
             "exchange": str(p.instrument.exchange),
             "expiry": emap.get(p.instrument.token),
+            "carry_forward_enabled": carry_enabled,
+            "user_carry_forward": bool(getattr(p, "user_carry_forward", False)),
             "segment": p.segment_type,
             "instrument_token": p.instrument.token,
             "currency_quote": "USD" if is_usd else "INR",
@@ -1460,6 +1499,8 @@ async def list_active_trades(user: CurrentUser):
             "trading_symbol": getattr(p.instrument, "trading_symbol", None),
             "exchange": str(p.instrument.exchange),
             "expiry": emap.get(p.instrument.token),
+            "carry_forward_enabled": carry_enabled,
+            "user_carry_forward": bool(getattr(p, "user_carry_forward", False)),
             "segment": p.segment_type,
             "instrument_token": p.instrument.token,
             "currency_quote": "USD" if is_usd else "INR",

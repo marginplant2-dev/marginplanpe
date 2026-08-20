@@ -978,6 +978,10 @@ export const SettingsAPI = {
   // Per-admin Terms & Conditions shown to this admin's users on their profile.
   getTerms: () => unwrap<{ terms: string }>(api.get("/admin/settings/terms")),
   setTerms: (terms: string) => unwrap<{ terms: string }>(api.put("/admin/settings/terms", { terms })),
+  // Per-admin per-position Carry-Forward toggle feature switch.
+  getCarryToggle: () => unwrap<{ enabled: boolean }>(api.get("/admin/settings/carry-forward-toggle")),
+  setCarryToggle: (enabled: boolean) =>
+    unwrap<{ enabled: boolean }>(api.put("/admin/settings/carry-forward-toggle", { enabled })),
   // Weekly mark-to-market settlement engine (super-admin only).
   weeklySettlementRun: () =>
     unwrap<{ week_key?: string; batch_id?: string; total?: number; settled?: number; skipped?: number; failed?: number; skipped_reason?: string }>(

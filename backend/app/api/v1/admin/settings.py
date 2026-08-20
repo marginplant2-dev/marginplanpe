@@ -150,6 +150,38 @@ async def set_payment_gateway(payload: UpdatePlatformSettingRequest, admin: Curr
 from pydantic import BaseModel  # noqa: E402
 
 
+class _CarryTogglePayload(BaseModel):
+    enabled: bool
+
+
+@router.get("/settings/carry-forward-toggle", response_model=APIResponse[dict])
+async def get_carry_toggle(admin: CurrentAdmin):
+    """Whether this admin has enabled the per-position user Carry-Forward
+    toggle for their pool. OFF ⇒ normal auto-carry at EOD."""
+    return APIResponse(data={"enabled": bool(getattr(admin, "carry_forward_toggle_enabled", False))})
+
+
+@router.put("/settings/carry-forward-toggle", response_model=APIResponse[dict])
+async def set_carry_toggle(payload: _CarryTogglePayload, admin: CurrentAdmin):
+    admin.carry_forward_toggle_enabled = bool(payload.enabled)
+    await admin.save()
+    await log_event(
+        action=AuditAction.SETTING_CHANGE,
+        entity_type="User",
+        entity_id=str(admin.id),
+        actor_id=admin.id,
+        new_values={"carry_forward_toggle_enabled": admin.carry_forward_toggle_enabled},
+    )
+    return APIResponse(
+        data={"enabled": admin.carry_forward_toggle_enabled},
+        message=(
+            "Carry-Forward toggle enabled — your users now choose per position."
+            if admin.carry_forward_toggle_enabled
+            else "Carry-Forward toggle disabled — normal auto-carry runs."
+        ),
+    )
+
+
 class _TermsPayload(BaseModel):
     terms: str
 

@@ -544,6 +544,8 @@ export const PositionAPI = {
   squareoffAll: () => unwrap<any>(api.post("/user/positions/squareoff-all")),
   updateSlTp: (id: string, body: { stop_loss?: number | null; target?: number | null }) =>
     unwrap<any>(api.put(`/user/positions/${id}/sl-tp`, body)),
+  setCarryForward: (id: string, enabled: boolean) =>
+    unwrap<any>(api.put(`/user/positions/${id}/carry-forward`, { enabled })),
   pnlSummary: () => unwrap<any>(api.get("/user/positions/pnl-summary")),
   activeTrades: () => unwrap<any[]>(api.get("/user/positions/active-trades")),
   closeActiveTrade: (tradeId: string) =>
