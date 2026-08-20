@@ -2710,112 +2710,72 @@ function playCarryBeep(on: boolean) {
 function CarryForwardToggle({ row }: { row: any }) {
   const qc = useQueryClient();
   const [on, setOn] = useState(!!row.user_carry_forward);
-  const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Seed from the server ONLY when the card is for a different position. A
+  // refetch of the SAME position must not stomp the toggle the user just set —
+  // that was the "tapped ON but it flips back OFF" bug: the next positions
+  // poll (which may not yet reflect the write) reset the optimistic state.
   useEffect(() => {
     setOn(!!row.user_carry_forward);
-  }, [row.user_carry_forward]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [row.id]);
 
-  async function apply(next: boolean) {
+  async function toggle(next: boolean) {
+    if (busy) return;
     setBusy(true);
+    setOn(next); // optimistic — no popup, flips immediately
+    playCarryBeep(next);
     try {
       await PositionAPI.setCarryForward(row.id, next);
-      setOn(next);
-      playCarryBeep(next);
       toast.success(
         next ? "Carry Forward ON — overnight hold" : "Carry Forward OFF — squares off at close",
       );
       qc.invalidateQueries({ queryKey: ["positions"] });
     } catch (e: any) {
+      setOn(!next); // revert on failure
       toast.error(e?.message || "Could not update carry-forward");
     } finally {
       setBusy(false);
-      setConfirm(false);
     }
   }
 
   return (
-    <>
-      <div
-        onClick={(e) => e.stopPropagation()}
+    <div
+      onClick={(e) => e.stopPropagation()}
+      className={cn(
+        "mt-2.5 flex items-center justify-between rounded-lg border px-3 py-2",
+        on ? "border-amber-500/40 bg-amber-500/10" : "border-border bg-muted/20",
+      )}
+    >
+      <div className="flex items-center gap-1.5">
+        <span aria-hidden>⚡</span>
+        <span className="text-xs font-semibold">Carry Forward</span>
+        <span className={cn("text-[11px] font-bold", on ? "text-amber-500" : "text-muted-foreground")}>
+          {on ? "ON" : "OFF"}
+        </span>
+      </div>
+      <button
+        type="button"
+        disabled={busy}
+        aria-pressed={on}
+        aria-label={on ? "Turn carry-forward off" : "Turn carry-forward on"}
+        onClick={(e) => {
+          e.stopPropagation();
+          void toggle(!on);
+        }}
         className={cn(
-          "mt-2.5 flex items-center justify-between rounded-lg border px-3 py-2",
-          on ? "border-amber-500/40 bg-amber-500/10" : "border-border bg-muted/20",
+          "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
+          on ? "bg-emerald-500" : "bg-muted-foreground/30",
         )}
       >
-        <div className="flex items-center gap-1.5">
-          <span aria-hidden>⚡</span>
-          <span className="text-xs font-semibold">Carry Forward</span>
-          <span className={cn("text-[11px] font-bold", on ? "text-amber-500" : "text-muted-foreground")}>
-            {on ? "ON" : "OFF"}
-          </span>
-        </div>
-        <button
-          type="button"
-          disabled={busy}
-          aria-pressed={on}
-          aria-label={on ? "Turn carry-forward off" : "Turn carry-forward on"}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (busy) return;
-            if (!on) setConfirm(true); // turning ON → confirm popup
-            else void apply(false); // turning OFF → immediate
-          }}
+        <span
           className={cn(
-            "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
-            on ? "bg-emerald-500" : "bg-muted-foreground/30",
+            "inline-block size-4 rounded-full bg-white shadow transition-transform",
+            on ? "translate-x-6" : "translate-x-1",
           )}
-        >
-          <span
-            className={cn(
-              "inline-block size-4 rounded-full bg-white shadow transition-transform",
-              on ? "translate-x-6" : "translate-x-1",
-            )}
-          />
-        </button>
-      </div>
-
-      {confirm ? (
-        <div
-          onClick={(e) => {
-            e.stopPropagation();
-            setConfirm(false);
-          }}
-          className="fixed inset-0 z-[60] grid place-items-center bg-black/50 p-4"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm rounded-2xl border border-border bg-card p-5 shadow-xl"
-          >
-            <div className="flex items-center gap-2 text-base font-bold">
-              <span aria-hidden>⚡</span> Carry this position forward?
-            </div>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              <b className="text-foreground">{row.symbol}</b> carry-forward me chali jayegi — market
-              close ke baad bhi <b className="text-foreground">overnight hold</b> rahegi (carry-forward
-              margin lagega). Warna EOD pe square-off ho jati.
-            </p>
-            <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setConfirm(false)}
-                className="flex-1 rounded-lg border border-border py-2 text-sm font-semibold hover:bg-muted/40"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void apply(true)}
-                className="flex-1 rounded-lg bg-emerald-500 py-2 text-sm font-semibold text-white hover:bg-emerald-600 disabled:opacity-60"
-              >
-                {busy ? "…" : "Yes, carry forward"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </>
+        />
+      </button>
+    </div>
   );
 }
 
