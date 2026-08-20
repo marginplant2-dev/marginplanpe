@@ -266,11 +266,11 @@ def _pos(p: Position, expiry: str | None = None, carry_enabled: bool = False) ->
         # UI prefers this over parsing the symbol so monthly futures show the
         # true expiry day, not the year read as a day.
         "expiry": expiry,
-        # Per-position Carry-Forward toggle. `carry_forward_enabled` = the
-        # feature is on for this user's pool (show the toggle); `user_carry_forward`
-        # = this position's opt-in state. When the feature is off the UI hides
-        # the toggle and the platform's normal auto-carry runs.
-        "carry_forward_enabled": bool(carry_enabled),
+        # Per-position Carry-Forward toggle. Shown only when the pool's admin
+        # enabled the feature AND the segment actually has an EOD rollover —
+        # 24-hour forex / commodity / crypto never square off at EOD, so the
+        # toggle would be a no-op there and is hidden.
+        "carry_forward_enabled": bool(carry_enabled) and _segment_carryable(p.segment_type),
         "user_carry_forward": bool(getattr(p, "user_carry_forward", False)),
         "segment_type": p.segment_type,
         "product_type": p.product_type.value,
@@ -317,6 +317,17 @@ def _pos(p: Position, expiry: str | None = None, carry_enabled: bool = False) ->
             else ("BUY" if p.quantity > 0 else ("SELL" if p.quantity < 0 else None))
         ),
     }
+
+
+def _segment_carryable(segment: str | None) -> bool:
+    """True only for segments with a daily EOD rollover (Indian NSE / BSE / MCX
+    F&O). 24-hour markets — forex / commodity (XAGUSD, XAUUSD) / crypto (BTCUSD)
+    — are rollover-exempt (no EOD close), so `convert_intraday_to_carry` never
+    fires for them and the per-position Carry-Forward toggle would do nothing.
+    Gate `carry_forward_enabled` on this so the toggle is hidden there."""
+    from app.utils.time_utils import market_close_time_for_segment
+
+    return market_close_time_for_segment(segment) is not None
 
 
 async def _expiry_map(tokens: list[str]) -> dict[str, str]:
@@ -790,6 +801,11 @@ async def set_position_carry_forward(position_id: str, payload: dict, user: Curr
         raise HTTPException(status_code=404, detail="Position not found")
     if p.status != PositionStatus.OPEN:
         raise HTTPException(status_code=400, detail="Only open positions can carry forward.")
+    if not _segment_carryable(p.segment_type):
+        raise HTTPException(
+            status_code=400,
+            detail="This is a 24-hour market with no EOD rollover — carry-forward doesn't apply here.",
+        )
     enabled = bool(payload.get("enabled"))
     p.user_carry_forward = enabled
     await p.save()
@@ -1388,7 +1404,7 @@ async def list_active_trades(user: CurrentUser):
             "trading_symbol": getattr(p.instrument, "trading_symbol", None),
             "exchange": str(p.instrument.exchange),
             "expiry": emap.get(p.instrument.token),
-            "carry_forward_enabled": carry_enabled,
+            "carry_forward_enabled": carry_enabled and _segment_carryable(p.segment_type),
             "user_carry_forward": bool(getattr(p, "user_carry_forward", False)),
             "segment": p.segment_type,
             "instrument_token": p.instrument.token,
@@ -1499,7 +1515,7 @@ async def list_active_trades(user: CurrentUser):
             "trading_symbol": getattr(p.instrument, "trading_symbol", None),
             "exchange": str(p.instrument.exchange),
             "expiry": emap.get(p.instrument.token),
-            "carry_forward_enabled": carry_enabled,
+            "carry_forward_enabled": carry_enabled and _segment_carryable(p.segment_type),
             "user_carry_forward": bool(getattr(p, "user_carry_forward", False)),
             "segment": p.segment_type,
             "instrument_token": p.instrument.token,
