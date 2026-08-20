@@ -9,8 +9,10 @@ import {
   AtSign,
   Bell,
   ChevronRight,
+  Coins,
   CreditCard,
   FileText,
+  Gauge,
   HelpCircle,
   IdCard,
   KeyRound,
@@ -26,7 +28,7 @@ import {
   User as UserIcon,
   Wallet as WalletIcon,
 } from "lucide-react";
-import { ProfileAPI, AuthAPI } from "@/lib/api";
+import { ProfileAPI, AuthAPI, SegmentSettingsAPI } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -55,6 +57,8 @@ import { cn } from "@/lib/utils";
 type SubView =
   | "main"
   | "personal"
+  | "brokerage"
+  | "leverage"
   | "security"
   | "appearance"
   | "support";
@@ -131,6 +135,8 @@ export default function ProfilePage() {
             onSave={() => save(name, refetch)}
           />
         )}
+        {subView === "brokerage" && <SegmentOverview kind="brokerage" />}
+        {subView === "leverage" && <SegmentOverview kind="leverage" />}
         {subView === "security" && <SecurityForm me={me} />}
         {subView === "appearance" && <AppearanceForm />}
         {subView === "support" && <SupportLinks />}
@@ -164,6 +170,23 @@ export default function ProfilePage() {
           label="Bank accounts"
           sub="Linked payout accounts"
           href="/bank-accounts"
+        />
+      </ListGroup>
+
+      <ListGroup title="Charges & leverage">
+        <ListRow
+          icon={Coins}
+          tone="buy"
+          label="Brokerage details"
+          sub="Your brokerage per segment"
+          onClick={() => setSubView("brokerage")}
+        />
+        <ListRow
+          icon={Gauge}
+          tone="warn"
+          label="Leverage"
+          sub="Intraday & carry-forward per segment"
+          onClick={() => setSubView("leverage")}
         />
       </ListGroup>
 
@@ -258,6 +281,10 @@ function subViewTitle(v: SubView): string {
   switch (v) {
     case "personal":
       return "Personal information";
+    case "brokerage":
+      return "Brokerage details";
+    case "leverage":
+      return "Leverage";
     case "security":
       return "Security";
     case "appearance":
@@ -710,6 +737,102 @@ function SupportLinks() {
         )}
       </ul>
     </section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Brokerage / Leverage — per-segment overview (resolved for THIS user)
+// ─────────────────────────────────────────────────────────────────
+const SEG_TOKENS: Record<string, string> = {
+  NSE: "NSE", BSE: "BSE", MCX: "MCX", CDS: "CDS",
+  EQUITY: "Equity", FUTURE: "Futures", INDEX: "Index", STOCK: "Stock",
+  OPTION: "Option", BUY: "Buy", SELL: "Sell", CRYPTO: "Crypto", SPOT: "Spot",
+};
+function segName(s: string): string {
+  return String(s || "")
+    .split("_")
+    .map((w) => SEG_TOKENS[w] ?? (w ? w[0] + w.slice(1).toLowerCase() : w))
+    .join(" ");
+}
+function trimNum(n: number): string {
+  if (!Number.isFinite(n)) return "—";
+  return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(2)));
+}
+function fmtBrokerage(r: any): string {
+  const t = String(r.commission_type || "").toUpperCase();
+  const v = Number(r.commission_value ?? 0);
+  let s: string;
+  if (t === "FLAT") s = `₹${trimNum(v)} flat`;
+  else if (t === "PERCENTAGE") s = `${trimNum(v)}%`;
+  else if (t === "PER_CRORE") s = `₹${trimNum(v)} / crore`;
+  else if (t === "PER_LOT") s = `₹${trimNum(v)} / lot`;
+  else s = v ? `₹${trimNum(v)}` : "—";
+  const min = Number(r.min_brokerage ?? 0);
+  if (min > 0) s += ` · min ₹${trimNum(min)}`;
+  return s;
+}
+function fmtLev(lev: any, marginPct: any, mode: any, fixed: any): string {
+  const m = String(mode || "").toLowerCase();
+  const l = Number(lev ?? 0);
+  const p = Number(marginPct ?? 0);
+  const f = Number(fixed ?? 0);
+  if (m === "fixed" && f > 0) return `₹${trimNum(f)}/lot`;
+  if (l > 0) return `${trimNum(l)}×`;
+  if (p > 0) return `${trimNum(100 / p)}×`;
+  return "—";
+}
+
+function LevChip({ label, value, tone }: { label: string; value: string; tone: "primary" | "warn" }) {
+  return (
+    <div className="w-[74px] shrink-0 rounded-lg border border-border bg-muted/20 px-1.5 py-1 text-center">
+      <div className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={cn("text-xs font-bold", tone === "primary" ? "text-primary" : "text-amber-600 dark:text-amber-400")}>{value}</div>
+    </div>
+  );
+}
+
+function SegmentOverview({ kind }: { kind: "brokerage" | "leverage" }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["segment-overview"],
+    queryFn: () => SegmentSettingsAPI.overview(),
+    staleTime: 60_000,
+  });
+  if (isLoading) return <div className="text-sm text-muted-foreground">Loading…</div>;
+  const rows: any[] = (data ?? []).filter((r) => r.allow !== false);
+  if (rows.length === 0)
+    return (
+      <section className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+        No segments are enabled for your account.
+      </section>
+    );
+  return (
+    <div className="space-y-2">
+      <p className="px-1 text-[11px] leading-snug text-muted-foreground">
+        {kind === "brokerage"
+          ? "Brokerage charged on your trades, per segment."
+          : "Leverage available per segment — Intraday and Carry-forward (overnight)."}
+      </p>
+      {rows.map((r) => (
+        <div
+          key={r.segment}
+          className="flex items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-2.5"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium">{segName(r.segment)}</div>
+          </div>
+          {kind === "brokerage" ? (
+            <div className="shrink-0 text-right text-[13px] font-semibold text-buy">
+              {fmtBrokerage(r)}
+            </div>
+          ) : (
+            <div className="flex shrink-0 items-center gap-1.5">
+              <LevChip label="Intraday" value={fmtLev(r.leverage, r.margin_percentage, r.margin_calc_mode, r.fixed_margin_per_lot)} tone="primary" />
+              <LevChip label="Carry-fwd" value={fmtLev(r.overnight_leverage, r.overnight_margin_percentage, r.margin_calc_mode, r.overnight_fixed_margin_per_lot)} tone="warn" />
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 

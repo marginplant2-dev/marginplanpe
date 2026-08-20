@@ -266,6 +266,62 @@ async def get_effective_for_instrument(
     return APIResponse(data=out)
 
 
+@router.get("/overview", response_model=APIResponse[list[dict]])
+async def segments_overview(user: CurrentUser):
+    """Per-segment brokerage + leverage the way THIS user is set up — the same
+    resolved (GLOBAL → TEMPLATE → BROKER → USER) stack the engine enforces.
+
+    Feeds the profile page's "Brokerage details" + "Leverage" cards: each row
+    carries the commission scheme and the intraday / carry-forward (overnight)
+    leverage for one segment. Resolved in parallel across all 20 segments.
+    """
+    import asyncio
+
+    from app.models._base import ALL_SEGMENTS
+
+    async def _one(seg) -> dict:
+        seg_name = seg.value
+        action = "SELL" if seg_name.endswith("_SELL") else "BUY"
+        product = "MIS"
+        try:
+            resolved = await netting_service.get_effective_settings(
+                user.id,  # type: ignore[arg-type]
+                seg_name,
+                action=action,
+                product_type=product,
+            )
+            s = resolved.get("settings", {})
+        except Exception:
+            s = {}
+
+        def _num(v):
+            try:
+                return float(v) if v is not None else None
+            except Exception:
+                return None
+
+        return {
+            "segment": seg_name,
+            "allow": bool(s.get("allow", True)),
+            # Brokerage
+            "commission_type": s.get("commission_type"),
+            "commission_value": _num(s.get("commission_value")),
+            "min_brokerage": _num(s.get("min_brokerage")),
+            "charge_on": s.get("charge_on"),
+            # Leverage / margin
+            "margin_calc_mode": s.get("margin_calc_mode"),
+            "leverage": _num(s.get("leverage")),
+            "overnight_leverage": _num(s.get("overnight_leverage")),
+            "margin_percentage": _num(s.get("margin_percentage")),
+            "overnight_margin_percentage": _num(s.get("overnight_margin_percentage")),
+            "fixed_margin_per_lot": _num(s.get("fixed_margin_per_lot")),
+            "overnight_fixed_margin_per_lot": _num(s.get("overnight_fixed_margin_per_lot")),
+        }
+
+    rows = await asyncio.gather(*[_one(seg) for seg in ALL_SEGMENTS])
+    return APIResponse(data=list(rows))
+
+
 @router.get("/inactive", response_model=APIResponse[list[str]])
 async def list_inactive_admin_rows(user: CurrentUser):
     """Names of admin-matrix rows currently flagged `Block → isActive = No`.
