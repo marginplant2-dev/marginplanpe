@@ -62,6 +62,8 @@ export interface BrokerPermissions {
   // VIEW = see existing banks in own pool; EDIT = add / update / delete.
   banks: PermissionLevel;
   bonuses: PermissionLevel;
+  // EDIT lets the broker reset THEIR users' passwords (separate from `users`).
+  user_password: PermissionLevel;
 }
 
 export interface AdminUser {

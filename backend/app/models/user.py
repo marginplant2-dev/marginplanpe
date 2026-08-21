@@ -170,6 +170,10 @@ class BrokerPermissions(BaseModel):
     # EDIT lets them add / update / delete banks for their own users.
     banks: PermissionLevel = PermissionLevel.OFF
     bonuses: PermissionLevel = PermissionLevel.OFF  # Bonus Management
+    # Change-password gate. A broker can reset THEIR users' passwords only with
+    # EDIT here — deliberately separate from `users` so "let the broker create
+    # users" (users=EDIT) doesn't also hand them password resets. Default OFF.
+    user_password: PermissionLevel = PermissionLevel.OFF
 
 
 # ── User document ───────────────────────────────────────────────────

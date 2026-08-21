@@ -491,6 +491,34 @@ def require_broker_permission(perm: str, min_level: str = "VIEW"):
     return _dep
 
 
+def assert_role_aware_perm(
+    admin: "User", *, admin_perm: str, broker_perm: str, mode: str = "write"
+) -> None:
+    """Permission check that uses DIFFERENT keys for admin-tier vs broker so a
+    broker action can be gated separately from the admin one on the SAME
+    endpoint. Used inside endpoint bodies (e.g. wallet-adjust, reset-password)
+    where a broker must NOT inherit the action from a broad `users` grant.
+
+    super-admin → allowed; ADMIN / EMPLOYEE → ``admin_permissions[admin_perm]``
+    (unchanged from `require_perm`); BROKER → ``broker_permissions[broker_perm]``
+    at the required level (VIEW for read, EDIT for write). Raises otherwise."""
+    if admin.role == UserRole.SUPER_ADMIN:
+        return
+    if admin.role in {UserRole.ADMIN, UserRole.EMPLOYEE}:
+        if not _admin_bool_perm(admin.admin_permissions, admin_perm):
+            raise InsufficientPermissionsError(f"Permission '{admin_perm}' not granted")
+        return
+    # BROKER
+    required = PermissionLevel("EDIT" if mode == "write" else "VIEW")
+    perms = admin.broker_permissions
+    actual_raw = getattr(perms, broker_perm, PermissionLevel.OFF) if perms else PermissionLevel.OFF
+    actual = actual_raw if isinstance(actual_raw, PermissionLevel) else PermissionLevel(actual_raw)
+    if not PermissionLevel.at_least(actual, required):
+        raise InsufficientPermissionsError(
+            f"Permission '{broker_perm}' requires {required.value} (have {actual.value})"
+        )
+
+
 def require_perm(perm: str, mode: str = "read"):
     """Combined dep used by existing routers that serve both admin- and
     broker-tier callers. ``mode="read"`` requires VIEW or EDIT; ``"write"``

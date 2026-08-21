@@ -3,6 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { useAdminAuthStore } from "@/stores/authStore";
+import { canSee } from "@/lib/permissions";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -120,6 +122,10 @@ export default function UserDetailPage() {
   const [resetOpen, setResetOpen] = useState(false);
   const [resetPw, setResetPw] = useState("");
   const [resetPw2, setResetPw2] = useState("");
+  // A broker can reset a user's password only with the Change-password perm;
+  // admins / super-admin unaffected (backend enforces regardless).
+  const me = useAdminAuthStore((s) => s.admin);
+  const canResetPw = String(me?.role || "") !== "BROKER" || canSee(me, "user_password");
   const [resetShow, setResetShow] = useState(false);
   const [resetSaving, setResetSaving] = useState(false);
 
@@ -199,9 +205,11 @@ export default function UserDetailPage() {
                 <UserCog className="size-4" /> Segment settings
               </Link>
             </Button>
-            <Button variant="outline" onClick={openResetDialog}>
-              <KeyRound className="size-4" /> Reset password
-            </Button>
+            {canResetPw && (
+              <Button variant="outline" onClick={openResetDialog}>
+                <KeyRound className="size-4" /> Reset password
+              </Button>
+            )}
             {/* Auto-settlement toggle — same shape as the Block button.
                 ON (default): green ShieldCheck. OFF: amber ShieldOff —
                 signals risk mode at a glance. Click runs through a

@@ -60,6 +60,13 @@ export function UserActionMenu({ user, onChange }: Props) {
   const qc = useQueryClient();
   const me = useAdminAuthStore((s) => s.admin);
   const canBonus = canSee(me, "bonuses");
+  // A BROKER's fund add/deduct + password reset are gated on separate perms
+  // (Deposits / Withdrawals / Change-password) so Users-EDIT alone can't do
+  // them. Admins / super-admin are unchanged (backend still enforces `users`).
+  const isBroker = String(me?.role || "") === "BROKER";
+  const canAddFund = !isBroker || canSee(me, "deposits");
+  const canDeductFund = !isBroker || canSee(me, "withdrawals");
+  const canResetPw = !isBroker || canSee(me, "user_password");
   const [menuOpen, setMenuOpen] = useState(false);
   const [action, setAction] = useState<ActionKind>(null);
   const [transferOpen, setTransferOpen] = useState(false);
@@ -283,16 +290,20 @@ export function UserActionMenu({ user, onChange }: Props) {
 
             <MenuSeparator />
 
-            <MenuButton
-              icon={<PlusCircle className="size-4" />}
-              label="Add Fund"
-              onClick={() => pick(() => setAction("addFund"))}
-            />
-            <MenuButton
-              icon={<MinusCircle className="size-4" />}
-              label="Deduct Fund"
-              onClick={() => pick(() => setAction("deductFund"))}
-            />
+            {canAddFund && (
+              <MenuButton
+                icon={<PlusCircle className="size-4" />}
+                label="Add Fund"
+                onClick={() => pick(() => setAction("addFund"))}
+              />
+            )}
+            {canDeductFund && (
+              <MenuButton
+                icon={<MinusCircle className="size-4" />}
+                label="Deduct Fund"
+                onClick={() => pick(() => setAction("deductFund"))}
+              />
+            )}
             {canBonus && (
               <>
                 <MenuButton

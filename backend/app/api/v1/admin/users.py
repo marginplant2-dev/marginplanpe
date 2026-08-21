@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.dependencies import (
     CurrentAdmin,
+    assert_role_aware_perm,
     assert_user_in_scope,
     require_perm,
     scoped_user_filter,
@@ -777,8 +778,11 @@ async def admin_reset_password(
     user_id: str,
     payload: dict,
     admin: CurrentAdmin,
-    _: None = Depends(require_perm("users", "write")),
 ):
+    # Admins keep the `users` gate; a BROKER needs the dedicated `user_password`
+    # EDIT — so granting a broker Users-EDIT (create users) does NOT also let
+    # them reset their users' passwords.
+    assert_role_aware_perm(admin, admin_perm="users", broker_perm="user_password", mode="write")
     new_pw = payload.get("new_password") or ""
     if len(new_pw) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
@@ -809,18 +813,27 @@ async def wallet_adjust(
     user_id: str,
     payload: WalletAdjustRequest,
     admin: CurrentAdmin,
-    _: None = Depends(require_perm("users", "write")),
 ):
+    from app.models.wallet import Wallet
+    from app.utils.decimal_utils import to_decimal as _to_decimal
+
+    amt = _to_decimal(payload.amount)
+    # Fund add/deduct gate. Admins keep the `users` grant; a BROKER needs the
+    # money section that matches the direction — Deposits EDIT to ADD funds,
+    # Withdrawals EDIT to DEDUCT — so a broker with only Users-EDIT (create
+    # users) can NOT add/deduct funds from the 3-dot menu.
+    assert_role_aware_perm(
+        admin,
+        admin_perm="users",
+        broker_perm=("deposits" if amt >= 0 else "withdrawals"),
+        mode="write",
+    )
     await assert_user_in_scope(admin, user_id)
 
     # ── Balance pre-check for debits ─────────────────────────────────
     # Admin manual deduct must NEVER silently book to settlement_outstanding
     # when the user's available_balance is insufficient.  Same rule as
     # withdrawals: if you don't have the money, the action is rejected.
-    from app.models.wallet import Wallet
-    from app.utils.decimal_utils import to_decimal as _to_decimal
-
-    amt = _to_decimal(payload.amount)
     if amt < 0:
         # `user_id` arrives as a string from the path param; the Wallet
         # row keys on PydanticObjectId, so a string `==` filter never
