@@ -1021,6 +1021,7 @@ const BROKER_PERMS_ALL_OFF: BrokerPermissions = {
   sub_brokers: "OFF",
   banks: "OFF",
   bonuses: "OFF",
+  user_password: "OFF",
 };
 
 function CreateBrokerForAdminDialog({
