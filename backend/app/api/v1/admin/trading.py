@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 from beanie import PydanticObjectId
 from bson import Decimal128
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from app.core.dependencies import (
     CurrentAdmin,
@@ -2934,6 +2935,50 @@ async def delete_position(
             "id": position_id,
             "realized_pnl_reversed_inr": str(reversed_amount),
         }
+    )
+
+
+class _BulkDeletePositionsPayload(BaseModel):
+    position_ids: list[str]
+
+
+@router.post("/positions/bulk-delete", response_model=APIResponse[dict])
+async def bulk_delete_positions(
+    payload: _BulkDeletePositionsPayload,
+    admin: CurrentAdmin,
+    _: None = Depends(require_perm("trading_view", "write")),
+):
+    """Delete many (closed) positions in one call. Reuses the SAME single-row
+    delete path per id — full wallet reversal of realised P&L + closing/opening
+    brokerage + any settlement unwind, trade supersede, executed-order removal,
+    tracker/used-margin recompute, and audit — so each row is unwound EXACTLY
+    like a one-off delete (no separate, untested bulk math). Continues on a
+    per-row error and reports which ids failed so one bad row can't abort the
+    batch. Scope is enforced inside `delete_position` (assert_user_in_scope)."""
+    ids = [i for i in dict.fromkeys(payload.position_ids or []) if i]  # dedupe, keep order
+    if not ids:
+        raise HTTPException(status_code=400, detail="No positions selected.")
+    if len(ids) > 200:
+        raise HTTPException(status_code=400, detail="Too many at once — select up to 200.")
+
+    deleted = 0
+    failed: list[dict] = []
+    for pid in ids:
+        try:
+            await delete_position(pid, admin, None)
+            deleted += 1
+        except HTTPException as he:
+            failed.append({"id": pid, "error": str(he.detail)})
+        except Exception as e:  # noqa: BLE001
+            logger.exception("bulk_delete_position_failed", extra={"pos_id": pid})
+            failed.append({"id": pid, "error": str(e)})
+
+    return APIResponse(
+        data={"total": len(ids), "deleted": deleted, "failed": failed},
+        message=(
+            f"Deleted {deleted} of {len(ids)}."
+            + (f" {len(failed)} failed." if failed else "")
+        ),
     )
 
 

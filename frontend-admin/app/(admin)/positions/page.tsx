@@ -434,6 +434,47 @@ function AdminPositionsInner() {
     }
   }
 
+  // ── Bulk delete (Closed Trades) ───────────────────────────────────
+  // Select multiple closed rows and delete them in one call. The backend
+  // reuses the SAME per-row delete path, so each one's P&L + brokerage is
+  // reversed in the user's wallet and wiped from tradebook / accounts —
+  // identical to a one-off delete, no separate bulk math.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  async function bulkDelete() {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    if (
+      !confirm(
+        `Permanently delete ${ids.length} selected closed trade(s)?\n\n` +
+          `Each one's realised P&L + brokerage is reversed in the user's wallet ` +
+          `and the row is wiped from tradebook / positions / accounts. Cannot be undone.`,
+      )
+    )
+      return;
+    setBulkDeleting(true);
+    try {
+      const r = await TradingAPI.bulkDeletePositions(ids);
+      toast.success(
+        `Deleted ${r.deleted}/${r.total}.` + (r.failed?.length ? ` ${r.failed.length} failed.` : ""),
+      );
+      setSelected(new Set());
+      qc.invalidateQueries({ queryKey: ["admin", "positions"] });
+      qc.invalidateQueries({ queryKey: ["admin", "accounts"] });
+    } catch (e: any) {
+      toast.error(e?.message || "Bulk delete failed");
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
+
   // ── Edit modal ────────────────────────────────────────────────────
   const [editing, setEditing] = useState<any | null>(null);
   // Position-id of the row whose Netting Entries drilldown is open. `null`
@@ -617,7 +658,35 @@ function AdminPositionsInner() {
     return all.slice(start, start + pageSize);
   }, [tab, data, page, pageSize]);
 
+  // Selection is only for Closed Trades; clear it whenever the visible set
+  // changes (tab / page / filter / user) so a stale id never gets deleted.
+  const showSelect = tab === "closed";
+  useEffect(() => {
+    setSelected(new Set());
+  }, [tab, page, debouncedSearch, typeFilter, queryUserId]);
+  const allOnPageSelected =
+    (pagedData?.length ?? 0) > 0 && (pagedData ?? []).every((r: any) => selected.has(String(r.id)));
+  const toggleAllOnPage = () =>
+    setSelected(
+      allOnPageSelected ? new Set() : new Set((pagedData ?? []).map((r: any) => String(r.id))),
+    );
+
   // ── Original column set, plus a new "Hold Time" + polished action buttons ──
+  const selectCol: Column<any> = {
+    key: "__select",
+    header: "",
+    width: "36px",
+    render: (r: any) => (
+      <input
+        type="checkbox"
+        aria-label="Select row"
+        checked={selected.has(String(r.id))}
+        onClick={(e) => e.stopPropagation()}
+        onChange={() => toggleSelect(String(r.id))}
+        className="size-4 cursor-pointer accent-primary"
+      />
+    ),
+  };
   const cols: Column<any>[] = [
     {
       key: "user",
@@ -1134,6 +1203,33 @@ function AdminPositionsInner() {
           ))}
         </div>
 
+        {/* Bulk-select + delete — Closed Trades only. Select rows then delete
+            them in one call (each reverses P&L + brokerage in the wallet). */}
+        {showSelect && (
+          <div className="inline-flex items-center gap-2">
+            <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={allOnPageSelected}
+                onChange={toggleAllOnPage}
+                className="size-4 cursor-pointer accent-primary"
+              />
+              Select all
+            </label>
+            {selected.size > 0 && (
+              <button
+                type="button"
+                onClick={bulkDelete}
+                disabled={bulkDeleting}
+                className="inline-flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-sm font-semibold text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:opacity-50"
+              >
+                <Trash2 className="size-3.5" />
+                {bulkDeleting ? "Deleting…" : `Delete selected (${selected.size})`}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* FIFO view toggle — only for a single user in scope (the FIFO
             blotter is per-user). ON → show the SAME per-opening-fill rows the
             user sees in their own Closed history instead of one aggregated
@@ -1209,7 +1305,7 @@ function AdminPositionsInner() {
       {/* Desktop: full data table */}
       <div className="hidden md:block">
         <DataTable
-          columns={cols}
+          columns={showSelect ? [selectCol, ...cols] : cols}
           rows={pagedData}
           keyExtractor={(r) => r.id}
           loading={isFetching && !data}
@@ -1242,6 +1338,9 @@ function AdminPositionsInner() {
             r={r}
             tab={tab}
             me={me}
+            selectable={showSelect}
+            selected={selected.has(String(r.id))}
+            onToggleSelect={() => toggleSelect(String(r.id))}
             onOpenNetting={() => setNettingId(String(r.id))}
             onOpenRateHistory={() => setRateHistoryRow(r)}
             onEdit={() => setEditing(r)}
@@ -1592,6 +1691,9 @@ function PositionMobileCard({
   r,
   tab,
   me,
+  selectable = false,
+  selected = false,
+  onToggleSelect,
   onOpenNetting,
   onOpenRateHistory,
   onEdit,
@@ -1602,6 +1704,9 @@ function PositionMobileCard({
   r: any;
   tab: "open" | "closed";
   me: any;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
   onOpenNetting: () => void;
   onOpenRateHistory: () => void;
   onEdit: () => void;
@@ -1659,6 +1764,16 @@ function PositionMobileCard({
       {/* ── Row 1: status + side badges  |  Net P&L ── */}
       <div className="flex items-center justify-between gap-2 px-3 pt-3">
         <div className="flex flex-wrap items-center gap-1.5">
+          {selectable && (
+            <input
+              type="checkbox"
+              aria-label="Select trade"
+              checked={selected}
+              onClick={(e) => e.stopPropagation()}
+              onChange={() => onToggleSelect?.()}
+              className="size-4 cursor-pointer accent-primary"
+            />
+          )}
           <StatusPill status={r.status} />
           <span
             className={cn(

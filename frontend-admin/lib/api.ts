@@ -383,6 +383,10 @@ export const TradingAPI = {
     unwrap<any[]>(api.get("/admin/orders/quotes", { params: { tokens: tokens.join(",") } })),
   squareoff: (id: string) => unwrap<any>(api.post(`/admin/positions/${id}/squareoff`)),
   deletePosition: (id: string) => unwrap<any>(api.delete(`/admin/positions/${id}`)),
+  bulkDeletePositions: (position_ids: string[]) =>
+    unwrap<{ total: number; deleted: number; failed: { id: string; error: string }[] }>(
+      api.post("/admin/positions/bulk-delete", { position_ids }),
+    ),
   positionNetting: (id: string) =>
     unwrap<any>(api.get(`/admin/positions/${id}/netting`)),
   positionRateHistory: (
