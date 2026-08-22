@@ -2229,6 +2229,29 @@ async def positions_pnl_summary(
             raw *= current_usd_inr
         total_unrealised += raw
 
+    # ── Accounts-dashboard parity ───────────────────────────────────────
+    # The two Net-P&L cards must show the SAME Net Client PNL / Brokerage /
+    # Total-of-Both as /accounts-dashboard for the identical Mon→Sun window.
+    # Reuse the dashboard's own aggregator over its own pool resolver so the
+    # numbers can't drift: whole-book uses `_entity_pool_ids(admin)` (exactly
+    # what the "All Users" KPI card queries via compute_broker_totals); a
+    # user-filtered view narrows to that single client. Both pools are
+    # demo-free + non-CLOSED, so no demo data leaks in.
+    from app.services.accounts_dashboard_service import (  # noqa: PLC0415
+        client_totals_for_users as _client_totals,
+        _entity_pool_ids as _acct_pool,
+    )
+
+    if user_filter_oid is not None:
+        _acct_ids = [user_filter_oid]
+    else:
+        _acct_ids = await _acct_pool(admin.id, admin.role.value)
+    _wk_tot = await _client_totals(_acct_ids, week_start, None)
+    _lw_tot = await _client_totals(_acct_ids, last_week_start, last_week_end)
+
+    def _f(d) -> float:
+        return round(float(d), 2)
+
     _data = {
         "today_pnl": round(today_realised + total_unrealised, 2),
         "today_realised": round(today_realised, 2),
@@ -2236,6 +2259,13 @@ async def positions_pnl_summary(
         "week_pnl": round(week_realised + total_unrealised, 2),
         "week_realised": round(week_realised, 2),
         "last_week_pnl": round(last_week_realised, 2),
+        # Accounts-parity trio (current + last week) — headline is Total-of-Both.
+        "week_net_client_pnl": _f(_wk_tot["net_client_pnl"]),
+        "week_brokerage": _f(_wk_tot["net_client_bkg"]),
+        "week_total_of_both": _f(_wk_tot["total_of_both"]),
+        "last_week_net_client_pnl": _f(_lw_tot["net_client_pnl"]),
+        "last_week_brokerage": _f(_lw_tot["net_client_bkg"]),
+        "last_week_total_of_both": _f(_lw_tot["total_of_both"]),
         "today_start": today_start.isoformat(),
         "week_start": week_start.isoformat(),
         "last_week_start": last_week_start.isoformat(),

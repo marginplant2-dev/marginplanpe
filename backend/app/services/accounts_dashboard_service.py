@@ -192,6 +192,62 @@ async def _settlement_in_window(
     return booked - recovered
 
 
+async def client_totals_for_users(
+    user_ids: list[PydanticObjectId],
+    start_utc: datetime | None,
+    end_utc: datetime | None,
+) -> dict[str, Decimal]:
+    """Net Client PNL (GROSS realized), Net Client BKG, and Total-of-Both for a
+    set of users over a window — the exact math behind the /accounts-dashboard
+    KPI tiles. Extracted so the admin Positions page can surface IDENTICAL
+    numbers (operator: the two pages MUST match). Both callers pass a demo-free,
+    non-CLOSED pool, so no user filtering happens here.
+
+    * net_client_pnl = Σ realized P&L of CLOSED positions closed in the window
+      (USD-quoted segments converted to INR via the position's locked rate).
+    * net_client_bkg = Σ |brokerage| of trades executed in the window, excluding
+      fills an admin reopen/delete undid (`superseded_by_reopen`).
+    * total_of_both  = broker view = −net_client_pnl + net_client_bkg.
+    """
+    net_client_pnl = Decimal("0")
+    net_client_bkg = Decimal("0")
+    if user_ids:
+        date_filter: dict[str, Any] | None = None
+        if start_utc or end_utc:
+            date_filter = {}
+            if start_utc:
+                date_filter["$gte"] = start_utc
+            if end_utc:
+                date_filter["$lte"] = end_utc
+
+        fallback_usd_inr = to_decimal(market_data_service.get_usd_inr_rate())
+        if date_filter:
+            positions = await Position.find({
+                "user_id": {"$in": user_ids},
+                "status": PositionStatus.CLOSED.value,
+                "closed_at": date_filter,
+            }).to_list()
+        else:
+            positions = await Position.find({"user_id": {"$in": user_ids}}).to_list()
+        for p in positions:
+            net_client_pnl += _realised_inr(p, fallback_usd_inr)
+
+        bkg_trade_q: dict[str, Any] = {
+            "user_id": {"$in": user_ids},
+            "superseded_by_reopen": {"$ne": True},
+        }
+        if date_filter:
+            bkg_trade_q["executed_at"] = date_filter
+        for t in await Trade.find(bkg_trade_q).to_list():
+            net_client_bkg += abs(to_decimal(t.brokerage))
+
+    return {
+        "net_client_pnl": net_client_pnl,
+        "net_client_bkg": net_client_bkg,
+        "total_of_both": -net_client_pnl + net_client_bkg,
+    }
+
+
 async def compute_broker_totals(
     entity_id: PydanticObjectId,
     start_utc: datetime | None,
@@ -239,38 +295,13 @@ async def compute_broker_totals(
         if end_utc:
             date_filter["$lte"] = end_utc
 
+    # Realized PNL (gross) + brokerage — shared with the admin Positions page
+    # via client_totals_for_users so the two pages can never drift apart.
+    _ct = await client_totals_for_users(user_ids, start_utc, end_utc)
+    net_client_pnl = _ct["net_client_pnl"]
+    net_client_bkg = _ct["net_client_bkg"]
+
     if user_ids:
-        fallback_usd_inr = to_decimal(market_data_service.get_usd_inr_rate())
-
-        # Realized PNL — ALL positions (open with partial close PNL + closed)
-        if date_filter:
-            pos_query: dict[str, Any] = {
-                "user_id": {"$in": user_ids},
-                "status": PositionStatus.CLOSED.value,
-                "closed_at": date_filter,
-            }
-            positions = await Position.find(pos_query).to_list()
-        else:
-            positions = await Position.find({"user_id": {"$in": user_ids}}).to_list()
-
-        for p in positions:
-            net_client_pnl += _realised_inr(p, fallback_usd_inr)
-
-        # Brokerage from trades (wallet.total_brokerage is often 0 because
-        # brokerage is tracked per-trade, not as a separate wallet txn)
-        # Exclude trades an admin REOPEN/DELETE undid — their P&L is already
-        # netted (positions deleted / reversed) and their brokerage must drop
-        # out too, otherwise a deleted position keeps inflating Net Client BKG.
-        bkg_trade_q: dict[str, Any] = {
-            "user_id": {"$in": user_ids},
-            "superseded_by_reopen": {"$ne": True},
-        }
-        if date_filter:
-            bkg_trade_q["executed_at"] = date_filter
-        bkg_trades = await Trade.find(bkg_trade_q).to_list()
-        for t in bkg_trades:
-            net_client_bkg += abs(to_decimal(t.brokerage))
-
         # Deposits in window =
         #   • user-initiated DEPOSIT requests, AND
         #   • admin manual "Add Fund" (ADJUSTMENT, amount > 0).

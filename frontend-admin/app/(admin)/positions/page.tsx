@@ -1164,32 +1164,34 @@ function AdminPositionsInner() {
           icon={totalPnl >= 0 ? TrendingUp : TrendingDown}
         />
         <PnlCard
-          // Date range on top (Mon→Sun IST) mirrors the Accounts dashboard
-          // header so the two pages read the same window at a glance.
+          // Headline = Total of Both (broker take = −Net Client PNL + Brokerage),
+          // the SAME figure the Accounts dashboard shows for this Mon→Sun window.
+          // Breakdown (Net P&L + Brokerage) sits in the hint so the two pages
+          // reconcile line-for-line. Date range on top mirrors Accounts.
           label={
             pnl?.week_label
-              ? `This Week's Net P&L (${pnl.week_label})`
-              : "This Week's Net P&L"
+              ? `This Week — Total of Both (${pnl.week_label})`
+              : "This Week — Total of Both"
           }
-          // REALIZED only (week_realised), NOT week_pnl. week_pnl folded in the
-          // open positions' live unrealised M2M, so a reopened/open position's
-          // floating loss showed up here AND in "Open PNL" — the same number in
-          // two cards, and a reopened trade (whose realized is cancelled) still
-          // looked like a weekly loss. Realized-only matches "Last Week's Net
-          // P&L" and keeps unrealised exclusively in the Open PNL card.
-          value={pnl?.week_realised ?? 0}
-          hint="Mon → today (IST) — realized, net of brokerage · matches Accounts"
-          icon={(pnl?.week_realised ?? 0) >= 0 ? TrendingUp : TrendingDown}
+          value={pnl?.week_total_of_both ?? 0}
+          hint={
+            `Net P&L ${formatINR(pnl?.week_net_client_pnl ?? 0)}` +
+            ` + Brokerage ${formatINR(pnl?.week_brokerage ?? 0)} · matches Accounts`
+          }
+          icon={(pnl?.week_total_of_both ?? 0) >= 0 ? TrendingUp : TrendingDown}
           loading={pnlLoading}
         />
         <PnlCard
           label={
             pnl?.last_week_label
-              ? `Last Week's Net P&L (${pnl.last_week_label})`
-              : "Last Week's Net P&L"
+              ? `Last Week — Total of Both (${pnl.last_week_label})`
+              : "Last Week — Total of Both"
           }
-          value={pnl?.last_week_pnl ?? 0}
-          hint="Previous Mon → Sun (IST) — net of brokerage"
+          value={pnl?.last_week_total_of_both ?? 0}
+          hint={
+            `Net P&L ${formatINR(pnl?.last_week_net_client_pnl ?? 0)}` +
+            ` + Brokerage ${formatINR(pnl?.last_week_brokerage ?? 0)}`
+          }
           icon={CalendarDays}
           loading={pnlLoading}
         />
@@ -1673,7 +1675,7 @@ function PnlCard({
           </div>
         )}
         {hint && !showFetch && (
-          <div className="mt-1 hidden text-[11px] text-muted-foreground sm:block">
+          <div className="mt-1 block text-[10px] leading-tight text-muted-foreground sm:text-[11px]">
             {hint}
           </div>
         )}
