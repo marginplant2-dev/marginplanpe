@@ -25,9 +25,14 @@ interface Props<T> {
    *  instead of pushing the PageHeader / filter row off-screen. Pass
    *  an empty string to disable. */
   maxHeight?: string;
+  /** Table width class. Default `min-w-full` stretches the table to fill the
+   *  card, which JUSTIFIES columns and leaves big gaps when the content is
+   *  narrower than the card. Pass `w-max` to size the table to its content
+   *  (tight columns, horizontal scroll only when it overflows). */
+  tableClassName?: string;
 }
 
-export function DataTable<T>({ columns, rows, keyExtractor, loading, empty, rowClassName, onRowClick, maxHeight = "max-h-[70vh]" }: Props<T>) {
+export function DataTable<T>({ columns, rows, keyExtractor, loading, empty, rowClassName, onRowClick, maxHeight = "max-h-[70vh]", tableClassName = "min-w-full" }: Props<T>) {
   return (
     <div
       className={cn(
@@ -38,7 +43,7 @@ export function DataTable<T>({ columns, rows, keyExtractor, loading, empty, rowC
         maxHeight,
       )}
     >
-      <table className="min-w-full text-sm">
+      <table className={cn("text-sm", tableClassName)}>
         {/* Sticky header — column labels stay visible while rows scroll. */}
         <thead className="sticky top-0 z-10 border-b border-border bg-card text-xs uppercase text-muted-foreground shadow-[inset_0_-1px_0_0_hsl(var(--border))]">
           <tr>

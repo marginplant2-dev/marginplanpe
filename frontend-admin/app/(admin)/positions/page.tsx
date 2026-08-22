@@ -204,6 +204,10 @@ function AdminPositionsInner() {
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  // Closed-tab date filter (IST YYYY-MM-DD). Empty → backend default window
+  // (last week + current week). Set → closed_at bounded by these dates.
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   // Closed search hits the backend — debounce so we don't fire a request
   // on every keystroke.
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -243,6 +247,7 @@ function AdminPositionsInner() {
     queryKey: [
       "admin", "positions", "CLOSED", queryUserId,
       page, pageSize, debouncedSearch, serverProduct ?? "",
+      fromDate, toDate,
       closedFifoMode ? "fifo" : "agg",
     ],
     queryFn: () =>
@@ -259,6 +264,8 @@ function AdminPositionsInner() {
             page_size: pageSize,
             q: debouncedSearch || undefined,
             product: serverProduct,
+            from_date: fromDate || undefined,
+            to_date: toDate || undefined,
           }),
     refetchInterval: tab === "closed" ? 30000 : false,
     enabled: tab === "closed",
@@ -650,7 +657,7 @@ function AdminPositionsInner() {
   // changes — tab / scoped user / search / type filter.
   useEffect(() => {
     setPage(1);
-  }, [tab, queryUserId, debouncedSearch, typeFilter]);
+  }, [tab, queryUserId, debouncedSearch, typeFilter, fromDate, toDate]);
   const pagedData = useMemo(() => {
     const all = data ?? [];
     if (tab === "closed") return all; // server already returned just this page
@@ -823,7 +830,19 @@ function AdminPositionsInner() {
       key: "avg_price",
       header: "Open Price",
       align: "right" as const,
-      render: (r: any) => fmtFeedPrice(r.avg_price, r.currency_quote),
+      // Closed tab: opening time (date + HH:mm IST) sits under the price so the
+      // admin reads WHEN the trade opened without a separate column.
+      render: (r: any) =>
+        tab === "closed" ? (
+          <div className="flex flex-col items-end leading-tight">
+            <span className="tabular-nums">{fmtFeedPrice(r.avg_price, r.currency_quote)}</span>
+            <span className="text-[10px] font-normal text-muted-foreground">
+              {fmtOpenedAt(r.opened_at)}
+            </span>
+          </div>
+        ) : (
+          fmtFeedPrice(r.avg_price, r.currency_quote)
+        ),
     },
     {
       // For closed positions, `ltp` was set to the actual close price by
@@ -834,17 +853,32 @@ function AdminPositionsInner() {
       key: "ltp",
       header: tab === "closed" ? "Close" : "LTP",
       align: "right" as const,
-      render: (r: any) => (
-        <span title={r.status === "CLOSED" ? "Closing price" : "Live LTP"}>
-          {fmtFeedPrice(r.ltp, r.currency_quote)}
-        </span>
-      ),
+      // Closed tab: close time (date + HH:mm IST) under the close price.
+      render: (r: any) =>
+        tab === "closed" ? (
+          <div className="flex flex-col items-end leading-tight">
+            <span className="tabular-nums" title="Closing price">
+              {fmtFeedPrice(r.ltp, r.currency_quote)}
+            </span>
+            <span className="text-[10px] font-normal text-muted-foreground">
+              {fmtOpenedAt(r.closed_at)}
+            </span>
+          </div>
+        ) : (
+          <span title="Live LTP">{fmtFeedPrice(r.ltp, r.currency_quote)}</span>
+        ),
     },
-    {
-      key: "status",
-      header: "Status",
-      render: (r: any) => <StatusPill status={r.status} />,
-    },
+    // Status column — hidden on the Closed tab (every row is CLOSED there, so
+    // the pill is pure noise; operator asked to remove it). Kept on Open/ALL.
+    ...(tab === "closed"
+      ? []
+      : [
+          {
+            key: "status",
+            header: "Status",
+            render: (r: any) => <StatusPill status={r.status} />,
+          },
+        ]),
     {
       key: "realized_pnl",
       header: "Realized",
@@ -935,15 +969,42 @@ function AdminPositionsInner() {
         );
       },
     },
-    {
-      key: "opened_at",
-      header: "Opened",
-      render: (r: any) => (
-        <span className="whitespace-nowrap font-tabular">
-          {fmtOpenedAt(r.opened_at)}
-        </span>
-      ),
-    },
+    // Standalone "Opened" column — only on Open/ALL. On the Closed tab the
+    // opening time already sits under the Open Price cell, so this is dropped
+    // to cut the column count (operator: "bahut gap hai, page perfect karo").
+    ...(tab === "closed"
+      ? []
+      : [
+          {
+            key: "opened_at",
+            header: "Opened",
+            render: (r: any) => (
+              <span className="whitespace-nowrap font-tabular">
+                {fmtOpenedAt(r.opened_at)}
+              </span>
+            ),
+          },
+        ]),
+    // Wallet After — Closed tab only. User's available_balance right AFTER
+    // this trade closed. Bold so it stands out (operator: "wallet balance
+    // dikhe bold me sahi se").
+    ...(tab === "closed"
+      ? [
+          {
+            key: "wallet_after",
+            header: "Wallet After",
+            align: "right" as const,
+            render: (r: any) => (
+              <span
+                className="whitespace-nowrap font-tabular font-bold"
+                title="User's wallet balance right after this trade closed"
+              >
+                {r.wallet_after != null ? formatINR(Number(r.wallet_after)) : "—"}
+              </span>
+            ),
+          },
+        ]
+      : []),
     // Holding Time — only meaningful on the Closed Trades tab where
     // both ends of the window exist. Helps the admin spot 30-second
     // misclicks vs multi-hour intentional holds at a glance.
@@ -1278,6 +1339,43 @@ function AdminPositionsInner() {
           </button>
         )}
 
+        {/* Closed-tab date filter — bound the closed trades to a picked IST
+            date range (overrides the default last-week+current-week window). */}
+        {tab === "closed" && (
+          <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            <input
+              type="date"
+              value={fromDate}
+              max={toDate || undefined}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="h-9 rounded-md border border-border bg-background px-2 text-sm text-foreground"
+              aria-label="From date"
+            />
+            <span>→</span>
+            <input
+              type="date"
+              value={toDate}
+              min={fromDate || undefined}
+              onChange={(e) => setToDate(e.target.value)}
+              className="h-9 rounded-md border border-border bg-background px-2 text-sm text-foreground"
+              aria-label="To date"
+            />
+            {(fromDate || toDate) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFromDate("");
+                  setToDate("");
+                }}
+                className="inline-flex items-center gap-1 rounded px-1.5 py-1 hover:text-foreground"
+                title="Clear date filter"
+              >
+                <X className="size-3.5" /> Clear
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Type filter — narrows the table by product (NRML/MIS/CNC) or by
             how the order was placed (Market/Limit/SL-M). */}
         <select
@@ -1334,6 +1432,9 @@ function AdminPositionsInner() {
           rows={pagedData}
           keyExtractor={(r) => r.id}
           loading={isFetching && !data}
+          // Size to content so columns pack tightly instead of justify-spreading
+          // across the full card width (operator: "bahut gap hai").
+          tableClassName="w-max"
           onRowClick={(r: any) => setNettingId(String(r.id))}
           rowClassName={(r) =>
             tab === "open" && Number(r.unrealized_pnl) < -Number(r.margin_used) * 0.5

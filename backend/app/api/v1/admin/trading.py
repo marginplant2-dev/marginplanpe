@@ -641,6 +641,8 @@ async def list_positions(
     status: str | None = None,
     q: str | None = None,
     product: str | None = None,
+    from_date: str | None = Query(default=None, description="IST YYYY-MM-DD; CLOSED tab lower bound (closed_at)"),
+    to_date: str | None = Query(default=None, description="IST YYYY-MM-DD; CLOSED tab upper bound (closed_at)"),
     page: int | None = Query(default=None, ge=1),
     page_size: int = Query(default=25, ge=1, le=200),
     _: None = Depends(require_perm("trading_view", "read")),
@@ -690,12 +692,31 @@ async def list_positions(
     elif not norm_status:
         qfilter["status"] = PositionStatus.OPEN.value
 
-    # CLOSED view: only LAST week + CURRENT week (same window as the two
-    # Net-P&L cards) — admins asked to stop scrolling months of old closed
-    # trades. Guarded to CLOSED-only so OPEN / ALL views (open positions have
-    # no closed_at) are never filtered out.
+    # CLOSED view: default window = LAST week + CURRENT week (same as the two
+    # Net-P&L cards) so admins don't scroll months of old closed trades. When
+    # the admin sets an explicit From/To date filter, that OVERRIDES the
+    # default — closed_at is bounded by the picked IST dates instead. Guarded
+    # to CLOSED-only so OPEN / ALL views (no closed_at) are never filtered out.
     if qfilter.get("status") == PositionStatus.CLOSED.value:
-        qfilter["closed_at"] = {"$gte": _last_week_start_utc()}
+        from datetime import timedelta as _td_cl, timezone as _tz_cl
+
+        _IST = _tz_cl(_td_cl(hours=5, minutes=30))
+        cl_range: dict[str, Any] = {}
+        if from_date or to_date:
+            try:
+                if from_date:
+                    _s = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=_IST)
+                    cl_range["$gte"] = _s.astimezone(_tz_cl.utc)
+                if to_date:
+                    _e = datetime.strptime(to_date, "%Y-%m-%d").replace(
+                        hour=23, minute=59, second=59, tzinfo=_IST
+                    )
+                    cl_range["$lte"] = _e.astimezone(_tz_cl.utc)
+            except ValueError:
+                cl_range = {}
+        if not cl_range:
+            cl_range = {"$gte": _last_week_start_utc()}
+        qfilter["closed_at"] = cl_range
 
     # Product filter (MIS / NRML / CNC) — Position carries product_type, so
     # this narrows server-side (the order-type variants MARKET/LIMIT/SL_M
@@ -896,6 +917,34 @@ async def list_positions(
                 return ot
         return None
 
+    # Wallet balance AFTER each close — the user's available_balance right
+    # after this trade settled. WalletTransaction.balance_after already tracks
+    # available_balance, so the latest txn at/just-after closed_at IS the
+    # post-close wallet balance. Batched over the (≤ page_size) CLOSED rows.
+    from app.models.transaction import WalletTransaction as _WTx  # noqa: PLC0415
+    from datetime import timedelta as _td_wa  # noqa: PLC0415
+
+    wallet_after_map: dict[str, float] = {}
+
+    async def _wallet_after(p: Position) -> None:
+        if p.status != PositionStatus.CLOSED or not p.closed_at:
+            return
+        txn = (
+            await _WTx.find(
+                {"user_id": p.user_id, "created_at": {"$lte": p.closed_at + _td_wa(seconds=5)}}
+            )
+            .sort("-created_at")
+            .limit(1)
+            .to_list()
+        )
+        if txn:
+            try:
+                wallet_after_map[str(p.id)] = float(str(txn[0].balance_after))
+            except Exception:
+                pass
+
+    await asyncio.gather(*[_wallet_after(r) for r in rows])
+
     out = []
     for r in rows:
         # For CLOSED rows the price + P&L must be FROZEN — the user
@@ -1031,6 +1080,9 @@ async def list_positions(
                 # Admin trades table renders it as a chip so super-admins
                 # can see which closes were auto-fires vs user-initiated.
                 "close_reason": r.close_reason,
+                # User's wallet available_balance right AFTER this trade closed
+                # (None for OPEN rows). Rendered bold on the Closed tab.
+                "wallet_after": wallet_after_map.get(str(r.id)),
             }
         )
     if paginated:
