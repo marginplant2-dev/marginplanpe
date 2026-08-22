@@ -1243,7 +1243,7 @@ function AdminPositionsInner() {
               <span className={pnlColor(pnl?.week_net_client_pnl ?? 0)}>
                 {formatINR(pnl?.week_net_client_pnl ?? 0)}
               </span>{" "}
-              + Brokerage {formatINR(pnl?.week_brokerage ?? 0)} · matches Accounts
+              + Brokerage {formatINR(pnl?.week_brokerage ?? 0)}
             </>
           }
           icon={(pnl?.week_total_of_both ?? 0) >= 0 ? TrendingUp : TrendingDown}
@@ -1339,64 +1339,67 @@ function AdminPositionsInner() {
           </button>
         )}
 
-        {/* Closed-tab date filter — bound the closed trades to a picked IST
-            date range (overrides the default last-week+current-week window). */}
-        {tab === "closed" && (
-          <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-            <input
-              type="date"
-              value={fromDate}
-              max={toDate || undefined}
-              onChange={(e) => setFromDate(e.target.value)}
-              className="h-9 rounded-md border border-border bg-background px-2 text-sm text-foreground"
-              aria-label="From date"
-            />
-            <span>→</span>
-            <input
-              type="date"
-              value={toDate}
-              min={fromDate || undefined}
-              onChange={(e) => setToDate(e.target.value)}
-              className="h-9 rounded-md border border-border bg-background px-2 text-sm text-foreground"
-              aria-label="To date"
-            />
-            {(fromDate || toDate) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setFromDate("");
-                  setToDate("");
-                }}
-                className="inline-flex items-center gap-1 rounded px-1.5 py-1 hover:text-foreground"
-                title="Clear date filter"
-              >
-                <X className="size-3.5" /> Clear
-              </button>
-            )}
-          </div>
-        )}
+        {/* Date range (Closed) + type filter grouped on one row — the type
+            dropdown tucks to the right (ml-auto) instead of taking its own
+            line, and the compact date inputs fit beside it on mobile. */}
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-1">
+          {tab === "closed" && (
+            <div className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+              <input
+                type="date"
+                value={fromDate}
+                max={toDate || undefined}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="h-9 w-[128px] rounded-md border border-border bg-background px-2 text-sm text-foreground"
+                aria-label="From date"
+              />
+              <span>→</span>
+              <input
+                type="date"
+                value={toDate}
+                min={fromDate || undefined}
+                onChange={(e) => setToDate(e.target.value)}
+                className="h-9 w-[128px] rounded-md border border-border bg-background px-2 text-sm text-foreground"
+                aria-label="To date"
+              />
+              {(fromDate || toDate) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFromDate("");
+                    setToDate("");
+                  }}
+                  className="inline-flex items-center rounded p-1 hover:text-foreground"
+                  title="Clear date filter"
+                  aria-label="Clear date filter"
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </div>
+          )}
 
-        {/* Type filter — narrows the table by product (NRML/MIS/CNC) or by
-            how the order was placed (Market/Limit/SL-M). */}
-        <select
-          value={typeFilter}
-          onChange={(e) => {
-            setTypeFilter(e.target.value);
-            setPage(1);
-          }}
-          className="h-9 rounded-md border border-border bg-background px-2 text-sm text-foreground"
-          aria-label="Filter by type"
-        >
-          <option value="ALL">All types</option>
-          <option value="NRML">NRML (carry)</option>
-          <option value="MIS">MIS (intraday)</option>
-          <option value="CNC">CNC (delivery)</option>
-          <option value="MARKET">Market orders</option>
-          <option value="LIMIT">Limit orders</option>
-          <option value="SL_M">SL-M orders</option>
-        </select>
+          {/* Type filter — product (NRML/MIS/CNC) or order kind (Market/Limit/SL-M). */}
+          <select
+            value={typeFilter}
+            onChange={(e) => {
+              setTypeFilter(e.target.value);
+              setPage(1);
+            }}
+            className="ml-auto h-9 rounded-md border border-border bg-background px-2 text-sm text-foreground"
+            aria-label="Filter by type"
+          >
+            <option value="ALL">All types</option>
+            <option value="NRML">NRML (carry)</option>
+            <option value="MIS">MIS (intraday)</option>
+            <option value="CNC">CNC (delivery)</option>
+            <option value="MARKET">Market orders</option>
+            <option value="LIMIT">Limit orders</option>
+            <option value="SL_M">SL-M orders</option>
+          </select>
+        </div>
 
-        <div className="relative ml-auto w-full sm:w-72">
+        <div className="relative w-full sm:w-72">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search user code / name / symbol"
@@ -1962,6 +1965,9 @@ function PositionMobileCard({
           <div className="truncate tabular-nums text-xs font-semibold" title={String(r.avg_price)}>
             {fmtFeedPrice(r.avg_price, r.currency_quote)}
           </div>
+          {isClosed && (
+            <div className="truncate text-[9px] text-muted-foreground">{fmtOpenedAt(r.opened_at)}</div>
+          )}
         </div>
         <div className="min-w-0 px-2 py-1.5">
           <div className="text-[9px] uppercase tracking-wider text-muted-foreground">
@@ -1970,6 +1976,9 @@ function PositionMobileCard({
           <div className="truncate tabular-nums text-xs font-semibold" title={String(r.ltp)}>
             {fmtFeedPrice(r.ltp, r.currency_quote)}
           </div>
+          {isClosed && (
+            <div className="truncate text-[9px] text-muted-foreground">{fmtOpenedAt(r.closed_at)}</div>
+          )}
         </div>
       </div>
 
@@ -1987,10 +1996,19 @@ function PositionMobileCard({
           <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Brokerage</div>
           <div className="truncate tabular-nums text-xs font-semibold">{formatINR(charges)}</div>
         </div>
-        <div className="min-w-0">
-          <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Opened</div>
-          <div className="truncate text-[10px] text-muted-foreground">{fmtOpenedAt(r.opened_at)}</div>
-        </div>
+        {isClosed ? (
+          <div className="min-w-0">
+            <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Wallet After</div>
+            <div className="truncate tabular-nums text-xs font-bold" title="Wallet balance right after this trade closed">
+              {r.wallet_after != null ? formatINR(Number(r.wallet_after)) : "—"}
+            </div>
+          </div>
+        ) : (
+          <div className="min-w-0">
+            <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Opened</div>
+            <div className="truncate text-[10px] text-muted-foreground">{fmtOpenedAt(r.opened_at)}</div>
+          </div>
+        )}
       </div>
 
       {/* ── Closed meta: held time + close reason ── */}
