@@ -1164,7 +1164,13 @@ function AdminPositionsInner() {
           icon={totalPnl >= 0 ? TrendingUp : TrendingDown}
         />
         <PnlCard
-          label="This Week's Net P&L"
+          // Date range on top (Mon→Sun IST) mirrors the Accounts dashboard
+          // header so the two pages read the same window at a glance.
+          label={
+            pnl?.week_label
+              ? `This Week's Net P&L (${pnl.week_label})`
+              : "This Week's Net P&L"
+          }
           // REALIZED only (week_realised), NOT week_pnl. week_pnl folded in the
           // open positions' live unrealised M2M, so a reopened/open position's
           // floating loss showed up here AND in "Open PNL" — the same number in
@@ -1172,14 +1178,18 @@ function AdminPositionsInner() {
           // looked like a weekly loss. Realized-only matches "Last Week's Net
           // P&L" and keeps unrealised exclusively in the Open PNL card.
           value={pnl?.week_realised ?? 0}
-          hint="Sun → today (IST) — realized, net of brokerage"
+          hint="Mon → today (IST) — realized, net of brokerage · matches Accounts"
           icon={(pnl?.week_realised ?? 0) >= 0 ? TrendingUp : TrendingDown}
           loading={pnlLoading}
         />
         <PnlCard
-          label="Last Week's Net P&L"
+          label={
+            pnl?.last_week_label
+              ? `Last Week's Net P&L (${pnl.last_week_label})`
+              : "Last Week's Net P&L"
+          }
           value={pnl?.last_week_pnl ?? 0}
-          hint="Previous Sun → Sat — net of brokerage"
+          hint="Previous Mon → Sun (IST) — net of brokerage"
           icon={CalendarDays}
           loading={pnlLoading}
         />

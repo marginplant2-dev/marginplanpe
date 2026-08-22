@@ -546,8 +546,9 @@ def _last_week_start_utc() -> datetime:
     IST = _tz(_td(hours=5, minutes=30))
     now_ist = datetime.now(IST)
     today_start_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
-    # Sunday-anchored week (Mon=0 … Sun=6 → days back = (wd+1) % 7)
-    days_back = (now_ist.weekday() + 1) % 7
+    # Monday-anchored week (Mon=0 … Sun=6) — matches the Net-P&L cards and the
+    # Accounts dashboard so the Closed tab spans the same current+last week.
+    days_back = now_ist.weekday()
     week_start_ist = today_start_ist - _td(days=days_back)
     last_week_start_ist = week_start_ist - _td(days=7)
     return last_week_start_ist.astimezone(_tz.utc)
@@ -1945,11 +1946,21 @@ async def positions_pnl_summary(
     IST = _tz(_td(hours=5, minutes=30))
     now_ist = _dt.now(IST)
     today_start_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
-    # Sunday-anchored week (weekday: Mon=0 ... Sun=6 → days back = (wd+1) % 7)
-    days_back = (now_ist.weekday() + 1) % 7
+    # Monday-anchored week — MUST match the Accounts dashboard / P&L-sharing
+    # report (both use `now - weekday`, Mon=0). Sunday-anchoring here made the
+    # Positions cards span a different 7-day window than Accounts, so the two
+    # pages showed different "This Week" numbers for the same book.
+    days_back = now_ist.weekday()
     week_start_ist = today_start_ist - _td(days=days_back)
     last_week_start_ist = week_start_ist - _td(days=7)
     last_week_end_ist = week_start_ist  # exclusive
+    # Full Mon→Sun span for the card label (data still runs only to `now`, but
+    # the header shows the whole week like Accounts' "17 Aug – 23 Aug").
+    week_end_ist = week_start_ist + _td(days=6)
+    last_week_end_disp_ist = last_week_start_ist + _td(days=6)
+
+    def _fmt_range(a: _dt, b: _dt) -> str:
+        return f"{a.day} {a.strftime('%b')} – {b.day} {b.strftime('%b')}"
 
     today_start = today_start_ist.astimezone(_tz.utc)
     week_start = week_start_ist.astimezone(_tz.utc)
@@ -2229,6 +2240,8 @@ async def positions_pnl_summary(
         "week_start": week_start.isoformat(),
         "last_week_start": last_week_start.isoformat(),
         "last_week_end": last_week_end.isoformat(),
+        "week_label": _fmt_range(week_start_ist, week_end_ist),
+        "last_week_label": _fmt_range(last_week_start_ist, last_week_end_disp_ist),
         "usd_inr_rate": round(current_usd_inr, 4),
     }
     # Cache for the next 2 s so the Dashboard/Positions/Orders polls share it.
