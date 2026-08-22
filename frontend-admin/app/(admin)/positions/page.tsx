@@ -1173,9 +1173,9 @@ function AdminPositionsInner() {
               ? `This Week — Total of Both (${pnl.week_label})`
               : "This Week — Total of Both"
           }
+          // Broker take: PROFIT (positive) → red, LOSS (negative) → green.
           value={pnl?.week_total_of_both ?? 0}
-          // Broker take tinted by CLIENT outcome: client loss → red.
-          colorValue={pnl?.week_net_client_pnl ?? 0}
+          invertColor
           hint={
             <>
               Net P&amp;L{" "}
@@ -1185,7 +1185,7 @@ function AdminPositionsInner() {
               + Brokerage {formatINR(pnl?.week_brokerage ?? 0)} · matches Accounts
             </>
           }
-          icon={(pnl?.week_net_client_pnl ?? 0) >= 0 ? TrendingUp : TrendingDown}
+          icon={(pnl?.week_total_of_both ?? 0) >= 0 ? TrendingUp : TrendingDown}
           loading={pnlLoading}
         />
         <PnlCard
@@ -1195,7 +1195,7 @@ function AdminPositionsInner() {
               : "Last Week — Total of Both"
           }
           value={pnl?.last_week_total_of_both ?? 0}
-          colorValue={pnl?.last_week_net_client_pnl ?? 0}
+          invertColor
           hint={
             <>
               Net P&amp;L{" "}
@@ -1626,7 +1626,7 @@ function PnlCard({
   fetched,
   loading,
   onFetch,
-  colorValue,
+  invertColor,
 }: {
   label: string;
   value: number | string;
@@ -1635,13 +1635,12 @@ function PnlCard({
   fetched?: boolean;
   loading?: boolean;
   onFetch?: () => void;
-  // Color the headline + icon by THIS number instead of `value`. Used on the
-  // Total-of-Both cards so the broker's take is tinted by the CLIENT outcome:
-  // client loss → red (broker profited off it), client profit → green.
-  colorValue?: number;
+  // Invert the headline tint: used on the broker Total-of-Both cards where the
+  // operator wants PROFIT (positive) in RED and LOSS (negative) in GREEN.
+  invertColor?: boolean;
 }) {
   const n = Number(value ?? 0);
-  const cN = colorValue ?? n;
+  const colorClass = pnlColor(invertColor ? -n : n);
   const fullText = formatINR(n);
   const isLazy = onFetch !== undefined;
   const showFetch = isLazy && !fetched;
@@ -1664,7 +1663,7 @@ function PnlCard({
               : <RefreshCw className="size-3.5" />}
           </button>
         ) : (
-          Icon && <Icon className={cn("hidden size-4 shrink-0 sm:block", pnlColor(cN))} />
+          Icon && <Icon className={cn("hidden size-4 shrink-0 sm:block", colorClass)} />
         )}
       </CardHeader>
       <CardContent className="p-2 pt-0 sm:p-4 sm:pt-0">
@@ -1686,7 +1685,7 @@ function PnlCard({
           <div
             className={cn(
               "font-tabular text-[12px] font-bold leading-tight sm:text-2xl sm:font-semibold",
-              pnlColor(cN),
+              colorClass,
             )}
             title={fullText}
           >

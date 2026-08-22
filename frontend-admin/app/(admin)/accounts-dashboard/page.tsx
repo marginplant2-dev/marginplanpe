@@ -630,10 +630,10 @@ function BrokerTotalsCard({
       <div className="relative mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <KpiTile label="Net Client PNL" value={fmt(data.net_client_pnl)} valueClass={color(data.net_client_pnl)} />
         <KpiTile label="Net Client BKG" value={fmt(data.net_client_bkg)} valueClass={color(data.net_client_bkg)} />
-        {/* Broker take tinted by CLIENT outcome (not its own sign): when clients
-            net-lost (Net Client PNL < 0) this profit came off their losses →
-            red; clients net-won → green. Matches the Positions page card. */}
-        <KpiTile label="Total of Both" value={fmt(data.total_of_both)} valueClass={color(data.net_client_pnl)} hint="PNL + BKG" />
+        {/* Broker take, INVERTED tint (operator): PROFIT (positive) → red,
+            LOSS (negative) → green. Negate before `color` to flip it. Matches
+            the Positions page Total-of-Both cards. */}
+        <KpiTile label="Total of Both" value={fmt(data.total_of_both)} valueClass={color(String(-Number(data.total_of_both)))} hint="PNL + BKG" />
         <KpiTile
           label="Settlement"
           value={fmt(data.settlement)}
