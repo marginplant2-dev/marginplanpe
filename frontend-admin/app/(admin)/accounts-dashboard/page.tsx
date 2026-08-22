@@ -7,13 +7,14 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import {
-  ArrowDownRight, ArrowUpRight, Briefcase,
+  ArrowDownRight, ArrowUpRight, BookOpen, Briefcase,
   ChevronRight, DollarSign, Download,
   FileSpreadsheet, FileText, Loader2, PieChartIcon,
   RefreshCw, Search, TrendingUp, Trophy, UserPlus, Users, X,
 } from "lucide-react";
 import {
   AccountsAPI,
+  ReportsAdminAPI,
   type AccountEntity,
   type AccountsSummary,
   type BrokerTotals,
@@ -1062,6 +1063,24 @@ function UserPnlRow({
           >
             <FileText className="size-3 mr-0.5" /> PDF
           </Button>
+          {/* Full FIFO trade book — trade-by-trade incl. WEEKLY SETTLEMENT rows
+              (operator: weekly settlement should show in the trade book too). */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-[10px] px-2"
+            title="Full trade book (incl. weekly settlement)"
+            onClick={async () => {
+              const blob = await ReportsAdminAPI.tradebookPdf(
+                u.user_id,
+                dateParams.from_date,
+                dateParams.to_date,
+              );
+              downloadBlob(blob, `tradebook_${u.user_code}.pdf`);
+            }}
+          >
+            <BookOpen className="size-3 mr-0.5" /> Trade Book
+          </Button>
         </div>
       </td>
     </tr>
@@ -1127,7 +1146,7 @@ function UserPnlCard({
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-1.5">
+      <div className="mt-3 grid grid-cols-2 gap-1.5">
         <Button variant="outline" size="sm" className="h-8 text-[10px]" disabled>
           <FileText className="size-3 mr-1" /> Settle
         </Button>
@@ -1152,6 +1171,22 @@ function UserPnlCard({
           }}
         >
           <FileText className="size-3 mr-1" /> PDF
+        </Button>
+        {/* Full FIFO trade book — incl. weekly settlement rows. */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-[10px]"
+          onClick={async () => {
+            const blob = await ReportsAdminAPI.tradebookPdf(
+              u.user_id,
+              dateParams.from_date,
+              dateParams.to_date,
+            );
+            downloadBlob(blob, `tradebook_${u.user_code}.pdf`);
+          }}
+        >
+          <BookOpen className="size-3 mr-1" /> Trade Book
         </Button>
       </div>
     </li>
