@@ -622,6 +622,18 @@ def max_grantable_perms(actor: User) -> dict[str, PermissionLevel]:
 
     if actor.role == UserRole.ADMIN:
         ap = actor.admin_permissions
+        # `trading_view` / `ledger` are UMBRELLA perms on AdminPermissions —
+        # an admin who holds ANY child (positions/orders/marketwatch under
+        # trading_view; money_transactions/broker_deposits under ledger)
+        # effectively has the umbrella and must be able to grant it to a
+        # broker. Mirrors the "accept any child too" rule the AdminPermissions
+        # model documents. Without this, an admin provisioned with only the
+        # child flags (umbrella left False) saw Trading view / Ledger greyed
+        # out in the broker-permission modal and couldn't grant them.
+        _umbrella_children = {
+            "trading_view": ("positions", "orders", "marketwatch"),
+            "ledger": ("money_transactions", "broker_deposits"),
+        }
         for k in keys:
             if k == "sub_brokers":
                 # Admin can always grant sub-broker capability (it's a
@@ -629,6 +641,10 @@ def max_grantable_perms(actor: User) -> dict[str, PermissionLevel]:
                 out[k] = PermissionLevel.EDIT
                 continue
             allowed = bool(ap and getattr(ap, k, False))
+            if not allowed and k in _umbrella_children:
+                allowed = bool(
+                    ap and any(getattr(ap, c, False) for c in _umbrella_children[k])
+                )
             out[k] = PermissionLevel.EDIT if allowed else PermissionLevel.OFF
         return out
 
