@@ -640,6 +640,14 @@ def max_grantable_perms(actor: User) -> dict[str, PermissionLevel]:
                 # broker-tier capability admin doesn't itself use).
                 out[k] = PermissionLevel.EDIT
                 continue
+            if k == "user_password":
+                # No dedicated AdminPermissions flag — resetting a user's
+                # password is part of USER management, so an admin who can
+                # manage users can delegate password resets to a broker. Maps
+                # to the admin's `users` flag (else the row is always greyed).
+                allowed = bool(ap and getattr(ap, "users", False))
+                out[k] = PermissionLevel.EDIT if allowed else PermissionLevel.OFF
+                continue
             allowed = bool(ap and getattr(ap, k, False))
             if not allowed and k in _umbrella_children:
                 allowed = bool(
