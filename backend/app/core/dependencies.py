@@ -344,6 +344,26 @@ async def scoped_user_ids(
     return [doc["_id"] async for doc in cursor]
 
 
+async def super_admin_direct_user_ids(
+    *, include_closed: bool = False
+) -> list[PydanticObjectId]:
+    """Client-tier users directly under the SUPER_ADMIN — NOT delegated to any
+    admin (``assigned_admin_id is None``). This is the super-admin's OWN book,
+    excluding every sub-admin's pool. Used by the super-admin Positions page so
+    its table + Net-P&L cards show only the super-admin's own users, never any
+    admin's clients (operator: "sirf super admin ke user ka data dikha")."""
+    coll = User.get_motor_collection()
+    q: dict = {
+        "role": {"$nin": _NON_CLIENT_ROLES},
+        "is_demo": {"$ne": True},
+        "assigned_admin_id": None,
+    }
+    if not include_closed:
+        q["status"] = {"$ne": UserStatus.CLOSED.value}
+    cursor = coll.find(q, {"_id": 1})
+    return [doc["_id"] async for doc in cursor]
+
+
 async def count_admin_pool_clients(admin_id: PydanticObjectId) -> int:
     """Trading-client count for an ADMIN-role sub-admin's pool — identical
     to ``len(await scoped_user_ids(that_admin))``.

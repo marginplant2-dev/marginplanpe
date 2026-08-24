@@ -21,6 +21,7 @@ from app.core.dependencies import (
     assert_user_in_scope,
     require_perm,
     scoped_user_ids,
+    super_admin_direct_user_ids,
 )
 from app.core.redis_client import publish
 from app.models._base import OrderAction, OrderType
@@ -29,7 +30,7 @@ from app.models.holding import Holding
 from app.models.order import Order, order_reason_code
 from app.models.position import Position, PositionStatus
 from app.models.trade import Trade
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.common import APIResponse
 from app.services import market_data_service, order_service, position_service
 from app.services.audit_service import log_event
@@ -643,6 +644,7 @@ async def list_positions(
     product: str | None = None,
     from_date: str | None = Query(default=None, description="IST YYYY-MM-DD; CLOSED tab lower bound (closed_at)"),
     to_date: str | None = Query(default=None, description="IST YYYY-MM-DD; CLOSED tab upper bound (closed_at)"),
+    own_scope: bool = Query(default=False, description="SUPER_ADMIN only: restrict to the super-admin's OWN direct users (no admin's clients)"),
     page: int | None = Query(default=None, ge=1),
     page_size: int = Query(default=25, ge=1, le=200),
     _: None = Depends(require_perm("trading_view", "read")),
@@ -679,7 +681,12 @@ async def list_positions(
         await assert_user_in_scope(admin, user_id)
         qfilter["user_id"] = PydanticObjectId(user_id)
     else:
-        scope = await scoped_user_ids(admin)
+        # own_scope (super-admin Positions page): the super-admin's OWN direct
+        # users only — never any sub-admin's clients.
+        if own_scope and admin.role == UserRole.SUPER_ADMIN:
+            scope = await super_admin_direct_user_ids()
+        else:
+            scope = await scoped_user_ids(admin)
         if scope is not None:
             if not scope:
                 return _empty()
@@ -1974,6 +1981,7 @@ _ADMIN_PNL_TTL = 2.0
 async def positions_pnl_summary(
     admin: CurrentAdmin,
     user_id: str | None = None,
+    own_scope: bool = Query(default=False, description="SUPER_ADMIN only: restrict to the super-admin's OWN direct users"),
     _: None = Depends(require_perm("trading_view", "read")),
 ):
     """Aggregate PnL windows for the admin dashboard cards.
@@ -1988,7 +1996,7 @@ async def positions_pnl_summary(
     filter is active so the tile matches the filtered table.
     """
     # Short-TTL cache hit — skip the heavy whole-book recompute.
-    _ck = f"{admin.id}:{user_id or ''}"
+    _ck = f"{admin.id}:{user_id or ''}:{'own' if own_scope else ''}"
     _hit = _ADMIN_PNL_CACHE.get(_ck)
     if _hit is not None and _hit[0] > _admin_pnl_time.monotonic():
         return APIResponse(data=_hit[1])
@@ -2046,7 +2054,13 @@ async def positions_pnl_summary(
         return raw * rate
 
     # Scope user pool for sub-admins. None for SUPER_ADMIN = no filter.
-    scope = await scoped_user_ids(admin)
+    # own_scope (super-admin Positions page): the super-admin's OWN direct
+    # users only — never any sub-admin's clients. A per-user drill-down
+    # (user_id) still takes precedence over own_scope below.
+    if own_scope and admin.role == UserRole.SUPER_ADMIN and not user_id:
+        scope = await super_admin_direct_user_ids()
+    else:
+        scope = await scoped_user_ids(admin)
 
     # Optional per-user narrowing — used by the admin Positions page when
     # a user filter is active so the dashboard cards match the table.
@@ -2296,6 +2310,10 @@ async def positions_pnl_summary(
 
     if user_filter_oid is not None:
         _acct_ids = [user_filter_oid]
+    elif own_scope and admin.role == UserRole.SUPER_ADMIN:
+        # Super-admin Positions page: own direct users only (same pool as the
+        # table above), so the Total-of-Both cards match that filtered book.
+        _acct_ids = await super_admin_direct_user_ids()
     else:
         _acct_ids = await _acct_pool(admin.id, admin.role.value)
     _wk_tot = await _client_totals(_acct_ids, week_start, None)

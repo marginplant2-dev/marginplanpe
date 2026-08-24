@@ -178,6 +178,11 @@ export default function AdminPositionsPage() {
 function AdminPositionsInner() {
   const qc = useQueryClient();
   const me = useAdminAuthStore((s) => s.admin);
+  // Super-admin's Positions page shows ONLY the super-admin's OWN direct users
+  // (never any sub-admin's clients) — table + Net-P&L cards both scoped via
+  // own_scope. No-op for regular admins/brokers (backend gates on role).
+  const isSuperAdmin = me?.role === "SUPER_ADMIN";
+  const ownScope = isSuperAdmin || undefined;
   const searchParams = useSearchParams();
   const queryUserId = searchParams?.get("user_id") ?? null;
   const [tab, setTab] = useState<"open" | "closed">("open");
@@ -231,7 +236,7 @@ function AdminPositionsInner() {
 
   const { data: openRows, isFetching: openLoading } = useQuery({
     queryKey: ["admin", "positions", "OPEN", queryUserId],
-    queryFn: () => TradingAPI.positions({ status: "OPEN", user_id: queryUserId || undefined }),
+    queryFn: () => TradingAPI.positions({ status: "OPEN", user_id: queryUserId || undefined, own_scope: ownScope }),
     refetchInterval: 5000,
   });
 
@@ -266,6 +271,7 @@ function AdminPositionsInner() {
             product: serverProduct,
             from_date: fromDate || undefined,
             to_date: toDate || undefined,
+            own_scope: ownScope,
           }),
     refetchInterval: tab === "closed" ? 30000 : false,
     enabled: tab === "closed",
@@ -367,7 +373,10 @@ function AdminPositionsInner() {
 
   const { data: pnl, isFetching: pnlFetching } = useQuery({
     queryKey: ["admin", "positions", "pnl-summary", queryUserId],
-    queryFn: () => TradingAPI.pnlSummary(queryUserId ? { user_id: queryUserId } : undefined),
+    queryFn: () =>
+      TradingAPI.pnlSummary(
+        queryUserId ? { user_id: queryUserId, own_scope: ownScope } : { own_scope: ownScope },
+      ),
     refetchInterval: 300000,       // 5 min — weekly P&L doesn't need 30s refresh
     staleTime: 290000,
     refetchOnWindowFocus: false,   // don't re-fetch on tab switch

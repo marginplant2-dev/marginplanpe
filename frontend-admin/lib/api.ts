@@ -393,7 +393,7 @@ export const TradingAPI = {
     id: string,
     params?: { from?: string; to?: string; page?: number; page_size?: number },
   ) => unwrap<any>(api.get(`/admin/positions/${id}/rate-history`, { params })),
-  pnlSummary: (params?: { user_id?: string }) =>
+  pnlSummary: (params?: { user_id?: string; own_scope?: boolean }) =>
     unwrap<any>(api.get("/admin/positions/pnl-summary", { params })),
   emergencySquareoffAll: () => unwrap<any>(api.post("/admin/positions/emergency-squareoff")),
   editPosition: (
