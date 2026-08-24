@@ -20,6 +20,7 @@ class BonusAction(StrEnum):
     COMPLETED_CONVERTED = "COMPLETED_CONVERTED"  # −credit, paired +WalletTransaction BONUS_CONVERTED
     CANCELLED_CLAWED = "CANCELLED_CLAWED"  # −remaining on admin cancel
     EXPIRED_CLAWED = "EXPIRED_CLAWED"  # −remaining on expiry (wager unmet)
+    STOPOUT_FORFEITED = "STOPOUT_FORFEITED"  # −remaining when a stop-out wipes the account
 
 
 class BonusTransaction(TimestampMixin):

@@ -357,6 +357,49 @@ async def expire(bonus: UserBonus) -> UserBonus:
     return bonus
 
 
+async def forfeit_on_stopout(user: Any, *, reason: str = "stop_out") -> Decimal:
+    """A stop-out wiped the account → claw back ALL remaining ACTIVE bonus
+    credit (operator policy: a promo bonus must not survive a stop-out; the
+    account blew up, the phantom credit goes with it). Zeros each active
+    bonus's `current_credit` → CONSUMED and drops the wallet's free `credit`
+    to 0. Idempotent: no active bonus / already-zero credit → returns 0.
+
+    Runs AFTER the stop-out has force-closed every position, so `bonus_locked`
+    has already been released back into `credit` by `release_margin` — this
+    then clears that residual free credit the absorb-loss overflow left behind.
+    """
+    uid = _uid(user)
+    # Guard: if any bonus is still LOCKED in an open position (bonus_locked>0),
+    # a position couldn't be closed this stop-out (e.g. its segment was shut).
+    # Forfeiting the free credit while locked bonus lingers would strand that
+    # locked amount (it re-credits on the eventual close with no active bonus
+    # behind it). Skip entirely until the book is flat — the next full stop-out
+    # / close will clear it cleanly.
+    _w = await Wallet.find_one(Wallet.user_id == uid)
+    if _w is not None and to_decimal(_w.bonus_locked) > 0:
+        return ZERO
+    bonuses = await UserBonus.find(
+        UserBonus.user_id == uid, UserBonus.status == UserBonusStatus.ACTIVE
+    ).to_list()
+    total = ZERO
+    for b in bonuses:
+        leftover = to_decimal(b.current_credit)
+        if leftover > 0:
+            await _write_bonus_tx(bonus=b, action=BonusAction.STOPOUT_FORFEITED, credit_delta=-leftover)
+            await _bump_wallet_credit(uid, -leftover)
+            b.current_credit = to_decimal128(ZERO)
+            total += leftover
+        b.status = UserBonusStatus.CONSUMED
+        await b.save()
+    if total > 0:
+        await log_event(
+            action=AuditAction.UPDATE, entity_type="Wallet", entity_id=uid,
+            target_user_id=uid,
+            metadata={"action": "stopout_bonus_forfeited", "amount": str(quantize_money(total)), "reason": reason},
+        )
+    return quantize_money(total)
+
+
 # ── deposit auto-grant + preview ─────────────────────────────────────
 async def maybe_auto_grant_on_deposit(
     user: User, deposit_amount: Any, *, deposit_id: PydanticObjectId, is_first: bool | None = None

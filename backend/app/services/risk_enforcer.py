@@ -925,6 +925,27 @@ async def _enforce_for_user(
             logger.exception(
                 "net_phantom_settlement_failed", extra={"user_id": user_id_str}
             )
+        # Forfeit any bonus the stop-out left behind. All positions are now
+        # closed → bonus_locked has been released back into `credit`, and the
+        # loss absorbed only the overflow past real cash, so a residual bonus
+        # can linger. Operator policy: a stop-out (account wipe) forfeits the
+        # whole remaining bonus — it must not survive. No-op when bonuses off.
+        try:
+            from app.core.config import settings as _bonus_settings
+
+            if _bonus_settings.BONUSES_ENABLED:
+                from app.services import bonus_service as _bonus_svc
+
+                _forfeited = await _bonus_svc.forfeit_on_stopout(user, reason=_so_reason)
+                if _forfeited > 0:
+                    logger.info(
+                        "stopout_bonus_forfeited",
+                        extra={"user_id": user_id_str, "amount": float(_forfeited)},
+                    )
+        except Exception:  # bonus forfeit must never block / fail the stop-out
+            logger.exception(
+                "stopout_bonus_forfeit_failed", extra={"user_id": user_id_str}
+            )
         _warning_armed[user_id_str] = True
         return
 
