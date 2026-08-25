@@ -122,6 +122,11 @@ CHANNEL_COMMON = "common"  # forex / metals / energy / indices / futures
 # S&P 500 = US500, DAX = GER40.) Subscribe the Infoway names via
 # INFOWAY_DEFAULT_INDICES; they get stored/displayed under the mapped name.
 _INBOUND_ALIAS: dict[str, str] = {"US500": "SPX500", "GER40": "DE40"}
+# Outbound (subscribe wire) alias — the inverse. We keep SPX500 / DE40 as the
+# canonical instrument + watchlist names, but ASK Infoway using its own codes
+# (US500 / GER40). Ticks then come back under those and _INBOUND_ALIAS maps them
+# home. Keeps a single canonical instrument per index (no stray US500 / GER40).
+_OUTBOUND_ALIAS: dict[str, str] = {v: k for k, v in _INBOUND_ALIAS.items()}
 
 
 # Crypto bases we list as USD pairs (BTCUSD, ETHUSD…). Used both to map them
@@ -383,10 +388,11 @@ class _Channel:
     async def _send_subscribe(self, codes: list[str]) -> None:
         if self._ws is None:
             return
+        wire = [_OUTBOUND_ALIAS.get(c, c) for c in codes]
         payload = {
             "code": CMD_SUBSCRIBE,
             "trace": uuid.uuid4().hex,
-            "data": {"codes": ",".join(codes), "includeTy": False},
+            "data": {"codes": ",".join(wire), "includeTy": False},
         }
         try:
             await self._ws.send(json.dumps(payload))
@@ -404,10 +410,11 @@ class _Channel:
     async def _send_unsubscribe(self, codes: list[str]) -> None:
         if self._ws is None:
             return
+        wire = [_OUTBOUND_ALIAS.get(c, c) for c in codes]
         payload = {
             "code": CMD_UNSUBSCRIBE,
             "trace": uuid.uuid4().hex,
-            "data": {"codes": ",".join(codes)},
+            "data": {"codes": ",".join(wire)},
         }
         try:
             await self._ws.send(json.dumps(payload))
