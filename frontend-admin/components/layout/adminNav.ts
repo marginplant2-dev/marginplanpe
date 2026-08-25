@@ -72,6 +72,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     title: "Users",
     items: [
       { href: "/users", label: "All users", icon: Users, perm: "users" },
+      { href: "/send-notification", label: "Send Notification", icon: MessageCircle, perm: "users" },
     ],
   },
   {

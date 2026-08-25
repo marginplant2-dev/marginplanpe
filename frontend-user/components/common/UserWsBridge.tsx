@@ -224,6 +224,27 @@ export function UserWsBridge() {
             }
             break;
           }
+          case "notification": {
+            // Admin broadcast — a one-off message (optionally with a link)
+            // pushed to every user in the sender's pool. Refresh the bell /
+            // notifications list and pop a toast + ping so it lands live.
+            qc.invalidateQueries({ queryKey: ["notifications"] });
+            qc.invalidateQueries({ queryKey: ["notifications", "unread-count"] });
+            {
+              const p = (msg as any).payload || {};
+              const title = p.title || "Notification";
+              const lvl = String(p.level || "INFO").toUpperCase();
+              if (userNotificationsEnabled()) {
+                const opts = { description: p.message, duration: 8000 } as const;
+                if (lvl === "DANGER") toast.error(title, opts);
+                else if (lvl === "WARNING") toast.warning(title, opts);
+                else if (lvl === "SUCCESS") toast.success(title, opts);
+                else toast(title, opts);
+                playNotifyPing();
+              }
+            }
+            break;
+          }
           case "marketwatch":
             // Cross-tab / cross-device sync: when this user adds /
             // removes an instrument on web, the apk (or another web

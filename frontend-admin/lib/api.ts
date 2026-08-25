@@ -586,6 +586,12 @@ export const NotificationsAPI = {
     unwrap<any>(api.post(`/admin/notifications/${id}/read`)),
   markAllRead: () =>
     unwrap<{ marked: number }>(api.post("/admin/notifications/mark-all-read")),
+  // Broadcast — push a notification (title + message + optional link) to every
+  // user in the actor's own pool at once.
+  broadcastRecipients: () =>
+    unwrap<{ count: number }>(api.get("/admin/notifications/broadcast/recipients")),
+  broadcast: (body: { title: string; message: string; link?: string; level?: string }) =>
+    unwrap<{ count: number }>(api.post("/admin/notifications/broadcast", body)),
 };
 
 export type CryptoConfig = {

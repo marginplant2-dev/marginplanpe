@@ -9,15 +9,26 @@ needed beyond the standard `CurrentAdmin` dependency.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from beanie import PydanticObjectId
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
-from app.core.dependencies import CurrentAdmin
-from app.models.notification import AdminNotification
+from app.core.dependencies import CurrentAdmin, require_perm, scoped_user_ids
+from app.models.audit_log import AuditAction
+from app.models.notification import (
+    AdminNotification,
+    Notification,
+    NotificationLevel,
+    NotificationType,
+)
 from app.schemas.common import APIResponse
+from app.services.audit_service import log_event
 from app.utils.time_utils import now_utc
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/notifications", tags=["admin-notifications"])
 
@@ -101,3 +112,94 @@ async def mark_all_read(admin: CurrentAdmin):
         {"$set": {"is_read": True, "read_at": now_utc()}},
     )
     return APIResponse(data={"marked": int(res.modified_count)})
+
+
+# ── Broadcast: admin → all their own users ───────────────────────────
+# A composer in the admin panel lets any admin/broker push a one-off
+# notification (title + message + optional link) to EVERY user in their
+# own pool at once. Scoped via `scoped_user_ids` so a broker only reaches
+# their subtree and an admin only their clients; super-admin reaches all.
+class BroadcastBody(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    message: str = Field(min_length=1, max_length=1000)
+    link: str | None = Field(default=None, max_length=500)
+    level: NotificationLevel = NotificationLevel.INFO
+
+
+@router.get("/broadcast/recipients", response_model=APIResponse[dict])
+async def broadcast_recipient_count(
+    admin: CurrentAdmin,
+    _: None = Depends(require_perm("users", "read")),
+):
+    """How many users the current actor's broadcast would reach — shown in
+    the composer so the admin knows the blast radius before sending."""
+    ids = await scoped_user_ids(admin)
+    return APIResponse(data={"count": len(ids)})
+
+
+@router.post("/broadcast", response_model=APIResponse[dict])
+async def broadcast_notification(
+    body: BroadcastBody,
+    admin: CurrentAdmin,
+    _: None = Depends(require_perm("users", "read")),
+):
+    """Insert one SYSTEM notification per user in the actor's pool + push a
+    live `notification` WS event to each so it lands in-app instantly (falls
+    back to the user's next fetch if the socket is closed)."""
+    title = body.title.strip()
+    message = body.message.strip()
+    if not title or not message:
+        raise HTTPException(status_code=400, detail="Title and message are required")
+    link = (body.link or "").strip() or None
+
+    recipients = await scoped_user_ids(admin)
+    if not recipients:
+        return APIResponse(data={"count": 0})
+
+    data: dict[str, Any] = {"source": "admin_broadcast", "sender_id": str(admin.id)}
+    if link:
+        data["link"] = link
+
+    docs = [
+        Notification(
+            user_id=uid,
+            type=NotificationType.SYSTEM,
+            level=body.level,
+            title=title,
+            message=message,
+            data=data,
+        )
+        for uid in recipients
+    ]
+    await Notification.insert_many(docs)
+
+    # Live push — best-effort; the DB rows above are the source of truth.
+    try:
+        from app.core.redis_client import publish_batch
+
+        payload = {
+            "type": "notification",
+            "payload": {
+                "title": title,
+                "message": message,
+                "link": link,
+                "level": body.level.value,
+            },
+        }
+        await publish_batch(
+            [(f"user:{uid}:notification", payload) for uid in recipients]
+        )
+    except Exception:
+        logger.exception("broadcast_ws_push_failed admin=%s", admin.id)
+
+    try:
+        await log_event(
+            action=AuditAction.CREATE,
+            entity_type="Notification",
+            actor_id=admin.id,
+            metadata={"action": "broadcast", "count": len(recipients), "title": title, "has_link": bool(link)},
+        )
+    except Exception:
+        logger.exception("broadcast_audit_failed")
+
+    return APIResponse(data={"count": len(recipients)})

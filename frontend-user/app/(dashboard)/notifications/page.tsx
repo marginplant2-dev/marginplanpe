@@ -57,6 +57,16 @@ export default function NotificationsPage() {
                     {!n.is_read && <span className="size-1.5 rounded-full bg-primary" />}
                   </div>
                   <div className="text-sm text-muted-foreground">{n.message}</div>
+                  {n.data?.link && (
+                    <a
+                      href={n.data.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                    >
+                      Open link ↗
+                    </a>
+                  )}
                   <div className="text-xs text-muted-foreground">{new Date(n.created_at).toLocaleString()}</div>
                 </div>
                 {!n.is_read && (
