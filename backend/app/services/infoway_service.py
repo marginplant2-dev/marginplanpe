@@ -477,9 +477,19 @@ class InfowayService:
         # routes a symbol to `stock` while `_stock_codes()` is empty, so the
         # dormant channel receives no subscriptions.
         stock_on = bool(_stock_codes())
+        # Skip the `crypto` channel when Binance already supplies crypto
+        # (BINANCE_CRYPTO_FEED=true). Each Infoway key allows only ~2 concurrent
+        # WS, so a redundant crypto channel permanently starves `common` +
+        # `stock` (429 thrashing). Binance is the crypto source in that case, so
+        # dropping Infoway's crypto slot lets common (metals/forex/indices) and
+        # stock both stay up on one key.
+        crypto_on = not bool(getattr(settings, "BINANCE_CRYPTO_FEED", False))
         for name, ch in self._channels.items():
             if name == CHANNEL_STOCK and not stock_on:
                 logger.info("infoway_stock_channel_skipped: INFOWAY_DEFAULT_STOCKS empty")
+                continue
+            if name == CHANNEL_CRYPTO and not crypto_on:
+                logger.info("infoway_crypto_channel_skipped: BINANCE_CRYPTO_FEED serves crypto")
                 continue
             await ch.start()
             await asyncio.sleep(3)
