@@ -116,6 +116,14 @@ CHANNEL_STOCK = "stock"  # US / HK / A-share equities
 CHANNEL_COMMON = "common"  # forex / metals / energy / indices / futures
 
 
+# Inbound symbol aliases: Infoway feeds a few indices under a different code
+# than our canonical platform name. Remap the incoming tick `s` so it lands on
+# the symbol the watchlist/instruments use. (Same names the MetaAPI broker uses:
+# S&P 500 = US500, DAX = GER40.) Subscribe the Infoway names via
+# INFOWAY_DEFAULT_INDICES; they get stored/displayed under the mapped name.
+_INBOUND_ALIAS: dict[str, str] = {"US500": "SPX500", "GER40": "DE40"}
+
+
 # Crypto bases we list as USD pairs (BTCUSD, ETHUSD…). Used both to map them
 # onto Infoway's USDT feed symbols and to classify them as crypto (NOT forex)
 # — a plain `BTCUSD` code must never fall through to the FOREX bucket.
@@ -550,6 +558,7 @@ class InfowayService:
         sym = (data.get("s") or "").upper()
         if not sym:
             return
+        sym = _INBOUND_ALIAS.get(sym, sym)
 
         # Infoway depth shape:
         #   a: [[ask_prices...], [ask_volumes...]]
