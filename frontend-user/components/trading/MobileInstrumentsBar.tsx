@@ -413,7 +413,11 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
         instrument_type: s.instrument_type ?? null,
         bid: livePrice(live?.bid) ?? livePrice(s.bid),
         ask: livePrice(live?.ask) ?? livePrice(s.ask),
-        ltp: livePrice(live?.ltp) ?? livePrice(s.ltp),
+        ltp:
+          livePrice(live?.ltp) ??
+          livePrice(s.ltp) ??
+          livePrice(live?.last_ltp) ??
+          livePrice(s.last_ltp),
         change_pct: live?.change_pct ?? s.change_pct ?? null,
       };
     };
@@ -431,7 +435,11 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
           ...q,
           bid: livePrice(live?.bid) ?? livePrice(q.bid),
           ask: livePrice(live?.ask) ?? livePrice(q.ask),
-          ltp: livePrice(live?.ltp) ?? livePrice(q.ltp),
+          ltp:
+            livePrice(live?.ltp) ??
+            livePrice(q.ltp) ??
+            livePrice(live?.last_ltp) ??
+            livePrice(q.last_ltp),
           change_pct: live?.change_pct ?? q.change_pct ?? null,
         };
       });
@@ -582,7 +590,17 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
               const liveOverlay = quoteByToken.get(token);
               const bid = livePrice(q.bid) ?? livePrice(liveOverlay?.bid);
               const ask = livePrice(q.ask) ?? livePrice(liveOverlay?.ask);
-              const ltp = livePrice(q.ltp) ?? livePrice(liveOverlay?.ltp);
+              // Display chain, in order of truthfulness: live tick → REST
+              // snapshot → the backend's persisted `last_ltp` (7-day Redis
+              // `mdlast`, DISPLAY-ONLY by design — the matching engine reads
+              // `ltp` which stays 0, so a stale price can never fill an
+              // order). This is what keeps a REAL price on screen instead of
+              // "0.00" or "—" during a cold start / market-closed feed gap.
+              const ltp =
+                livePrice(q.ltp) ??
+                livePrice(liveOverlay?.ltp) ??
+                livePrice(q.last_ltp) ??
+                livePrice(liveOverlay?.last_ltp);
               const changePct = q.change_pct ?? liveOverlay?.change_pct ?? null;
               const inSearchMode = debouncedSearch.trim().length > 0;
               const alreadyAdded = managedSegmentName ? addedTokenSet.has(token) : false;
