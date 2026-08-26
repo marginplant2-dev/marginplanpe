@@ -411,9 +411,9 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
         segment: s.segment ?? s.instrument_type,
         expiry: s.expiry ?? null,
         instrument_type: s.instrument_type ?? null,
-        bid: livePrice(live?.bid) ?? s.bid,
-        ask: livePrice(live?.ask) ?? s.ask,
-        ltp: livePrice(live?.ltp) ?? s.ltp,
+        bid: livePrice(live?.bid) ?? livePrice(s.bid),
+        ask: livePrice(live?.ask) ?? livePrice(s.ask),
+        ltp: livePrice(live?.ltp) ?? livePrice(s.ltp),
         change_pct: live?.change_pct ?? s.change_pct ?? null,
       };
     };
@@ -429,9 +429,9 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
         const live = quoteByToken.get(tok);
         return {
           ...q,
-          bid: livePrice(live?.bid) ?? q.bid ?? null,
-          ask: livePrice(live?.ask) ?? q.ask ?? null,
-          ltp: livePrice(live?.ltp) ?? q.ltp ?? null,
+          bid: livePrice(live?.bid) ?? livePrice(q.bid),
+          ask: livePrice(live?.ask) ?? livePrice(q.ask),
+          ltp: livePrice(live?.ltp) ?? livePrice(q.ltp),
           change_pct: live?.change_pct ?? q.change_pct ?? null,
         };
       });
@@ -580,9 +580,9 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
               const isActive = token === String(activeToken);
               const starred = isFav(token);
               const liveOverlay = quoteByToken.get(token);
-              const bid = q.bid ?? livePrice(liveOverlay?.bid);
-              const ask = q.ask ?? livePrice(liveOverlay?.ask);
-              const ltp = q.ltp ?? livePrice(liveOverlay?.ltp);
+              const bid = livePrice(q.bid) ?? livePrice(liveOverlay?.bid);
+              const ask = livePrice(q.ask) ?? livePrice(liveOverlay?.ask);
+              const ltp = livePrice(q.ltp) ?? livePrice(liveOverlay?.ltp);
               const changePct = q.change_pct ?? liveOverlay?.change_pct ?? null;
               const inSearchMode = debouncedSearch.trim().length > 0;
               const alreadyAdded = managedSegmentName ? addedTokenSet.has(token) : false;

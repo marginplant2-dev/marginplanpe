@@ -49,8 +49,32 @@ const HEARTBEAT_MS = 15_000;
 // reconnect instead of trusting it.
 const STALE_TIMEOUT_MS = 35_000;
 
+/**
+ * MODULE-LEVEL last-known-good quote cache, shared by every hook instance for
+ * the lifetime of the tab.
+ *
+ * The per-instance sticky map below only survives while ONE component stays
+ * mounted. Navigating (Positions -> Market) unmounts the consumer, tears the
+ * WS down and mounts a brand-new hook whose state starts EMPTY — so the first
+ * frame after every navigation had no price at all, and the backend's
+ * zero-valued `_empty_quote` skeleton (sent for a freshly re-subscribed token
+ * before the real Zerodha/Infoway overlay lands on the next tick) was the only
+ * thing on screen for ~1 s. That is the "market page par 1 second ke liye 0
+ * dikhta hai" report.
+ *
+ * Hoisting the cache to module scope makes the last real price survive across
+ * unmounts, so a remount paints the previous price on the FIRST frame and the
+ * WS simply refreshes it. Bounded by the number of tokens the user actually
+ * looks at in a session, and never persisted — a reload starts clean.
+ */
+const lastKnownQuotes = new Map<string, MarketQuote>();
+
 export function useMarketStream(tokens: string[]): Map<string, MarketQuote> {
-  const [quotes, setQuotes] = useState<Map<string, MarketQuote>>(new Map());
+  // Seed from the cross-mount cache so a navigation never shows a blank /
+  // zero price for tokens we already have a real price for.
+  const [quotes, setQuotes] = useState<Map<string, MarketQuote>>(
+    () => new Map(lastKnownQuotes),
+  );
   const wsRef = useRef<WebSocket | null>(null);
   const subscribedRef = useRef<Set<string>>(new Set());
   // Last requested-list length we saw, so we only toast on the EDGE —
@@ -114,7 +138,9 @@ export function useMarketStream(tokens: string[]): Map<string, MarketQuote> {
     // jata hai, PnL 2000 se 5000 ho jata hai". Sticky preservation
     // makes the display continuous — the LAST KNOWN good bid/ask
     // stays until a new non-zero value arrives.
-    const sticky = new Map<string, MarketQuote>();
+    // Seeded from (and written through to) the module-level cache so ticks
+    // received before a navigation keep protecting the display after it.
+    const sticky = lastKnownQuotes;
     const dirty = new Set<string>();
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -275,7 +301,8 @@ export function useMarketStream(tokens: string[]): Map<string, MarketQuote> {
       stopHeartbeat();
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", onOnline);
-      sticky.clear();
+      // `sticky` is the module-level cache now — deliberately NOT cleared, so
+      // the next mount can paint the last real price immediately.
       dirty.clear();
       wsRef.current?.close();
     };
