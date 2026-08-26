@@ -28,6 +28,27 @@ interface Props {
   ) => void;
 }
 
+/** A freshly (re)subscribed token's very first tick/snapshot can legitimately
+ *  be the backend's zero-valued skeleton (`_empty_quote` in
+ *  market_data_service.py) — sent before the real Zerodha/Infoway overlay
+ *  fills in, which happens on the NEXT tick cycle (up to a few seconds for a
+ *  cold/rarely-viewed symbol). `useMarketStream`'s own sticky-merge already
+ *  guards against this WITHIN one hook lifetime, but every page navigation
+ *  tears down the old WS + its sticky cache and mounts a brand new one, so
+ *  the first live overlay after a remount has no `prev` to fall back to.
+ *  Using `??` to merge that overlay onto the REST-cached price is therefore
+ *  wrong — `0 ?? cached` evaluates to `0`, clobbering a perfectly good
+ *  cached price with the placeholder zero for that brief window. Treating
+ *  non-positive/non-finite as "no live data yet" (same semantics as
+ *  `isPositive` in useMarketStream) keeps the cached price on screen until
+ *  a REAL tick arrives — this is the fix for "market page/app reopen par
+ *  price 2-3 sec ke liye 0 dikhta hai" (root cause: 0 is a valid exchange
+ *  price to `??` but not a valid price for FX/equity/commodity symbols). */
+function livePrice(v: number | null | undefined): number | null {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 const _EXPIRY_MONTHS = [
   "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
   "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
@@ -388,15 +409,12 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
         symbol: s.symbol,
         exchange: s.exchange,
         segment: s.segment ?? s.instrument_type,
-        // Expiry rides along on EVERY list (search hits, browse buckets,
-        // segment chips and favourites) so a trader always sees WHICH
-        // contract month a row is — it used to show only while searching.
         expiry: s.expiry ?? null,
         instrument_type: s.instrument_type ?? null,
-        bid: live?.bid ?? null,
-        ask: live?.ask ?? null,
-        ltp: live?.ltp ?? null,
-        change_pct: live?.change_pct ?? null,
+        bid: livePrice(live?.bid) ?? s.bid,
+        ask: livePrice(live?.ask) ?? s.ask,
+        ltp: livePrice(live?.ltp) ?? s.ltp,
+        change_pct: live?.change_pct ?? s.change_pct ?? null,
       };
     };
     // ── Favorites (watchlist) ──────────────────────────────────────────
@@ -411,9 +429,9 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
         const live = quoteByToken.get(tok);
         return {
           ...q,
-          bid: live?.bid ?? q.bid ?? null,
-          ask: live?.ask ?? q.ask ?? null,
-          ltp: live?.ltp ?? q.ltp ?? null,
+          bid: livePrice(live?.bid) ?? q.bid ?? null,
+          ask: livePrice(live?.ask) ?? q.ask ?? null,
+          ltp: livePrice(live?.ltp) ?? q.ltp ?? null,
           change_pct: live?.change_pct ?? q.change_pct ?? null,
         };
       });
@@ -562,9 +580,9 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
               const isActive = token === String(activeToken);
               const starred = isFav(token);
               const liveOverlay = quoteByToken.get(token);
-              const bid = q.bid ?? liveOverlay?.bid ?? null;
-              const ask = q.ask ?? liveOverlay?.ask ?? null;
-              const ltp = q.ltp ?? liveOverlay?.ltp ?? null;
+              const bid = q.bid ?? livePrice(liveOverlay?.bid);
+              const ask = q.ask ?? livePrice(liveOverlay?.ask);
+              const ltp = q.ltp ?? livePrice(liveOverlay?.ltp);
               const changePct = q.change_pct ?? liveOverlay?.change_pct ?? null;
               const inSearchMode = debouncedSearch.trim().length > 0;
               const alreadyAdded = managedSegmentName ? addedTokenSet.has(token) : false;
