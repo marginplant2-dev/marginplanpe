@@ -32,7 +32,7 @@
  * regression ships. NEVER reuse an old version string.
  */
 
-const VERSION = "marginplant-pwa-v7";
+const VERSION = "marginplant-pwa-v8";
 // How long a navigation waits for the network before it paints the last
 // cached shell instead. Short enough to feel instant on weak networks,
 // long enough that a healthy connection almost always wins the race and
@@ -263,13 +263,16 @@ self.addEventListener("message", (event) => {
   if (data.type === "notify") {
     const title = String(data.title || "MarginPlant");
     const body = String(data.body || "");
-    const tag = data.tag || undefined;
+    // renotify:true REQUIRES a non-empty tag — passing renotify with an
+    // empty/undefined tag makes showNotification throw a TypeError and the
+    // notification silently never shows. Always give it a tag.
+    const tag = data.tag || `mp-${Date.now()}`;
     const url = data.url || "/";
     event.waitUntil(
       self.registration.showNotification(title, {
         body,
-        icon: "/icon.svg",
-        badge: "/icon.svg",
+        icon: "/icons/icon-192.png",
+        badge: "/icons/icon-192.png",
         tag,
         renotify: true,
         data: { url },
@@ -291,12 +294,17 @@ self.addEventListener("push", (event) => {
       if (text) payload.body = String(text);
     } catch {}
   }
+  // renotify:true REQUIRES a non-empty tag — otherwise showNotification
+  // throws a TypeError and the tray notification silently never appears
+  // (this was why server pushes returned 201 but nothing showed on the
+  // device). Fall back to a unique per-message tag when the payload has none.
+  const tag = payload.tag || `mp-${Date.now()}`;
   event.waitUntil(
-    self.registration.showNotification(payload.title, {
-      body: payload.body,
+    self.registration.showNotification(payload.title || "MarginPlant", {
+      body: payload.body || "",
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",
-      tag: payload.tag,
+      tag,
       renotify: true,
       data: { url: payload.url || "/" },
     })

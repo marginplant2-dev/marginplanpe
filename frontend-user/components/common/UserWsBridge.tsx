@@ -8,6 +8,7 @@ import { STORAGE_KEYS, WS_URL } from "@/lib/constants";
 import {
   ensureNotificationPermission,
   playNotifyPing,
+  primeVoiceOnFirstGesture,
   showNativeNotification,
   speakNotification,
   subscribeForWebPush,
@@ -100,6 +101,10 @@ export function UserWsBridge() {
       const ok = await ensureNotificationPermission();
       if (ok) await subscribeForWebPush();
     })();
+    // Unlock the Web Speech API on the user's first tap/click so the voice
+    // announcement in the `notification` case below can actually play —
+    // mobile browsers block speech until a real user gesture happens.
+    const detachVoicePrime = primeVoiceOnFirstGesture();
 
     let stopped = false;
     let ws: WebSocket | null = null;
@@ -311,6 +316,7 @@ export function UserWsBridge() {
       stopped = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       document.removeEventListener("visibilitychange", onVisible);
+      if (typeof detachVoicePrime === "function") detachVoicePrime();
       ws?.close();
     };
   }, [qc, user?.id]);

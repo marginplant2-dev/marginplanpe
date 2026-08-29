@@ -183,6 +183,47 @@ export function playNotifyPing(): void {
  * Some browsers gate speech behind a prior user gesture — in that case it
  * silently fails and the toast/ping still carry the message.
  */
+/**
+ * Browsers (especially mobile Chrome/Safari) block speechSynthesis until
+ * the user has interacted with the page at least once. We "unlock" it by
+ * speaking a near-silent empty utterance from within a real user gesture
+ * (tap/click/keydown). After this runs once, later programmatic
+ * `speakNotification()` calls work while the tab is in the foreground.
+ * Also warms up getVoices() which loads asynchronously on some browsers.
+ * Idempotent + self-detaching. */
+let _speechPrimed = false;
+export function primeVoiceOnFirstGesture(): (() => void) | void {
+  if (typeof window === "undefined") return;
+  const synth = (window as unknown as { speechSynthesis?: SpeechSynthesis })
+    .speechSynthesis;
+  if (!synth || typeof SpeechSynthesisUtterance === "undefined") return;
+  const unlock = () => {
+    if (_speechPrimed) return;
+    try {
+      synth.resume();
+      const u = new SpeechSynthesisUtterance("");
+      u.volume = 0;
+      synth.speak(u);
+      // Kick voices to load (Chrome returns [] until this or the
+      // voiceschanged event fires).
+      synth.getVoices();
+      _speechPrimed = true;
+    } catch {
+      // best-effort
+    }
+    detach();
+  };
+  const detach = () => {
+    window.removeEventListener("pointerdown", unlock);
+    window.removeEventListener("keydown", unlock);
+    window.removeEventListener("touchstart", unlock);
+  };
+  window.addEventListener("pointerdown", unlock, { once: false });
+  window.addEventListener("keydown", unlock, { once: false });
+  window.addEventListener("touchstart", unlock, { once: false });
+  return detach;
+}
+
 export function speakNotification(text: string): void {
   if (typeof window === "undefined") return;
   const synth = (window as unknown as { speechSynthesis?: SpeechSynthesis })
