@@ -172,6 +172,42 @@ export function playNotifyPing(): void {
   }
 }
 
+/**
+ * Speak a notification out loud via the browser's Speech Synthesis so an
+ * admin broadcast lands like a "real" push — a voice announcement on top
+ * of the toast + ping + tray popup. Best-effort:
+ *   • no-ops when the API is missing or notifications are toggled off,
+ *   • cancels any queued utterance so back-to-back broadcasts don't pile
+ *     up into a long unstoppable monologue,
+ *   • prefers an English voice when one is installed.
+ * Some browsers gate speech behind a prior user gesture — in that case it
+ * silently fails and the toast/ping still carry the message.
+ */
+export function speakNotification(text: string): void {
+  if (typeof window === "undefined") return;
+  const synth = (window as unknown as { speechSynthesis?: SpeechSynthesis })
+    .speechSynthesis;
+  if (!synth || typeof SpeechSynthesisUtterance === "undefined") return;
+  const clean = String(text || "").trim();
+  if (!clean) return;
+  try {
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(clean);
+    u.lang = "en-IN";
+    u.rate = 1;
+    u.pitch = 1;
+    u.volume = 1;
+    try {
+      const voices = synth.getVoices();
+      const en = voices.find((v) => /^en[-_]/i.test(v.lang));
+      if (en) u.voice = en;
+    } catch {}
+    synth.speak(u);
+  } catch {
+    // speech is best-effort
+  }
+}
+
 /** Read the persisted notification toggle (default ON). Mirror of the
  *  admin app's flag — keeps the user app silent if they flipped the
  *  switch in their profile. */

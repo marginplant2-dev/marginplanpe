@@ -192,6 +192,22 @@ async def broadcast_notification(
     except Exception:
         logger.exception("broadcast_ws_push_failed admin=%s", admin.id)
 
+    # Web Push — wakes the phone/tray even when the PWA is force-stopped or
+    # the socket above is closed. Best-effort; no-ops when VAPID is
+    # unconfigured. Single bulk subscription query for the whole pool.
+    try:
+        from app.services import push_service
+
+        await push_service.send_to_users(
+            recipients,
+            title=title,
+            body=message,
+            url=link or "/notifications",
+            tag=f"mp-broadcast-{admin.id}",
+        )
+    except Exception:
+        logger.exception("broadcast_webpush_failed admin=%s", admin.id)
+
     try:
         await log_event(
             action=AuditAction.CREATE,

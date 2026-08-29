@@ -370,18 +370,19 @@ async def compute_broker_totals(
     # Broker view
     broker_view_pnl = -net_client_pnl
     total_of_both = broker_view_pnl + net_client_bkg
-    # Actual P&L = broker take MINUS settlement. Operator-requested
-    # change: previously settlement was informational only, but admins
-    # were doing the subtraction by hand in every review session — bake
-    # it into the headline number so the card reflects the real broker
-    # economics for the window. total_of_both is still emitted so the
-    # composition tile shows the pre-settlement figure for reference.
-    actual_pnl = total_of_both - settlement
+    # Actual P&L = broker take (Total of Both), settlement NOT subtracted.
+    # Operator-requested revert: settlement is shown as its own tile (in red
+    # when it's a loss for the broker) rather than being baked into the
+    # headline number — admins want the raw broker economics here and read
+    # settlement separately. `settlement` is still emitted below so the UI
+    # can render the standalone (red-on-loss) tile.
+    actual_pnl = total_of_both
 
     # ── Broker / sub-broker sharing ──────────────────────────────────
     # Default (no formal agreement): the broker's own create/edit-form %s,
     # shown as TWO independent figures —
-    #   Sharing PnL = (Total of Both − Settlement) × PnL %   (headline take)
+    #   Sharing PnL = Total of Both × PnL %   (headline take, settlement not
+    #                                          subtracted — matches actual_pnl)
     #   Sharing BKG = client brokerage × Brokerage %
     # (Brokerage also sits inside actual_pnl; these are display tiles, not a
     # single summed payout.) A formal ACTIVE/PAUSED PnlSharingAgreement, when
@@ -935,8 +936,8 @@ def render_broker_totals_pdf(
         ["NET CLIENT PNL", _money_fmt(totals["net_client_pnl"])],
         ["NET CLIENT BKG", _money_fmt(totals["net_client_bkg"])],
         ["TOTAL OF BOTH", _money_fmt(totals["total_of_both"])],
-        ["− SETTLEMENT", _money_fmt(totals["settlement"])],
-        ["= ACTUAL PNL", _money_fmt(totals["actual_pnl"])],
+        ["ACTUAL PNL", _money_fmt(totals["actual_pnl"])],
+        ["SETTLEMENT (loss to broker)", _money_fmt(totals["settlement"])],
         ["SHARING PNL", _money_fmt(totals["sharing_pnl"])],
         ["SHARING BKG", _money_fmt(totals["sharing_bkg"])],
         ["TOTAL DEPOSITS", _money_fmt(totals["total_deposits"])],

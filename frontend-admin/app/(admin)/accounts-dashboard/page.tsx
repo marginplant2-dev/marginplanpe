@@ -604,14 +604,15 @@ function BrokerTotalsCard({
             {fmt(data.actual_pnl)}
           </div>
           <div className="mt-0.5 text-[10px] text-muted-foreground">
-            = (−Net Client PNL) + Net Client BKG − Settlement
+            = (−Net Client PNL) + Net Client BKG
           </div>
           <div className="mt-1 font-mono text-[10px] tabular-nums text-muted-foreground/80">
             {/* Use the broker-view PNL (= −net_client_pnl) so the math on this
                 line actually equals the displayed Actual P&L. Falling back to
                 net_client_pnl if an older backend doesn't yet emit the
-                broker_view_pnl field. */}
-            {fmtAbs((data as any).broker_view_pnl ?? data.net_client_pnl)} + {fmtAbs(data.net_client_bkg)} − {fmtAbs(data.settlement)} ={" "}
+                broker_view_pnl field. Settlement is NO LONGER subtracted here
+                (operator request) — it's shown as its own red-on-loss tile. */}
+            {fmtAbs((data as any).broker_view_pnl ?? data.net_client_pnl)} + {fmtAbs(data.net_client_bkg)} ={" "}
             <span className={cn("font-semibold", color(data.actual_pnl))}>{fmt(data.actual_pnl)}</span>
           </div>
         </div>
@@ -635,11 +636,15 @@ function BrokerTotalsCard({
             LOSS (negative) → green. Negate before `color` to flip it. Matches
             the Positions page Total-of-Both cards. */}
         <KpiTile label="Total of Both" value={fmt(data.total_of_both)} valueClass={color(String(-Number(data.total_of_both)))} hint="PNL + BKG" />
+        {/* Settlement is an outflow the broker settles to clients — a LOSS to
+            the broker. Operator request: show it in red when it's a loss
+            (positive settlement = broker pays out). Inverted tint like
+            "Total of Both": positive → red, negative (recovery) → green. */}
         <KpiTile
           label="Settlement"
           value={fmt(data.settlement)}
-          valueClass={color(data.settlement)}
-          hint="Booked − Recovered in window (lifetime snapshot if no filter)"
+          valueClass={color(String(-Number(data.settlement)))}
+          hint="Booked − Recovered in window (lifetime snapshot if no filter). Red = loss to broker."
         />
       </div>
 

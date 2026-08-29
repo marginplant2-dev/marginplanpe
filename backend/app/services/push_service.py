@@ -216,3 +216,30 @@ async def send_to_user(
         PushSubscription.subject_id == uid,
     ).to_list()
     await _fan_out(subs, {"title": title, "body": body, "url": url, "tag": tag})
+
+
+async def send_to_users(
+    user_ids: list[PydanticObjectId | str],
+    *,
+    title: str,
+    body: str,
+    url: str = "/",
+    tag: str | None = None,
+) -> None:
+    """Bulk fan-out to a set of traders in ONE subscription query — used
+    by the admin broadcast so a "message to all users" wakes every
+    force-stopped PWA in the pool with a single Mongo read + a concurrent
+    push burst. No-ops when VAPID is unconfigured (dev)."""
+    uids: list[PydanticObjectId] = []
+    for u in user_ids:
+        try:
+            uids.append(PydanticObjectId(u) if isinstance(u, str) else u)
+        except Exception:
+            continue
+    if not uids:
+        return
+    subs = await PushSubscription.find(
+        PushSubscription.subject_type == PushSubjectType.USER,
+        {"subject_id": {"$in": uids}},
+    ).to_list()
+    await _fan_out(subs, {"title": title, "body": body, "url": url, "tag": tag})

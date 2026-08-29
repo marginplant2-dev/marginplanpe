@@ -9,6 +9,7 @@ import {
   ensureNotificationPermission,
   playNotifyPing,
   showNativeNotification,
+  speakNotification,
   subscribeForWebPush,
   userNotificationsEnabled,
 } from "@/lib/notify-sound";
@@ -233,14 +234,25 @@ export function UserWsBridge() {
             {
               const p = (msg as any).payload || {};
               const title = p.title || "Notification";
+              const body = String(p.message || "");
               const lvl = String(p.level || "INFO").toUpperCase();
               if (userNotificationsEnabled()) {
-                const opts = { description: p.message, duration: 8000 } as const;
+                const opts = { description: body, duration: 8000 } as const;
                 if (lvl === "DANGER") toast.error(title, opts);
                 else if (lvl === "WARNING") toast.warning(title, opts);
                 else if (lvl === "SUCCESS") toast.success(title, opts);
                 else toast(title, opts);
                 playNotifyPing();
+                // Native OS tray popup — same path the wallet events use so
+                // an admin broadcast surfaces in the Android tray / desktop
+                // banner even when the tab is backgrounded. Unique tag per
+                // event so successive broadcasts each show their own row.
+                showNativeNotification(title, body, {
+                  tag: `mp-broadcast-${Date.now()}`,
+                  url: p.link || "/notifications",
+                });
+                // Voice announcement so it lands like a "real" notification.
+                speakNotification(body ? `${title}. ${body}` : title);
               }
             }
             break;
