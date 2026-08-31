@@ -1195,11 +1195,48 @@ async def list_closed_trade_events_fifo(
                 "close_reason": b.get("close_reason", "WEEKLY_SETTLEMENT"),
             })
             # The original opening fills are now closed out by this settlement.
-            # Clear the queue for both. WEEKLY re-opens at the settlement price
-            # (reseed one fill so the next close prices off it); EXPIRY is
-            # terminal (contract dead) — leave the queue empty, no reseed.
+            # A settlement closes the ENTIRE position for this token at the
+            # settle price, so we must drain its opening fills before reseeding.
+            #
+            # Normally those fills sit in the exact (token, product_type) bucket.
+            # But a position whose product_type FLIPPED mid-life — e.g. a MIS
+            # open that a weekly roll re-books as NRML — leaves its opening fill
+            # STRANDED in the old bucket. Clearing only the exact key then left
+            # that stale fill behind, and a later same-token close in the OLD
+            # product_type wrongly paired against it → a phantom closed-blotter
+            # row with fabricated P&L (observed: SELL 7645 → 8155 = −51,000 on a
+            # position that had actually been weekly-settled at 7987 long before).
+            #
+            # Fix: drain `b["qty"]` of open fills for the TOKEN — exact-key
+            # bucket first, then any OTHER same-token bucket (oldest fills first)
+            # — so a flipped fill in a sibling bucket is consumed too. Bounded by
+            # the settled qty so a genuinely independent concurrent position on
+            # the same token (different product_type) isn't over-drained.
+            _token = b["key"][0]
+            _remaining = b["qty"]
+            _drain_keys: list[tuple[str, str]] = []
+            if b["key"] in open_queues:
+                _drain_keys.append(b["key"])
+            _drain_keys += sorted(
+                (
+                    k for k in open_queues
+                    if k[0] == _token and k != b["key"] and open_queues[k]
+                ),
+                key=lambda k: _naive(open_queues[k][0]["opened_at"]),
+            )
+            for _bk in _drain_keys:
+                _bq = open_queues[_bk]
+                while _bq and _remaining > 1e-9:
+                    _f = _bq[0]
+                    _take = min(float(_f["qty"]), _remaining)
+                    _f["qty"] = float(_f["qty"]) - _take
+                    _remaining -= _take
+                    if _f["qty"] <= 1e-9:
+                        _bq.popleft()
+            # WEEKLY re-opens at the settlement price (reseed one fill under the
+            # settled key so the next close prices off it); EXPIRY is terminal
+            # (contract dead) — leave the queues empty, no reseed.
             _sq = open_queues.setdefault(b["key"], deque())
-            _sq.clear()
             if b.get("close_reason") == "WEEKLY_SETTLEMENT":
                 _sq.append({
                     "price": b["settle_price"],
