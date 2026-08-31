@@ -25,8 +25,9 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.core.dependencies import CurrentAdmin
+from app.models._base import PermissionLevel
 from app.models.audit_log import AuditAction
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.common import APIResponse
 from app.services.audit_service import log_event
 
@@ -37,16 +38,32 @@ class SupportPayload(BaseModel):
     whatsapp: str = Field(default="", max_length=32)
 
 
+def _support_can_edit(admin: User) -> bool:
+    """Whether this admin-tier actor may set their OWN support number.
+    Admin / super-admin always can. A BROKER (incl. sub-broker) can only
+    when granted the `support` permission at EDIT — this is the gate the
+    operator wants: a broker without the grant can't override their
+    clients' support number (they inherit the parent admin's instead)."""
+    if admin.role != UserRole.BROKER:
+        return True
+    bp = admin.broker_permissions
+    if bp is None:
+        return False
+    return getattr(bp, "support", PermissionLevel.OFF) == PermissionLevel.EDIT
+
+
 @router.get("", response_model=APIResponse[dict])
 async def get_my_support(admin: CurrentAdmin):
     """Returns the calling admin's stored WhatsApp number. Empty string
     when unset — the UI then renders the input as a placeholder and
     explains the inheritance fallback so the admin knows what the
-    user actually sees today."""
+    user actually sees today. `can_edit` tells the UI whether to enable
+    the form (brokers need the `support` permission)."""
     return APIResponse(
         data={
             "whatsapp": (admin.support_whatsapp or "").strip(),
             "role": admin.role.value,
+            "can_edit": _support_can_edit(admin),
         }
     )
 
@@ -68,10 +85,25 @@ async def set_my_support(
     re-displayed in the form. Length cap of 32 chars accommodates the
     longest realistic shape `+CC XXX XXX-XXXX`.
     """
+    # Broker gate: only a broker granted `support` at EDIT may set its own
+    # number. Without the grant the write is rejected so the broker can't
+    # override what its clients see — they inherit the parent admin's number.
+    if not _support_can_edit(admin):
+        raise HTTPException(
+            status_code=403,
+            detail="Your admin hasn't enabled the Support permission for you.",
+        )
+
     new_value = (payload.whatsapp or "").strip()
     old_value = (admin.support_whatsapp or "").strip()
     if new_value == old_value:
-        return APIResponse(data={"whatsapp": new_value, "role": admin.role.value})
+        return APIResponse(
+            data={
+                "whatsapp": new_value,
+                "role": admin.role.value,
+                "can_edit": True,
+            }
+        )
 
     # Refuse obviously-broken numbers. The apk's `buildWhatsappUrl`
     # silently hides the button when digits.length < 8, so blocking
@@ -105,7 +137,9 @@ async def set_my_support(
         user_agent=request.headers.get("user-agent"),
     )
 
-    return APIResponse(data={"whatsapp": new_value, "role": admin.role.value})
+    return APIResponse(
+        data={"whatsapp": new_value, "role": admin.role.value, "can_edit": True}
+    )
 
 
 # ── Home-page notification ticker (per-admin, cascades to clients) ──

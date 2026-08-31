@@ -145,7 +145,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { href: "/download-app", label: "Download App", icon: Download, empPerm: "download_app" },
       { href: "/holidays", label: "Holiday calendar", icon: Calendar, superOnly: true },
       { href: "/backup", label: "Backup & EOD", icon: DatabaseBackup, superOnly: true },
-      { href: "/support", label: "Support", icon: MessageCircle, empPerm: "support" },
+      { href: "/support", label: "Support", icon: MessageCircle, empPerm: "support", brokerPerm: "support" },
       { href: "/audit", label: "Audit logs", icon: History, empPerm: "audit" },
       { href: "/admin-actions", label: "Admin Actions", icon: History, empPerm: "audit" },
     ],
@@ -170,6 +170,14 @@ export function filterAdminNav(
         // without the whole group.
         const key = it.empPerm ?? it.perm;
         return key ? canSee(admin, key) : false;
+      }
+      // BROKER-only gate: an item that carries a `brokerPerm` but NO shared
+      // `perm` (e.g. Support) is visible to super/admin unconditionally, but a
+      // broker only sees it when granted that tri-state permission. Items that
+      // ALSO have `perm` (e.g. Brokers → Sub-brokers) are handled by the
+      // `it.perm` branch below via its brokerPerm override, so skip them here.
+      if (admin?.role === "BROKER" && it.brokerPerm && !it.perm) {
+        return canSee(admin, it.brokerPerm);
       }
       if (it.hideForSuperAdmin && isSuperAdmin(admin)) return false;
       if (it.superOrAdmin) return isSuperAdmin(admin) || admin?.role === "ADMIN";

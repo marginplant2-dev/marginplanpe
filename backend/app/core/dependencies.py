@@ -655,9 +655,12 @@ def max_grantable_perms(actor: User) -> dict[str, PermissionLevel]:
             "ledger": ("money_transactions", "broker_deposits"),
         }
         for k in keys:
-            if k == "sub_brokers":
-                # Admin can always grant sub-broker capability (it's a
-                # broker-tier capability admin doesn't itself use).
+            if k in ("sub_brokers", "support"):
+                # Admin can always grant these broker-tier capabilities (the
+                # admin itself doesn't consume them): `sub_brokers` gates
+                # minting sub-brokers, `support` gates the broker setting its
+                # own support number for its clients. No AdminPermissions flag
+                # backs them, so hard-cap at EDIT or they'd be greyed out.
                 out[k] = PermissionLevel.EDIT
                 continue
             if k == "user_password":

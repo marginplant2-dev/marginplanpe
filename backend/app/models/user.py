@@ -174,6 +174,13 @@ class BrokerPermissions(BaseModel):
     # EDIT here — deliberately separate from `users` so "let the broker create
     # users" (users=EDIT) doesn't also hand them password resets. Default OFF.
     user_password: PermissionLevel = PermissionLevel.OFF
+    # Support-number gate. EDIT lets the broker set their OWN support WhatsApp
+    # number (shown to their clients). When OFF, the broker's number is IGNORED
+    # by the user-side resolver — their clients fall back to the parent admin's
+    # number automatically. Default OFF: a brand-new broker must be granted this
+    # before their number takes effect. (Existing brokers are backfilled to EDIT
+    # by scripts/backfill_broker_support_perm.py so they keep working.)
+    support: PermissionLevel = PermissionLevel.OFF
 
 
 # ── User document ───────────────────────────────────────────────────

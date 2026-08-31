@@ -62,6 +62,7 @@ const PERMISSION_LABELS: Array<{ key: keyof BrokerPermissions; label: string }> 
   { key: "sub_brokers", label: "Sub-brokers" },
   { key: "bonuses", label: "Bonuses" },
   { key: "user_password", label: "Change password" },
+  { key: "support", label: "Support number" },
 ];
 
 const ALL_OFF: BrokerPermissions = {
@@ -80,6 +81,7 @@ const ALL_OFF: BrokerPermissions = {
   banks: "OFF",
   bonuses: "OFF",
   user_password: "OFF",
+  support: "OFF",
 };
 
 const LEVEL_ORDER: Record<PermissionLevel, number> = { OFF: 0, VIEW: 1, EDIT: 2 };

@@ -29,8 +29,9 @@ from beanie import PydanticObjectId
 from fastapi import APIRouter
 
 from app.core.dependencies import CurrentUser
+from app.models._base import PermissionLevel
 from app.models.platform_setting import PlatformSetting
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.common import APIResponse
 from app.utils.time_utils import now_utc
 
@@ -43,6 +44,19 @@ async def _read_setting(key: str) -> str:
         return ""
     val = row.setting_value
     return str(val).strip()
+
+
+def _broker_support_allowed(broker: User) -> bool:
+    """True when a BROKER node is allowed to have its own support number
+    honoured — i.e. the admin granted it the `support` permission (VIEW or
+    EDIT). Fail-closed: a broker whose `broker_permissions` is missing/None
+    is treated as NOT allowed, so its number is skipped and the cascade
+    falls back to the parent admin."""
+    bp = broker.broker_permissions
+    if bp is None:
+        return False
+    level = getattr(bp, "support", PermissionLevel.OFF)
+    return level != PermissionLevel.OFF
 
 
 async def _resolve_whatsapp_for_user(user: User) -> str:
@@ -70,7 +84,15 @@ async def _resolve_whatsapp_for_user(user: User) -> str:
             break
         seen.add(cur.id)
         val = (cur.support_whatsapp or "").strip()
-        if val:
+        # Permission gate: a BROKER (incl. sub-broker) node's number is only
+        # honoured when the admin has granted it the `support` permission.
+        # When that permission is OFF the broker's number is skipped, so the
+        # cascade falls through to the parent admin's number automatically —
+        # exactly the "admin turns support off → clients see admin's number"
+        # flow. Admin / super-admin nodes are never gated (their number is the
+        # intended fallback). `_broker_support_allowed` treats a broker with no
+        # permissions object as NOT allowed (fail-closed).
+        if val and (cur.role != UserRole.BROKER or _broker_support_allowed(cur)):
             return val
         next_id = cur.assigned_broker_id or cur.assigned_admin_id
         if next_id is None or next_id in seen:

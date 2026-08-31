@@ -71,6 +71,11 @@ export default function AdminSupportPage() {
   const trimmed = draft.trim();
   const serverVal = (data?.whatsapp || "").trim();
   const isDirty = trimmed !== serverVal;
+  // Brokers can only edit their own support number when the admin granted the
+  // `support` permission. Backend returns `can_edit`; default to true while the
+  // query is still loading (or for admin/super where it's always true) so the
+  // form doesn't flicker disabled. When false we lock the form and explain why.
+  const canEdit = data?.can_edit !== false;
 
   return (
     <div className="space-y-6">
@@ -88,6 +93,14 @@ export default function AdminSupportPage() {
           <CardDescription>{hint}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {!canEdit && (
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+              Your admin hasn&apos;t enabled the <b>Support</b> permission for
+              you, so you can&apos;t set your own number yet. Your clients
+              currently see your parent admin&apos;s support number. Ask your
+              admin to turn on the Support permission to override it.
+            </div>
+          )}
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">
               WhatsApp number (include country code, e.g. +91 98765 43210)
@@ -97,7 +110,7 @@ export default function AdminSupportPage() {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder="+91 98765 43210"
-              disabled={isFetching && !hydrated}
+              disabled={(isFetching && !hydrated) || !canEdit}
               className="h-10 w-full rounded-md border border-border bg-muted/20 px-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary disabled:opacity-50"
             />
             <p className="text-[11px] text-muted-foreground">
@@ -130,7 +143,7 @@ export default function AdminSupportPage() {
               type="button"
               onClick={() => saveMut.mutate(trimmed)}
               loading={saveMut.isPending}
-              disabled={!isDirty || saveMut.isPending || (trimmed !== "" && !waPreview)}
+              disabled={!canEdit || !isDirty || saveMut.isPending || (trimmed !== "" && !waPreview)}
             >
               <Save className="size-4" />
               Save

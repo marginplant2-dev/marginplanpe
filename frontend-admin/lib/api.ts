@@ -619,9 +619,14 @@ export const CryptoConfigAPI = {
 };
 
 export const SupportAPI = {
-  get: () => unwrap<{ whatsapp: string; role: string }>(api.get("/admin/support")),
+  get: () =>
+    unwrap<{ whatsapp: string; role: string; can_edit?: boolean }>(
+      api.get("/admin/support"),
+    ),
   set: (whatsapp: string) =>
-    unwrap<{ whatsapp: string; role: string }>(api.put("/admin/support", { whatsapp })),
+    unwrap<{ whatsapp: string; role: string; can_edit?: boolean }>(
+      api.put("/admin/support", { whatsapp }),
+    ),
   getTerms: () =>
     unwrap<{ text: string; enabled: boolean; role: string }>(
       api.get("/admin/support/terms"),

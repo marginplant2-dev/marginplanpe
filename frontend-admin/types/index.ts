@@ -64,6 +64,9 @@ export interface BrokerPermissions {
   bonuses: PermissionLevel;
   // EDIT lets the broker reset THEIR users' passwords (separate from `users`).
   user_password: PermissionLevel;
+  // EDIT lets the broker set their OWN support WhatsApp number for their
+  // clients. OFF → their clients inherit the parent admin's number.
+  support: PermissionLevel;
 }
 
 export interface AdminUser {
