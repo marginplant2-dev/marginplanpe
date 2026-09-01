@@ -1117,9 +1117,43 @@ async def validate(
                 "No funds available to open a new position. "
                 "Close existing positions or add funds."
             )
-        if margin_required > available:
+        # ── Brokerage-affordability gate (operator) ───────────────────────
+        # The user must have funds for the OPENING brokerage too, not just the
+        # margin — otherwise the fill debits brokerage and pushes the wallet
+        # negative / into settlement. Estimate the open-leg brokerage with the
+        # SAME calculator + netting the matching engine bills at fill time, and
+        # require `margin + brokerage <= buying power`. `charge_on = "close"`
+        # segments return 0 here (brokerage taken on the closing leg instead),
+        # so they're unaffected. Never blocks on a calc error.
+        opening_brokerage = to_decimal(0)
+        try:
+            from app.services import brokerage_calculator as _bc
+
+            _ch = await _bc.calculate(
+                segment_type=segment_type,
+                action=action,
+                product_type=product_type,
+                qty=float(quantity),
+                price=ref_price,
+                lot_size=int(getattr(instrument, "lot_size", 1) or 1),
+                netting_override=s,
+                is_closing=False,
+                charge_on=s.get("charge_on"),
+            )
+            opening_brokerage = to_decimal(_ch.total)
+            if _is_usd_seg:
+                opening_brokerage = opening_brokerage * usd_inr
+        except Exception:  # pragma: no cover — never block a trade on a calc error
+            import logging as _lg_be
+
+            _lg_be.getLogger(__name__).exception(
+                "opening_brokerage_estimate_failed user=%s", user.id
+            )
+        required = margin_required + opening_brokerage
+        if required > available:
             raise InsufficientFundsError(
-                f"Need ₹{margin_required:.2f}, have ₹{available:.2f}"
+                f"Need ₹{required:.2f} (margin ₹{margin_required:.2f} + "
+                f"brokerage ₹{opening_brokerage:.2f}), have ₹{available:.2f}"
             )
 
     # 10) stop-loss mandatory
