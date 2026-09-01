@@ -979,8 +979,18 @@ _expiry_baseline_day: str | None = None
 
 
 async def expire_all_pending_orders(reason: str = "DAY_ORDER_EXPIRED") -> int:
-    """Cancel every still-live parked order (PENDING/OPEN/PARTIAL), releasing
-    any blocked margin. Returns the count cancelled."""
+    """Cancel every still-live parked ENTRY order (PENDING/OPEN/PARTIAL) at day
+    end, releasing its blocked margin. Returns the count cancelled.
+
+    DELIBERATELY excludes exit / protection orders so an open (carried) position
+    never loses its stop at midnight:
+      • sl_tp_source_trade_id — per-fill SL/TP exit
+      • parent_order_id       — bracket child (SL/TP leg)
+      • cost_basis_override   — specific-lot close
+      • is_squareoff          — risk/EOD force-close
+    Only genuine unfilled entry orders (the ones piling up in the Pending list)
+    are day-expired; the user re-places them next session.
+    """
     rows = await Order.find(
         {
             "status": {
@@ -989,7 +999,11 @@ async def expire_all_pending_orders(reason: str = "DAY_ORDER_EXPIRED") -> int:
                     OrderStatus.PENDING.value,
                     OrderStatus.PARTIAL.value,
                 ]
-            }
+            },
+            "sl_tp_source_trade_id": None,
+            "parent_order_id": None,
+            "cost_basis_override": None,
+            "is_squareoff": {"$ne": True},
         }
     ).to_list()
     n = 0
