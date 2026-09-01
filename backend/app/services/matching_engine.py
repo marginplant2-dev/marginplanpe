@@ -967,3 +967,74 @@ async def pending_order_poller(interval_sec: float = 1.5) -> None:
 def stop_pending_order_poller() -> None:
     global _poller_running
     _poller_running = False
+
+
+# ── Daily pending-order expiry (day orders don't carry to next session) ──
+# Broker rule (operator): any order still PENDING / OPEN / PARTIAL at the end of
+# the day is a DAY order — cancel it at IST midnight so stale orders don't pile
+# up across sessions. The user re-places fresh LIMIT / SL-M / SL-TP orders the
+# next day. Margin blocked on each cancelled order is released.
+_expiry_running: bool = False
+_expiry_baseline_day: str | None = None
+
+
+async def expire_all_pending_orders(reason: str = "DAY_ORDER_EXPIRED") -> int:
+    """Cancel every still-live parked order (PENDING/OPEN/PARTIAL), releasing
+    any blocked margin. Returns the count cancelled."""
+    rows = await Order.find(
+        {
+            "status": {
+                "$in": [
+                    OrderStatus.OPEN.value,
+                    OrderStatus.PENDING.value,
+                    OrderStatus.PARTIAL.value,
+                ]
+            }
+        }
+    ).to_list()
+    n = 0
+    for o in rows:
+        try:
+            await cancel_order(o, reason=reason)
+            n += 1
+        except Exception:
+            logger.exception("expire_pending_order_failed order=%s", o.id)
+    if n:
+        logger.info("pending_orders_expired", extra={"count": n, "reason": reason})
+    return n
+
+
+async def pending_order_expiry_loop(interval_sec: float = 60.0) -> None:
+    """Wake each minute; at the IST date rollover (00:00) cancel all still-live
+    parked orders once. A startup baseline prevents a mid-day restart from
+    cancelling the CURRENT session's legit pending orders — it only fires when
+    the IST calendar day actually changes while the loop is running."""
+    global _expiry_running, _expiry_baseline_day
+    if _expiry_running:
+        return
+    _expiry_running = True
+    import asyncio as _asyncio
+
+    from app.utils.time_utils import now_ist as _now_ist
+
+    logger.info("pending_order_expiry_loop_started")
+    try:
+        while _expiry_running:
+            try:
+                today = _now_ist().date().isoformat()
+                if _expiry_baseline_day is None:
+                    _expiry_baseline_day = today  # baseline — no fire on startup
+                elif today != _expiry_baseline_day:
+                    await expire_all_pending_orders("DAY_ORDER_EXPIRED")
+                    _expiry_baseline_day = today
+            except Exception:
+                logger.exception("pending_order_expiry_tick_failed")
+            await _asyncio.sleep(interval_sec)
+    finally:
+        _expiry_running = False
+        logger.info("pending_order_expiry_loop_stopped")
+
+
+def stop_pending_order_expiry() -> None:
+    global _expiry_running
+    _expiry_running = False

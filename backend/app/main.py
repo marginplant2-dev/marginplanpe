@@ -789,6 +789,18 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     setattr(app, "_intraday_to_carry_task", rollover_task)
     setattr(app, "_expiry_cleanup_task", expiry_task)
 
+    # Daily pending-order expiry — cancel every still-parked LIMIT/SL-M/SL-TP
+    # order at IST midnight (day orders don't carry to the next session). One
+    # leader across the cluster; releases each order's blocked margin.
+    from app.services.matching_engine import pending_order_expiry_loop
+    order_expiry_task: _asyncio.Task = _asyncio.create_task(
+        _supervise(
+            "pending_order_expiry",
+            _leader_only("pending_order_expiry", pending_order_expiry_loop, interval_sec=60.0),
+        )
+    )
+    setattr(app, "_pending_order_expiry_task", order_expiry_task)
+
     # Bonus expiry sweep (Bonus Management) — hourly; converts wager-met
     # bonuses / claws back the rest once past expiry. Only started when the
     # feature flag is on, so it's fully absent otherwise.
@@ -1012,6 +1024,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     for _mod, _fn in (
         ("app.services.risk_enforcer", "stop_risk_enforcer"),
         ("app.services.matching_engine", "stop_pending_order_poller"),
+        ("app.services.matching_engine", "stop_pending_order_expiry"),
         ("app.services.zerodha_auto_login_scheduler", "stop_zerodha_auto_login_scheduler"),
         ("app.services.tick_aggregator", "stop_tick_aggregator"),
     ):
