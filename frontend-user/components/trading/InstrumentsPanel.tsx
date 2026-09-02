@@ -9,6 +9,7 @@ import { InstrumentAPI, MarketwatchAPI, SegmentSettingsAPI } from "@/lib/api";
 import { cn, formatPrice } from "@/lib/utils";
 import { useMarketStream } from "@/lib/useMarketStream";
 import { usePriceFlash } from "@/lib/usePriceFlash";
+import { AnimatedPrice } from "@/components/common/AnimatedPrice";
 
 interface Props {
   onClose: () => void;
@@ -779,8 +780,30 @@ function FlashPrice({
   exchange?: string;
   side: "bid" | "ask";
 }) {
-  const dir = usePriceFlash(value);
+  const dir = usePriceFlash(value); // called unconditionally (hooks rule)
   const baseColor = side === "bid" ? "text-red-500" : "text-emerald-500";
+
+  // GLIDE + text-flash only for Infoway/Binance-fed asset classes (forex,
+  // metals/commodities, indices, energy, stocks, crypto). Indian segments
+  // (NSE/BSE/MCX/CDS) keep the exact previous behaviour — no new animation.
+  const animate = /^(FOREX|STOCKS|INDICES|COMMODIT|METAL|ENERGY|CRYPTO)/i.test(
+    String(segment || ""),
+  );
+  if (animate) {
+    return (
+      <AnimatedPrice
+        value={value}
+        glide
+        flash
+        format={(n) => formatPrice(n, segment, exchange)}
+        className={cn(
+          "whitespace-nowrap font-tabular tabular-nums text-[11px] font-medium",
+          baseColor,
+        )}
+      />
+    );
+  }
+
   const flashColor =
     dir === "up"
       ? "text-emerald-500"

@@ -7,6 +7,7 @@ import { Search, Star, X } from "lucide-react";
 import { InstrumentAPI, MarketwatchAPI, SegmentSettingsAPI } from "@/lib/api";
 import { useMarketStream } from "@/lib/useMarketStream";
 import { cn, formatPrice, pnlColor } from "@/lib/utils";
+import { AnimatedPrice } from "@/components/common/AnimatedPrice";
 import { MobileOptionChain } from "@/components/trading/MobileOptionChain";
 
 interface Props {
@@ -840,14 +841,38 @@ function InstrumentRow({
       </div>
 
       {/* Bid (sell, red) on top + Ask (buy, green) below — both prices
-          shown so the trader reads the full spread at a glance. */}
+          shown so the trader reads the full spread at a glance. GLIDE + flash
+          only for Infoway/Binance asset classes; Indian rows unchanged. */}
       <div className="flex flex-col items-end leading-tight">
-        <span className="whitespace-nowrap font-tabular tabular-nums text-sm font-bold text-red-500">
-          {stickyBid != null ? formatPrice(stickyBid, segment, exchange) : "—"}
-        </span>
-        <span className="mt-0.5 whitespace-nowrap font-tabular tabular-nums text-sm font-bold text-emerald-500">
-          {stickyAsk != null ? formatPrice(stickyAsk, segment, exchange) : "—"}
-        </span>
+        {/^(FOREX|STOCKS|INDICES|COMMODIT|METAL|ENERGY|CRYPTO)/i.test(
+          String(segment || ""),
+        ) ? (
+          <>
+            <AnimatedPrice
+              value={stickyBid}
+              glide
+              flash
+              format={(n) => formatPrice(n, segment, exchange)}
+              className="whitespace-nowrap font-tabular tabular-nums text-sm font-bold text-red-500"
+            />
+            <AnimatedPrice
+              value={stickyAsk}
+              glide
+              flash
+              format={(n) => formatPrice(n, segment, exchange)}
+              className="mt-0.5 whitespace-nowrap font-tabular tabular-nums text-sm font-bold text-emerald-500"
+            />
+          </>
+        ) : (
+          <>
+            <span className="whitespace-nowrap font-tabular tabular-nums text-sm font-bold text-red-500">
+              {stickyBid != null ? formatPrice(stickyBid, segment, exchange) : "—"}
+            </span>
+            <span className="mt-0.5 whitespace-nowrap font-tabular tabular-nums text-sm font-bold text-emerald-500">
+              {stickyAsk != null ? formatPrice(stickyAsk, segment, exchange) : "—"}
+            </span>
+          </>
+        )}
       </div>
 
       {rightAction}

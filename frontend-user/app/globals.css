@@ -460,3 +460,29 @@
     animation: none;
   }
 }
+
+/* ── AnimatedPrice flash — tint the TEXT green/red on a tick, then ease back
+   to the element's own base colour. `from`-only keyframe => auto-returns to
+   the computed base (no fill), no background box. Used by AnimatedPrice. */
+@keyframes priceFlashUp {
+  from {
+    color: #10b981;
+  }
+}
+@keyframes priceFlashDown {
+  from {
+    color: #ef4444;
+  }
+}
+.price-flash-up {
+  animation: priceFlashUp 0.55s ease-out;
+}
+.price-flash-down {
+  animation: priceFlashDown 0.55s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .price-flash-up,
+  .price-flash-down {
+    animation: none;
+  }
+}

@@ -5,6 +5,7 @@ import { AlertTriangle, ChevronDown, Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { OrderAPI, SegmentSettingsAPI, WalletAPI } from "@/lib/api";
+import { AnimatedPrice } from "@/components/common/AnimatedPrice";
 import { Button } from "@/components/ui/button";
 import { cn, formatINR } from "@/lib/utils";
 import { playBuyTone, playSellTone } from "@/lib/trade-audio";
@@ -1116,7 +1117,15 @@ export function OrderPanel({ instrument, ltp, bid, ask, open, high, low, close, 
             )}
           >
             <span className="text-[10px] font-semibold uppercase tracking-wider text-sell">SELL</span>
-            <span className="font-tabular text-sm font-semibold">{fmtPrice(sellPrice)}</span>
+            {/* Coloured action button → glide only, no flash (spec). Glide is
+                gated to Infoway/Binance (forex/crypto); Indian snaps as before. */}
+            <AnimatedPrice
+              value={sellPrice > 0 ? sellPrice : null}
+              digits={priceDecimals}
+              glide={isForex || isCrypto}
+              flash={false}
+              className="font-tabular text-sm font-semibold"
+            />
           </button>
           <button
             type="button"
@@ -1129,7 +1138,13 @@ export function OrderPanel({ instrument, ltp, bid, ask, open, high, low, close, 
             )}
           >
             <span className="text-[10px] font-semibold uppercase tracking-wider text-buy">BUY</span>
-            <span className="font-tabular text-sm font-semibold">{fmtPrice(buyPrice)}</span>
+            <AnimatedPrice
+              value={buyPrice > 0 ? buyPrice : null}
+              digits={priceDecimals}
+              glide={isForex || isCrypto}
+              flash={false}
+              className="font-tabular text-sm font-semibold"
+            />
           </button>
         </div>
 
