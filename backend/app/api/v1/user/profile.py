@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app.core.config import settings
 from app.core.dependencies import CurrentUser
@@ -21,6 +21,15 @@ async def get_me(user: CurrentUser):
 
 @router.put("/me", response_model=APIResponse[UserMeOut])
 async def update_me(payload: UpdateProfileRequest, user: CurrentUser):
+    # The shared DEMO account is logged into by anyone from the login page, so
+    # its profile (name / mobile / KYC / photo) must be LOCKED — otherwise one
+    # visitor's edit (e.g. an abusive display name) shows for everyone. The
+    # name stays the fixed default "Demo".
+    if user.is_demo:
+        raise HTTPException(
+            status_code=403,
+            detail="Demo account profile can't be edited.",
+        )
     if payload.full_name is not None:
         user.full_name = payload.full_name
     if payload.photo_url is not None:

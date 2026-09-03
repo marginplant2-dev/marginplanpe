@@ -452,6 +452,18 @@ async def create_demo_session(*, ip: str = "0.0.0.0", user_agent: str | None = N
     if user is None:
         raise AppError("Could not start demo session. Please try again.")
 
+    # Self-heal the shared demo identity: force the display name + mobile back
+    # to the fixed defaults on every login. The profile is now locked for demo
+    # (user/profile.py), but this also SCRUBS any abusive name a visitor set
+    # before the lock, so the next visitor never sees it.
+    if user.full_name != "Demo" or user.mobile != GLOBAL_DEMO_MOBILE:
+        user.full_name = "Demo"
+        user.mobile = GLOBAL_DEMO_MOBILE
+        try:
+            await user.save()
+        except Exception:
+            logger.exception("demo_identity_reset_failed")
+
     # Stamp the user's current session epoch into the access token, exactly
     # like normal login / refresh / impersonation do. WITHOUT this the demo
     # token carried no `ver` claim → defaulted to 0 at the session-epoch gate
