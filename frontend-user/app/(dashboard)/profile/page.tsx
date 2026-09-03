@@ -530,7 +530,13 @@ function PersonalForm({
     <section className="rounded-xl border border-border bg-card p-4">
       <div className="space-y-4">
         <Field label="Full name">
-          <Input value={name} onChange={(e) => setName(e.target.value)} className="h-11" />
+          <Input
+            value={me.is_demo ? "Demo" : name}
+            onChange={(e) => setName(e.target.value)}
+            className="h-11"
+            disabled={me.is_demo}
+            readOnly={me.is_demo}
+          />
         </Field>
         <ReadRow icon={AtSign} label="Email" value={me.email} />
         <ReadRow icon={Phone} label="Mobile" value={me.mobile} />
@@ -574,9 +580,15 @@ function PersonalForm({
             />
           )}
         </div>
-        <div className="pt-1">
-          <Button onClick={onSave}>Save changes</Button>
-        </div>
+        {me.is_demo ? (
+          <p className="pt-1 text-xs text-muted-foreground">
+            Demo account — profile is locked and can’t be edited.
+          </p>
+        ) : (
+          <div className="pt-1">
+            <Button onClick={onSave}>Save changes</Button>
+          </div>
+        )}
       </div>
     </section>
   );
