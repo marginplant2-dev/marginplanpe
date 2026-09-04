@@ -86,7 +86,7 @@ def _is_segment_market_open_now(segment_type: str | None) -> bool:
     always return True (24/7 / 24×5 segments).
     """
     from datetime import datetime as _dt
-    from app.utils.time_utils import now_ist
+    from app.utils.time_utils import FOREX_WEEKEND_CLOSE, now_ist
 
     seg = (segment_type or "").upper()
     if "CRYPTO" in seg:
@@ -101,7 +101,11 @@ def _is_segment_market_open_now(segment_type: str | None) -> bool:
     ):
         now: _dt = now_ist()
         wd = now.weekday()  # Mon=0 … Sun=6
-        if wd == 5:  # Saturday
+        # Saturday: FX still trades until the Friday 17:00 ET close (~02:30 IST
+        # Saturday) — OPEN before FOREX_WEEKEND_CLOSE, closed after. Closing all
+        # of Saturday from 00:00 cut the session ~2.5h early and wrongly blocked
+        # user squareoffs in that window.
+        if wd == 5 and now.time() >= FOREX_WEEKEND_CLOSE:  # Saturday post-close
             return False
         if wd == 6 and now.hour < 21:  # Sunday before 21:00 IST
             return False

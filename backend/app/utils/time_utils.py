@@ -98,6 +98,15 @@ MCX_CLOSE: time = time(23, 40)
 NSE_BSE_OPEN: time = time(9, 15)
 MCX_OPEN: time = time(9, 0)
 
+# Forex / 24×5 weekly CLOSE (Saturday IST). The FX week ends at Friday 17:00
+# US-Eastern, which in IST lands in the small hours of SATURDAY — ≈02:30 IST
+# during US daylight-saving and ≈03:30 IST otherwise. The operator uses a
+# fixed 02:30 IST cutoff. Saturday is OPEN before this and CLOSED after it.
+# Previously the ENTIRE Saturday was treated as closed from 00:00 IST, which
+# cut the forex session ~2.5h early (operator: "2:30 ko band hona tha, software
+# ne 12 baje band kar diya"). This is the single source of truth for that time.
+FOREX_WEEKEND_CLOSE: time = time(2, 30)
+
 INDIAN_EQUITY_FNO_SEGMENTS: frozenset[str] = frozenset({
     # Names that show up as `instrument.segment` in actual Position
     # docs — these are what the matching engine writes (driven by the

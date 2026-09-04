@@ -31,6 +31,7 @@ from app.services import market_data_service, netting_service, wallet_service
 from app.services.instrument_service import infer_instrument_type_from_symbol
 from app.utils.decimal_utils import to_decimal
 from app.utils.time_utils import (
+    FOREX_WEEKEND_CLOSE,
     is_weekend,
     is_within_open_grace,
     market_open_time_for_segment,
@@ -1195,11 +1196,17 @@ async def validate(
     if not is_amo and not is_24x7 and not _is_force_close and not _is_admin_placed:
         ist = now_ist()
 
-        # 24×5 (forex / metals / energy): closed only on weekends (Sat full-day;
-        # Sun close before 17:30 ET ≈ 03:00 IST Mon)
+        # 24×5 (forex / metals / energy): closed only on the weekend. The FX
+        # week ends Friday 17:00 ET, which is ~02:30 IST on SATURDAY — so
+        # Saturday stays OPEN until FOREX_WEEKEND_CLOSE and is closed after it
+        # (previously ALL of Saturday was closed from 00:00, cutting the session
+        # ~2.5h early — operator: "2:30 ko band hona tha, 12 baje band ho gaya").
+        # Sunday remains closed until the ~04:00 IST early-Monday reopen window.
         if is_24x5:
             wd = ist.weekday()  # Mon=0 ... Sun=6
-            if wd == 5 or (wd == 6 and ist.hour < 4):
+            if (wd == 5 and ist.time() >= FOREX_WEEKEND_CLOSE) or (
+                wd == 6 and ist.hour < 4
+            ):
                 raise MarketClosedError("Forex market is closed for the weekend.")
         else:
             if is_weekend(ist.date()):
