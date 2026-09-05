@@ -88,6 +88,9 @@ function RegisterPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const urlRef = (searchParams?.get("ref") || "").trim().toUpperCase();
+  // User-to-user referral code (?rc=) — separate from ?ref= (admin attribution).
+  // Passed straight through; the backend puts this user in the referrer's pool.
+  const userRefCode = (searchParams?.get("rc") || "").trim().toUpperCase();
 
   // Persist the referral code so admin/broker/sub-broker attribution survives
   // a demo-login → logout → register round-trip (the ?ref= query is dropped
@@ -137,6 +140,7 @@ function RegisterPageInner() {
         mobile: values.mobile,
         password: values.password,
         referral_code: refCode || branding?.user_code || undefined,
+        referred_by_code: userRefCode || undefined,
       });
       // Consumed — drop the persisted code so a later unrelated signup on
       // this browser isn't mis-attributed to a stale referrer.

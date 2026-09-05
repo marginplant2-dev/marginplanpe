@@ -23,6 +23,7 @@ from app.api.v1.admin import (
     netting,
     notifications,
     payin_out,
+    referral,
     platform_reports,
     pnl_sharing,
     push,
@@ -45,6 +46,7 @@ router.include_router(risk.router)
 router.include_router(netting.router)
 router.include_router(trading.router)
 router.include_router(payin_out.router)
+router.include_router(referral.router)
 router.include_router(brokerage.router)
 router.include_router(crypto_config.router)
 router.include_router(bonuses.router)

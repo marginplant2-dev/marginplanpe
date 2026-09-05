@@ -18,6 +18,7 @@ from app.api.v1.user import (
     orders,
     positions,
     profile,
+    referral,
     reports,
     segment_settings,
     support,
@@ -27,6 +28,7 @@ from app.api.v1.user import (
 router = APIRouter(prefix="/user", tags=["user"])
 router.include_router(auth.router)
 router.include_router(profile.router)
+router.include_router(referral.router)
 router.include_router(dashboard.router)
 router.include_router(wallet.router)
 router.include_router(bonuses.router)

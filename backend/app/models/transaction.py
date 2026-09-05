@@ -34,6 +34,7 @@ class TransactionType(StrEnum):
     ADJUSTMENT = "ADJUSTMENT"
     BONUS = "BONUS"
     BONUS_CONVERTED = "BONUS_CONVERTED"  # bonus credit → withdrawable cash (wager met)
+    REFERRAL = "REFERRAL"  # referral reward credited to the referrer's wallet
     PENALTY = "PENALTY"
     PROMO = "PROMO"
     INTER_USER = "INTER_USER"

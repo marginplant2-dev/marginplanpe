@@ -13,6 +13,7 @@ import {
   CreditCard,
   FileText,
   Gauge,
+  Gift,
   HelpCircle,
   IdCard,
   KeyRound,
@@ -172,6 +173,13 @@ export default function ProfilePage() {
           label="Bank accounts"
           sub="Linked payout accounts"
           href="/bank-accounts"
+        />
+        <ListRowLink
+          icon={Gift}
+          tone="buy"
+          label="Refer & Earn"
+          sub="Invite friends, earn rewards"
+          href="/refer"
         />
       </ListGroup>
 

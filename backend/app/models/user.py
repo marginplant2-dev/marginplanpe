@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from pymongo import ASCENDING, DESCENDING, IndexModel
 
 from app.models._base import PermissionLevel, StrEnum, TimestampMixin
+from app.models._types import Money
 from app.utils.time_utils import now_utc
 
 
@@ -382,6 +383,19 @@ class User(TimestampMixin):
     # profile falls back to the super-admin's platform default, else hides the
     # T&C link. Plain text (newline-separated); the app renders it read-only.
     terms_and_conditions: str | None = None
+
+    # ── Referral programme ────────────────────────────────────────────────
+    # Every user gets a unique code for their share link (register?rc=<code>).
+    # Lazily generated on first read of the Refer & Earn page.
+    referral_code: str | None = None
+    # The user who referred THIS user (set at signup from ?rc=). The referee
+    # also inherits that referrer's broker/admin so they land in the same pool.
+    referred_by: PydanticObjectId | None = None
+    # Per-ADMIN referral settings (set on an ADMIN row). A referrer's reward is
+    # priced by THEIR admin's row (super-admin's row for the platform pool).
+    referral_enabled: bool = True
+    referral_reward: Money = Field(default_factory=lambda: Decimal128("0"))
+    referral_min_deposit: Money = Field(default_factory=lambda: Decimal128("0"))
 
     # Divinepay UPI gateway switch (set on an ADMIN row by the super-admin).
     # When True, this admin's users get the auto-crediting online pay-in flow;

@@ -114,6 +114,18 @@ async def register(payload: RegisterRequest, request: Request):
             detail="Registration is temporarily disabled. Please try again later.",
         )
 
+    # User-to-user referral: when a valid referral code is supplied, the new
+    # user JOINS the referrer's SAME broker/admin pool (overrides host/admin
+    # attribution) so the referral chain stays intact, and the referrer earns a
+    # reward once this user deposits + trades.
+    from app.services import referral_service
+
+    _referrer = await referral_service.resolve_referrer(payload.referred_by_code)
+    if _referrer is not None:
+        assigned_admin_id = _referrer.assigned_admin_id
+        assigned_broker_id = _referrer.assigned_broker_id
+        broker_ancestry = _referrer.broker_ancestry
+
     user = await user_service.create_user(
         email=payload.email,
         mobile=payload.mobile,
@@ -125,6 +137,15 @@ async def register(payload: RegisterRequest, request: Request):
         broker_ancestry=broker_ancestry or None,
         signup_origin=signup_origin,
     )
+    if _referrer is not None:
+        try:
+            user.referred_by = _referrer.id
+            await user.save()
+            await referral_service.attach_referral(user, _referrer)
+        except Exception:  # a referral hiccup must never fail the signup
+            import logging as _lg
+
+            _lg.getLogger(__name__).exception("referral_attach_failed user=%s", user.id)
     await log_event(
         action=AuditAction.CREATE,
         entity_type="User",

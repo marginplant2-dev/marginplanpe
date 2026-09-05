@@ -334,6 +334,8 @@ export const AuthAPI = {
     // ``user_code`` and stamps ``signup_origin`` accordingly. Optional —
     // omitting it preserves the pre-rollout behaviour (super-admin pool).
     referral_code?: string;
+    // User-to-user referral (?rc=). Puts the new user in the referrer's pool.
+    referred_by_code?: string;
   }) => unwrap(api.post("/user/auth/register", body)),
   logout: (refresh_token?: string) => unwrap(api.post("/user/auth/logout", { refresh_token })),
   refresh: (refresh_token: string) => unwrap<TokenPair>(api.post("/user/auth/refresh", { refresh_token })),
@@ -346,6 +348,10 @@ export const AuthAPI = {
   twoFAEnable: (code: string) => unwrap(api.post("/user/auth/2fa/enable", { code })),
   twoFADisable: (password: string, code: string) => unwrap(api.post("/user/auth/2fa/disable", { password, code })),
   demoLogin: () => unwrap<TokenPair>(api.post("/user/auth/demo")),
+};
+
+export const ReferralAPI = {
+  mine: () => unwrap<any>(api.get("/user/referral")),
 };
 
 export const ProfileAPI = {

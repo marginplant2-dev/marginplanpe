@@ -415,6 +415,15 @@ export const TradingAPI = {
   holdings: (params?: any) => unwrap<any[]>(api.get("/admin/holdings", { params })),
 };
 
+// Per-admin referral programme settings (reward + min-deposit + on/off).
+export const ReferralSettingsAPI = {
+  get: () => unwrap<{ enabled: boolean; reward_amount: string; min_deposit: string }>(
+    api.get("/admin/referral-settings"),
+  ),
+  update: (body: { enabled: boolean; reward_amount: number; min_deposit: number }) =>
+    unwrap<{ ok: boolean }>(api.put("/admin/referral-settings", body)),
+};
+
 // Per-admin / super-admin public-registration toggle.
 export const RegistrationAPI = {
   status: () => unwrap<{ enabled: boolean }>(api.get("/admin/dashboard/registration-status")),

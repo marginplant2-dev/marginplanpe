@@ -363,6 +363,14 @@ async def approve_deposit(
     except Exception:  # pragma: no cover — bonus must never break approval
         pass
 
+    # ── Referral: this deposit may satisfy the referee's deposit condition ──
+    try:
+        from app.services import referral_service as _ref
+
+        await _ref.on_deposit(r.user_id, amount)
+    except Exception:  # pragma: no cover — referral must never break approval
+        pass
+
     await log_event(
         action=AuditAction.APPROVE,
         entity_type="DepositRequest",

@@ -67,7 +67,10 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     full_name: str = Field(min_length=2, max_length=128)
     pan: str | None = None
-    referral_code: str | None = None
+    referral_code: str | None = None  # admin white-label attribution (?ref=)
+    # User-to-user referral code (?rc=). When it resolves to a client, the new
+    # user lands in that referrer's broker/admin pool and earns them a reward.
+    referred_by_code: str | None = None
 
     @field_validator("mobile")
     @classmethod

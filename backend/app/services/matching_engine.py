@@ -449,6 +449,15 @@ async def execute_market_order(
     except Exception:  # pragma: no cover — bonus must never affect a fill
         logger.exception("bonus_wager_increment_failed order=%s", getattr(order, "id", None))
 
+    # ── Referral: a referee opening a trade satisfies the trade condition ──
+    # Idempotent (fires only until the referral is paid); best-effort.
+    try:
+        from app.services import referral_service as _ref
+
+        await _ref.on_first_trade(order.user_id)
+    except Exception:  # pragma: no cover — referral must never affect a fill
+        logger.exception("referral_first_trade_failed order=%s", getattr(order, "id", None))
+
     # ── Update position ──────────────────────────────────────────────
     sl_dec = to_decimal(order.bracket_stop_loss) if order.bracket_stop_loss is not None else None
     tp_dec = to_decimal(order.bracket_target) if order.bracket_target is not None else None
