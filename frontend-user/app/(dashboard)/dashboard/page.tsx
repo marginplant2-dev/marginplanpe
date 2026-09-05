@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Activity,
   ArrowDownToLine,
   ArrowUpRight,
   Briefcase,
@@ -10,7 +11,9 @@ import {
   Eye,
   EyeOff,
   Gift,
+  Landmark,
   LineChart,
+  Lock,
   Table2,
   TrendingUp,
   Wallet,
@@ -23,6 +26,10 @@ import { cn, formatINR, formatPrice, pnlColor } from "@/lib/utils";
 import { AddFundsWizard } from "@/components/wallet/AddFundsWizard";
 import { MarketOverview } from "@/components/trading/MarketOverview";
 import { TopMovers } from "@/components/trading/TopMovers";
+import { MobileNews } from "@/components/trading/MobileNews";
+import { NumberTicker } from "@/components/dashboard/NumberTicker";
+import { AccountHealth } from "@/components/dashboard/AccountHealth";
+import { MarketOverviewTV } from "@/components/dashboard/MarketOverviewTV";
 import { useHomeTicker } from "@/lib/useSupport";
 
 export default function DashboardPage() {
@@ -82,6 +89,11 @@ export default function DashboardPage() {
   // flash ₹0 on first paint.
   const todayPnl = Number(pnlSummary?.today_pnl ?? summary?.today_pnl ?? 0);
   const todayPct = portfolio ? (todayPnl / portfolio) * 100 : 0;
+  // Desktop-only derived bits (mobile view is unchanged).
+  const marginUsage =
+    portfolio > 0 ? (Number(wallet.used_margin ?? 0) / portfolio) * 100 : 0;
+  const hr = new Date().getHours();
+  const greeting = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
 
   const [hideBalance, setHideBalance] = useState(false);
 
@@ -90,8 +102,8 @@ export default function DashboardPage() {
       {/* ── Announcement ticker (home only, admin-managed) ───────── */}
       <HomeTicker />
 
-      {/* ── Greeting ─────────────────────────────────────────────── */}
-      <header className="flex items-center justify-between">
+      {/* ── Greeting (mobile/tablet — desktop uses the stat-row header) ─ */}
+      <header className="flex items-center justify-between lg:hidden">
         <div>
           <p className="text-xs uppercase tracking-wider text-muted-foreground">Welcome back</p>
           <h1 className="text-xl font-semibold tracking-tight md:text-2xl">
@@ -104,8 +116,8 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* ── Hero portfolio card (Upstox-style) ───────────────────── */}
-      <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-primary/80 p-5 text-primary-foreground shadow-lg shadow-primary/20">
+      {/* ── Hero portfolio card (Upstox-style) — mobile/tablet only ── */}
+      <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-primary/80 p-5 text-primary-foreground shadow-lg shadow-primary/20 lg:hidden">
         <div className="flex items-start justify-between">
           <div className="space-y-0.5">
             <div className="flex items-center gap-2 text-xs uppercase tracking-wider opacity-90">
@@ -177,8 +189,8 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* ── Quick actions ─────────────────────────────────────── */}
-      <section className="grid grid-cols-4 gap-2 sm:gap-3">
+      {/* ── Quick actions — mobile/tablet only ─────────────────── */}
+      <section className="grid grid-cols-4 gap-2 sm:gap-3 lg:hidden">
         <QuickAction onClick={() => setDepositOpen(true)} icon={ArrowDownToLine} label="Deposit" />
         <QuickAction href="/option-chain" icon={Table2} label="Options" />
         <QuickAction href="/positions" icon={Briefcase} label="Position" />
@@ -210,7 +222,7 @@ export default function DashboardPage() {
 
       {/* ── Stat tiles row — desktop only (sm+). Hidden on mobile where
           the MarketOverview above takes their place. ────────────────── */}
-      <section className="hidden gap-3 sm:grid sm:grid-cols-3">
+      <section className="hidden gap-3 sm:grid sm:grid-cols-3 lg:hidden">
         <StatTile label="Open positions" value={String(summary?.open_positions ?? 0)} hint="live MTM" />
         <StatTile label="Pending orders" value={String(summary?.pending_orders ?? 0)} hint="awaiting fill" />
         <StatTile
@@ -220,13 +232,85 @@ export default function DashboardPage() {
         />
       </section>
 
-      {/* ── Open positions + Recent orders — desktop only (lg+).
-          Hidden on mobile where the live MarketOverview above is the
-          primary focus; the full positions/orders live on their own
-          bottom-nav tabs. ──────────────────────────────────────────── */}
-      <section className="hidden gap-4 lg:grid lg:grid-cols-3">
+      {/* ══════════════════════════════════════════════════════════════
+          DESKTOP dashboard (lg+). The mobile / tablet view above is
+          intentionally untouched — this entire block is lg-only.
+          ══════════════════════════════════════════════════════════════ */}
+      <div className="hidden space-y-5 lg:block">
+        {/* Greeting + 4 stat cards */}
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-[26px] font-bold tracking-tight">
+              {greeting}, {user?.full_name?.split(" ")[0] ?? "Trader"} 👋
+            </h1>
+            <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+              {user?.is_demo && (
+                <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-400">
+                  DEMO
+                </span>
+              )}
+              <span>{user?.user_code} · Trade. Earn. Level up.</span>
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <BigStat
+              icon={Wallet}
+              iconClass="bg-primary/10 text-primary"
+              label="Portfolio value"
+              onToggle={() => setHideBalance((v) => !v)}
+              hidden={hideBalance}
+            >
+              {hideBalance ? "₹ ••••••" : <NumberTicker value={portfolio} format={formatINR} />}
+            </BigStat>
+            <BigStat
+              icon={Activity}
+              iconClass={todayPnl >= 0 ? "bg-buy/10 text-buy" : "bg-sell/10 text-sell"}
+              label="Today's P&L"
+              tone={pnlColor(todayPnl)}
+            >
+              {hideBalance ? "•••" : <NumberTicker value={todayPnl} format={formatINR} />}
+            </BigStat>
+            <BigStat
+              icon={Landmark}
+              iconClass="bg-slate-500/10 text-slate-600 dark:text-slate-300"
+              label="Available margin"
+            >
+              {hideBalance ? (
+                "•••"
+              ) : (
+                <NumberTicker
+                  value={Number(wallet.available_free ?? wallet.available_balance ?? 0)}
+                  format={formatINR}
+                />
+              )}
+            </BigStat>
+            <BigStat
+              icon={Lock}
+              iconClass="bg-amber-500/10 text-amber-600 dark:text-amber-400"
+              label="Used margin"
+            >
+              {hideBalance ? (
+                "•••"
+              ) : (
+                <NumberTicker value={Number(wallet.used_margin ?? 0)} format={formatINR} />
+              )}
+            </BigStat>
+          </div>
+        </div>
+
+        {/* Row 1 — Market overview · Open positions · Recent orders */}
+        <div className="grid gap-4 lg:grid-cols-3">
+          <PanelCard
+            title="Market overview"
+            subtitle="Indices · Forex · Crypto · Commodities"
+            action={{ label: "View all markets", href: "/marketwatch" }}
+          >
+            <div className="h-[300px] overflow-hidden rounded-xl border border-border [&_iframe]:rounded-xl">
+              <MarketOverviewTV />
+            </div>
+          </PanelCard>
+
         <PanelCard
-          className="lg:col-span-2"
           title="Open positions"
           subtitle="Live mark-to-market"
           action={{ label: "View all", href: "/positions" }}
@@ -323,7 +407,66 @@ export default function DashboardPage() {
             <EmptyState message="No orders yet" cta={{ label: "Place an order", href: "/terminal" }} />
           )}
         </PanelCard>
-      </section>
+        </div>
+
+        {/* Row 2 — Market news · Account health */}
+        <div className="grid gap-4 lg:grid-cols-3">
+          <PanelCard className="lg:col-span-2" title="Market news" subtitle="Live headlines">
+            <div className="h-[340px] overflow-hidden rounded-xl border border-border [&_iframe]:rounded-xl">
+              <MobileNews />
+            </div>
+          </PanelCard>
+          <PanelCard title="Account health" subtitle="Live risk snapshot">
+            <div className="py-4">
+              <AccountHealth usedPct={marginUsage} />
+            </div>
+          </PanelCard>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BigStat({
+  icon: Icon,
+  iconClass,
+  label,
+  tone,
+  onToggle,
+  hidden,
+  children,
+}: {
+  icon: any;
+  iconClass: string;
+  label: string;
+  tone?: string;
+  onToggle?: () => void;
+  hidden?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3.5 transition-shadow hover:shadow-md">
+      <div className={cn("grid size-11 shrink-0 place-items-center rounded-xl", iconClass)}>
+        <Icon className="size-5" strokeWidth={2.25} />
+      </div>
+      <div className="min-w-0">
+        <div className={cn("flex items-center gap-1.5 font-tabular text-[18px] font-bold leading-tight tabular-nums", tone)}>
+          {children}
+          {onToggle && (
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-label="Toggle balance visibility"
+              className="text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {hidden ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+            </button>
+          )}
+        </div>
+        <div className="mt-0.5 text-[10.5px] uppercase tracking-wider text-muted-foreground">
+          {label}
+        </div>
+      </div>
     </div>
   );
 }
