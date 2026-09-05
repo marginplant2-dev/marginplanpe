@@ -984,24 +984,20 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
             quote?.high > 0 ||
             quote?.low > 0 ||
             quote?.prev_close > 0) && (
-            <div className="mt-2.5 grid grid-cols-4 overflow-hidden rounded-lg border border-border">
+            {/* Clean, box-free O/H/L/C row (operator: "box me mat rakho,
+                professional rakho"). Theme tokens keep it right in dark+light. */}
+            <div className="mt-2.5 flex items-center justify-between border-b border-border/60 px-0.5 pb-2.5">
               {[
-                { k: "O", v: quote?.open, cls: "text-foreground" },
-                { k: "H", v: quote?.high, cls: "text-buy" },
-                { k: "L", v: quote?.low, cls: "text-sell" },
-                { k: "C", v: quote?.prev_close, cls: "text-foreground" },
-              ].map((c, i) => (
-                <div
-                  key={c.k}
-                  className={cn(
-                    "flex flex-col items-center justify-center py-1.5",
-                    i > 0 && "border-l border-border",
-                  )}
-                >
-                  <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                { k: "Open", v: quote?.open, cls: "text-foreground" },
+                { k: "High", v: quote?.high, cls: "text-buy" },
+                { k: "Low", v: quote?.low, cls: "text-sell" },
+                { k: "Close", v: quote?.prev_close, cls: "text-foreground" },
+              ].map((c) => (
+                <div key={c.k} className="flex flex-col gap-0.5">
+                  <span className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
                     {c.k}
                   </span>
-                  <span className={cn("font-tabular tabular-nums text-xs", c.cls)}>
+                  <span className={cn("font-tabular text-[13px] font-semibold tabular-nums", c.cls)}>
                     {c.v > 0 ? Number(c.v).toFixed(2) : "—"}
                   </span>
                 </div>
