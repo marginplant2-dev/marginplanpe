@@ -1249,11 +1249,7 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
               <button
                 key={m}
                 type="button"
-                onClick={() => {
-                  const min = Math.max(minLot, p);
-                  const capped = maxLotPerOrder > 0 ? Math.min(maxLotPerOrder, min) : min;
-                  setLots(capped);
-                }}
+                onClick={() => setLots(Math.max(minLot, p))}
                 className={cn(
                   "flex-1 rounded-md border py-1.5 text-center font-tabular text-xs font-semibold tabular-nums transition-colors",
                   active
@@ -1261,7 +1257,7 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
                     : "border-border bg-card text-muted-foreground hover:bg-muted/40",
                 )}
               >
-                {fmtLots(p)}
+                {p % 1 === 0 ? p : fmtLots(p)}
               </button>
             );
           })}
