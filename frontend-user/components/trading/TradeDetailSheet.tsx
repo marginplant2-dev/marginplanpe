@@ -16,12 +16,14 @@ import {
   ShoppingBag,
   Target,
   Timer,
+  X,
   Zap,
 } from "lucide-react";
 import { OptionChainPicker } from "@/components/trading/OptionChainPicker";
 import { InstrumentIcon } from "@/components/trading/InstrumentIcon";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -931,7 +933,10 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
         onClose();
       }}
     >
-      <DialogContent className="flex h-[100dvh] max-h-[100dvh] w-full max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 p-0 shadow-none sm:h-auto sm:max-h-[92vh] sm:w-[calc(100%-1rem)] sm:max-w-md sm:rounded-lg sm:border sm:shadow-2xl">
+      <DialogContent
+        hideCloseButton
+        className="flex h-[100dvh] max-h-[100dvh] w-full max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 p-0 shadow-none sm:h-auto sm:max-h-[92vh] sm:w-[calc(100%-1rem)] sm:max-w-md sm:rounded-lg sm:border sm:shadow-2xl"
+      >
         <DialogTitle className="sr-only">
           Trade {instrument?.symbol ?? ""}
         </DialogTitle>
@@ -972,6 +977,11 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
                 LTP <span className="font-tabular tabular-nums">{fmtPrice(ltp)}</span>
               </div>
             </div>
+            {/* Bold, labelled close — replaces the faint default X so the
+                exit is obvious on the full-page mobile sheet. */}
+            <DialogClose className="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-border bg-muted/40 px-2.5 text-xs font-bold text-foreground transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring">
+              <X className="size-4" strokeWidth={2.5} /> Close
+            </DialogClose>
           </div>
 
           {/* Prominent SELL · change · BUY row (mockup layout). Same live
