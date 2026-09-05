@@ -9,7 +9,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Check, Eye, EyeOff, X, User, Mail, Phone, Lock } from "lucide-react";
+import { Check, Eye, EyeOff, X, User, Mail, Phone, Lock, Gift } from "lucide-react";
 import { AuthAPI, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -132,6 +132,12 @@ function RegisterPageInner() {
   const showRules = pwdFocused || pwd.length > 0;
   const [blockedMsg, setBlockedMsg] = useState<string | null>(null);
 
+  // Referral code the friend can type in (or auto-filled from ?rc=). Optional.
+  const [refInput, setRefInput] = useState("");
+  useEffect(() => {
+    if (userRefCode) setRefInput(userRefCode);
+  }, [userRefCode]);
+
   async function onSubmit(values: FormValues) {
     try {
       await AuthAPI.register({
@@ -140,7 +146,7 @@ function RegisterPageInner() {
         mobile: values.mobile,
         password: values.password,
         referral_code: refCode || branding?.user_code || undefined,
-        referred_by_code: userRefCode || undefined,
+        referred_by_code: refInput.trim().toUpperCase() || undefined,
       });
       // Consumed — drop the persisted code so a later unrelated signup on
       // this browser isn't mis-attributed to a stale referrer.
@@ -242,6 +248,23 @@ function RegisterPageInner() {
             {form.formState.errors.mobile && (
               <p className="text-xs text-destructive">{form.formState.errors.mobile.message}</p>
             )}
+          </div>
+        </div>
+
+        {/* Referral code (optional) — auto-filled from ?rc=, editable */}
+        <div className="space-y-1.5">
+          <Label htmlFor="ref" className="text-sm font-medium">
+            Referral code <span className="text-muted-foreground">(optional)</span>
+          </Label>
+          <div className="relative">
+            <Gift className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground sm:left-3.5 sm:size-4" />
+            <Input
+              id="ref"
+              placeholder="Friend's referral code"
+              value={refInput}
+              onChange={(e) => setRefInput(e.target.value.toUpperCase())}
+              className="h-10 rounded-xl border-border/60 bg-muted/40 pl-9 text-sm uppercase tracking-wider transition-colors focus:border-primary/50 focus:bg-background sm:h-12 sm:pl-10"
+            />
           </div>
         </div>
 
