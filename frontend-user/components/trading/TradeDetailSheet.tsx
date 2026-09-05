@@ -19,6 +19,7 @@ import {
   Zap,
 } from "lucide-react";
 import { OptionChainPicker } from "@/components/trading/OptionChainPicker";
+import { InstrumentIcon } from "@/components/trading/InstrumentIcon";
 import {
   Dialog,
   DialogContent,
@@ -938,6 +939,13 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
         {/* ── Header ─────────────────────────────────────────────── */}
         <div className="shrink-0 border-b border-border px-4 py-3">
           <div className="flex items-start gap-3">
+            <InstrumentIcon
+              symbol={instrument?.symbol ?? ""}
+              isCrypto={isCrypto}
+              isForex={isForex}
+              size={30}
+              className="mt-0.5"
+            />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="truncate text-lg font-bold">
@@ -1119,12 +1127,19 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
 
         {/* ── Price + Lot stepper ─────────────────────────────────── */}
         <div className="mt-3 grid grid-cols-2 gap-2 px-4">
-          <div className="rounded-lg border border-border bg-card px-3 py-3 text-center">
+          <div
+            className={cn(
+              "flex flex-col justify-center rounded-lg border px-3 py-1.5 text-center",
+              orderType === "MARKET"
+                ? "border-primary/30 bg-primary/5"
+                : "border-border bg-card",
+            )}
+          >
             {orderType === "MARKET" ? (
               <>
-                <div className="text-base font-semibold">Market</div>
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Price
+                <div className="text-sm font-bold text-primary">Market</div>
+                <div className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                  at best price
                 </div>
               </>
             ) : (
@@ -1134,21 +1149,21 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
                   value={limitPrice}
                   onChange={(e) => setLimitPrice(e.target.value)}
                   placeholder={fmtPrice(refPrice).replace(priceCcy, "")}
-                  className="w-full bg-transparent text-center text-base font-semibold outline-none"
+                  className="w-full bg-transparent text-center text-sm font-semibold outline-none"
                 />
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                <div className="text-[9px] uppercase tracking-wider text-muted-foreground">
                   Limit Price
                 </div>
               </>
             )}
           </div>
-          <div className="flex flex-col items-stretch gap-1 rounded-lg border border-border bg-card px-2 py-2">
+          <div className="flex flex-col items-stretch gap-0.5 rounded-lg border border-border bg-card px-2 py-1.5">
             <div className="flex items-center justify-between gap-1">
               <button
                 type="button"
                 onClick={() => bumpLots(-lotStep)}
                 aria-label={unit === "LOTS" ? "Decrease lots" : "Decrease quantity"}
-                className="grid size-9 place-items-center rounded-md hover:bg-muted/40"
+                className="grid size-8 place-items-center rounded-md bg-muted/50 text-foreground hover:bg-muted"
               >
                 <Minus className="size-4" />
               </button>
@@ -1190,9 +1205,9 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
                       (e.currentTarget as HTMLInputElement).blur();
                     }
                   }}
-                  className="w-24 bg-transparent text-center font-tabular text-lg font-semibold tabular-nums outline-none"
+                  className="w-24 bg-transparent text-center font-tabular text-base font-bold tabular-nums outline-none"
                 />
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                <div className="text-[9px] uppercase tracking-wider text-muted-foreground">
                   {unit === "LOTS" ? "Lot" : "Qty"}
                 </div>
               </div>
@@ -1200,7 +1215,7 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
                 type="button"
                 onClick={() => bumpLots(lotStep)}
                 aria-label={unit === "LOTS" ? "Increase lots" : "Increase quantity"}
-                className="grid size-9 place-items-center rounded-md hover:bg-muted/40"
+                className="grid size-8 place-items-center rounded-md bg-primary/10 text-primary hover:bg-primary/20"
               >
                 <Plus className="size-4" />
               </button>
