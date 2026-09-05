@@ -930,13 +930,13 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
         onClose();
       }}
     >
-      <DialogContent className="flex max-h-[92vh] w-[calc(100%-1rem)] max-w-md flex-col gap-0 overflow-hidden p-0">
+      <DialogContent className="flex h-[100dvh] max-h-[100dvh] w-full max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 p-0 shadow-none sm:h-auto sm:max-h-[92vh] sm:w-[calc(100%-1rem)] sm:max-w-md sm:rounded-lg sm:border sm:shadow-2xl">
         <DialogTitle className="sr-only">
           Trade {instrument?.symbol ?? ""}
         </DialogTitle>
 
         {/* ── Header ─────────────────────────────────────────────── */}
-        <div className="border-b border-border px-4 py-3">
+        <div className="shrink-0 border-b border-border px-4 py-3">
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
@@ -1006,6 +1006,11 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
           )}
         </div>
 
+        {/* Scrollable body — on mobile the sheet is full-height, so
+            everything between the pinned header and the pinned BUY/SELL
+            footer scrolls here. Desktop card stays short and rarely
+            scrolls. Order/margin LOGIC below is unchanged. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {/* ── Action row ──────────────────────────────────────────── */}
         <div className="flex items-center gap-2 px-4 pt-3">
           <Link
@@ -1335,8 +1340,9 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
           </div>
         )}
 
-        {/* ── Big BUY / SELL ──────────────────────────────────────── */}
-        <div className="mt-4 grid grid-cols-2 gap-2 px-4 pb-4">
+        </div>
+        {/* ── Big BUY / SELL — pinned footer ──────────────────────── */}
+        <div className="shrink-0 grid grid-cols-2 gap-2 border-t border-border bg-card px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
           {/* `loading` removed — submit is fire-and-forget now and the
               sheet closes immediately on tap, so no spinner state is
               ever visible. `disabled` keeps the 250 ms double-tap
