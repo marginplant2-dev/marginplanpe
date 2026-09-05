@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Bell, LogOut, Megaphone, Search, User as UserIcon, Wallet } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
@@ -9,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ThemeToggle } from "@/components/common/ThemeToggle";
 import { BrandLogo } from "@/components/layout/BrandLogo";
+import { NAV_ITEMS } from "@/components/layout/Sidebar";
 import { cn, formatINR } from "@/lib/utils";
 import { readWalletSnapshot, writeWalletSnapshot } from "@/lib/walletSnapshot";
 import { buildWhatsappUrl, useSupportContacts } from "@/lib/useSupport";
@@ -33,6 +35,7 @@ function WhatsAppIcon({ className }: { className?: string }) {
 export function TopBar() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const pathname = usePathname();
 
   // Live wallet balance — drives the pill on the topbar.
   // `placeholderData` paints the last-known balance from localStorage so the
@@ -75,8 +78,41 @@ export function TopBar() {
         <BrandLogo size="sm" />
       </div>
 
-      {/* Desktop search */}
-      <div className="relative hidden flex-1 md:block">
+      {/* Desktop (lg+) brand — sidebar is hidden at lg, so the logo lives
+          in the top nav bar instead. Tablet (md) still uses the sidebar. */}
+      <div className="mr-1 hidden shrink-0 lg:flex">
+        <BrandLogo size="sm" />
+      </div>
+
+      {/* Desktop (lg+) horizontal nav — replaces the left sidebar. Same
+          NAV_ITEMS the sidebar uses, so the two never drift. */}
+      <nav className="hidden min-w-0 flex-1 items-center gap-0.5 overflow-x-auto lg:flex [&::-webkit-scrollbar]:hidden">
+        {NAV_ITEMS.map((it) => {
+          const active =
+            pathname === it.href ||
+            (it.href !== "/dashboard" && pathname?.startsWith(it.href));
+          const Icon = it.icon;
+          return (
+            <Link
+              key={it.href}
+              href={it.href}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors",
+                active
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              )}
+            >
+              <Icon className="size-4 shrink-0" />
+              {it.label}
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* Search — tablet (md) only; on lg the nav takes the centre. */}
+      <div className="relative hidden flex-1 md:block lg:hidden">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           placeholder="Search RELIANCE, NIFTY, BANKNIFTY…"

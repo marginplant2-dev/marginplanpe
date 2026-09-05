@@ -24,9 +24,11 @@ import {
   useSupportContacts,
 } from "@/lib/useSupport";
 
-const items = [
+// Exported so the desktop TopBar can render the SAME nav horizontally
+// (lg+), keeping one source of truth for items / labels / order.
+export const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: Home },
-  { href: "/terminal", label: "Trading Terminal", icon: CandlestickChart },
+  { href: "/terminal", label: "Terminal", icon: CandlestickChart },
   // Positions is the unified blotter — Position / Active / Closed /
   // Cancelled / Rejected tabs all live there. The old separate /orders
   // route was folded in per user request: "orders aur position dono
@@ -53,7 +55,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "sticky top-0 z-30 hidden h-screen flex-col border-r border-border bg-card md:flex",
+        "sticky top-0 z-30 hidden h-screen flex-col border-r border-border bg-card md:flex lg:hidden",
         collapsed ? "w-16" : "w-60"
       )}
     >
@@ -75,7 +77,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto p-2 scrollbar-thin">
-        {items.map((it) => {
+        {NAV_ITEMS.map((it) => {
           const active =
             pathname === it.href ||
             (it.href !== "/dashboard" && pathname?.startsWith(it.href));
