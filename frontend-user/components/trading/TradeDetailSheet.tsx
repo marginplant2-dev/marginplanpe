@@ -943,6 +943,11 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
                 <span className="truncate text-lg font-bold">
                   {instrument?.symbol ?? "—"}
                 </span>
+                {(isCrypto || isForex || seg) && (
+                  <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {isCrypto ? "Crypto" : isForex ? "Forex" : seg}
+                  </span>
+                )}
                 {openPosCount > 0 && (
                   <Link
                     href="/positions"
@@ -959,20 +964,32 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
                 LTP <span className="font-tabular tabular-nums">{fmtPrice(ltp)}</span>
               </div>
             </div>
-            <div className="pr-7 text-right">
-              <div className="flex items-baseline gap-2 font-tabular text-base font-bold tabular-nums">
-                <span className="text-sell">{fmtPrice(sellPrice)}</span>
-                <span className="text-buy">{fmtPrice(buyPrice)}</span>
+          </div>
+
+          {/* Prominent SELL · change · BUY row (mockup layout). Same live
+              buy/sell prices the BUY/SELL buttons submit with — display
+              only, theme tokens keep it right in light + dark. */}
+          <div className="mt-3 flex items-center justify-between">
+            <div className="text-left">
+              <div className="font-tabular text-2xl font-bold leading-none tabular-nums text-sell">
+                {fmtPrice(sellPrice)}
               </div>
-              <div
-                className={cn(
-                  "mt-0.5 text-[11px] font-tabular tabular-nums",
-                  pnlColor(quote?.change_pct ?? 0),
-                )}
-              >
-                {quote?.change != null ? quote.change.toFixed(2) : "—"} (
-                {formatPercent(quote?.change_pct ?? 0)})
+              <div className="mt-1 text-[11px] font-medium text-muted-foreground">Sell</div>
+            </div>
+            <div
+              className={cn(
+                "text-center font-tabular text-xs font-semibold tabular-nums",
+                pnlColor(quote?.change_pct ?? 0),
+              )}
+            >
+              {quote?.change != null ? quote.change.toFixed(2) : "—"} (
+              {formatPercent(quote?.change_pct ?? 0)})
+            </div>
+            <div className="text-right">
+              <div className="font-tabular text-2xl font-bold leading-none tabular-nums text-buy">
+                {fmtPrice(buyPrice)}
               </div>
+              <div className="mt-1 text-[11px] font-medium text-muted-foreground">Buy</div>
             </div>
           </div>
 
@@ -984,20 +1001,26 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
             quote?.high > 0 ||
             quote?.low > 0 ||
             quote?.prev_close > 0) && (
-            // Clean, box-free O/H/L/C row (operator: no boxes, professional).
-            // Theme tokens keep it right in dark + light.
-            <div className="mt-2.5 flex items-center justify-between border-b border-border/60 px-0.5 pb-2.5">
+            // Boxed 4-up O/H/L/C (mockup style). Live feed OHLC, display
+            // only; theme tokens keep it right in light + dark.
+            <div className="mt-3 grid grid-cols-4 overflow-hidden rounded-xl border border-border bg-muted/20">
               {[
-                { k: "Open", v: quote?.open, cls: "text-foreground" },
-                { k: "High", v: quote?.high, cls: "text-buy" },
-                { k: "Low", v: quote?.low, cls: "text-sell" },
-                { k: "Close", v: quote?.prev_close, cls: "text-foreground" },
-              ].map((c) => (
-                <div key={c.k} className="flex flex-col gap-0.5">
-                  <span className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
+                { k: "O", v: quote?.open, cls: "text-foreground" },
+                { k: "H", v: quote?.high, cls: "text-buy" },
+                { k: "L", v: quote?.low, cls: "text-sell" },
+                { k: "C", v: quote?.prev_close, cls: "text-foreground" },
+              ].map((c, i) => (
+                <div
+                  key={c.k}
+                  className={cn(
+                    "flex flex-col items-center gap-0.5 py-2",
+                    i > 0 && "border-l border-border",
+                  )}
+                >
+                  <span className="text-[10px] font-semibold uppercase text-muted-foreground">
                     {c.k}
                   </span>
-                  <span className={cn("font-tabular text-[13px] font-semibold tabular-nums", c.cls)}>
+                  <span className={cn("font-tabular text-[12px] font-semibold tabular-nums", c.cls)}>
                     {c.v > 0 ? Number(c.v).toFixed(2) : "—"}
                   </span>
                 </div>
@@ -1202,6 +1225,36 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
           </div>
         </div>
 
+        {/* ── Quick-lot presets ───────────────────────────────────────
+            Sensible multiples of the segment min-lot. Tapping routes
+            through the SAME clamp as the +/− stepper (min_lot floor,
+            per-order cap) — no new order/qty logic. */}
+        <div className="mt-2.5 flex gap-2 px-4">
+          {[1, 2, 3, 5, 10].map((m) => {
+            const p = +(minLot * m).toFixed(3);
+            const active = Math.abs(lots - p) < 1e-9;
+            return (
+              <button
+                key={m}
+                type="button"
+                onClick={() => {
+                  const min = Math.max(minLot, p);
+                  const capped = maxLotPerOrder > 0 ? Math.min(maxLotPerOrder, min) : min;
+                  setLots(capped);
+                }}
+                className={cn(
+                  "flex-1 rounded-md border py-1.5 text-center font-tabular text-xs font-semibold tabular-nums transition-colors",
+                  active
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-card text-muted-foreground hover:bg-muted/40",
+                )}
+              >
+                {fmtLots(p)}
+              </button>
+            );
+          })}
+        </div>
+
         {/* ── Order type tabs ─────────────────────────────────────── */}
         <div className="mt-3 grid grid-cols-2 gap-2 px-4">
           <button
@@ -1308,6 +1361,47 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
                 value={formatINRCompact(carryFwd)}
                 fullValue={`Carry-forward (overnight) margin · ${formatINR(carryFwd)}`}
               />
+            </div>
+          );
+        })()}
+
+        {/* ── Order value / required / after-order summary ─────────────
+            All derived from the SAME live values used to place & margin
+            the order — display only, updates as qty / price / type move. */}
+        {(() => {
+          const orderValue = +(liveQty * refPrice).toFixed(2);
+          const requiredMargin =
+            productType === "NRML" && !isInfowaySeg ? carryforwardMargin : intradayMargin;
+          const afterMargin = availableMargin - requiredMargin;
+          return (
+            <div className="mt-3 px-4">
+              <div className="rounded-xl border border-border bg-muted/20 px-3.5 py-3 text-[13px]">
+                <Row label="Order Value (approx)" value={formatINR(orderValue)} />
+                <Row label="Required Margin" value={formatINR(requiredMargin)} />
+                <Row
+                  label="After Order Margin"
+                  value={formatINR(afterMargin)}
+                  valueClass={afterMargin < 0 ? "text-sell" : "text-foreground"}
+                  last
+                />
+              </div>
+
+              {/* Order Summary — mirrors what the BUY/SELL buttons submit. */}
+              <div className="mt-3 overflow-hidden rounded-xl border border-border">
+                <div className="bg-muted/40 px-3.5 py-2 text-xs font-semibold text-foreground">
+                  Order Summary
+                </div>
+                <div className="px-3.5 py-2.5 text-[13px]">
+                  <Row label="Symbol" value={instrument?.symbol ?? "—"} />
+                  <Row label="Order Type" value={orderType === "MARKET" ? "Market" : "Limit"} />
+                  <Row
+                    label="Quantity"
+                    value={`${fmtLots(liveLots)} LOT (${fmtLots(liveQty)} Qty)`}
+                  />
+                  <Row label="Est. Margin" value={formatINR(requiredMargin)} />
+                  <Row label="Est. Order Value" value={formatINR(orderValue)} last />
+                </div>
+              </div>
             </div>
           );
         })()}
@@ -1424,6 +1518,28 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
         />
       )}
     </Dialog>
+  );
+}
+
+// Label ↔ value line used by the Order-value + Order-summary cards.
+function Row({
+  label,
+  value,
+  valueClass,
+  last,
+}: {
+  label: string;
+  value: string;
+  valueClass?: string;
+  last?: boolean;
+}) {
+  return (
+    <div className={cn("flex items-center justify-between py-1.5", !last && "border-b border-border/50")}>
+      <span className="text-muted-foreground">{label}</span>
+      <span className={cn("font-tabular font-semibold tabular-nums", valueClass ?? "text-foreground")}>
+        {value}
+      </span>
+    </div>
   );
 }
 
