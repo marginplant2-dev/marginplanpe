@@ -984,8 +984,8 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
             quote?.high > 0 ||
             quote?.low > 0 ||
             quote?.prev_close > 0) && (
-            {/* Clean, box-free O/H/L/C row (operator: "box me mat rakho,
-                professional rakho"). Theme tokens keep it right in dark+light. */}
+            // Clean, box-free O/H/L/C row (operator: no boxes, professional).
+            // Theme tokens keep it right in dark + light.
             <div className="mt-2.5 flex items-center justify-between border-b border-border/60 px-0.5 pb-2.5">
               {[
                 { k: "Open", v: quote?.open, cls: "text-foreground" },
