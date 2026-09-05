@@ -1001,26 +1001,20 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
             quote?.high > 0 ||
             quote?.low > 0 ||
             quote?.prev_close > 0) && (
-            // Boxed 4-up O/H/L/C (mockup style). Live feed OHLC, display
-            // only; theme tokens keep it right in light + dark.
-            <div className="mt-3 grid grid-cols-4 overflow-hidden rounded-xl border border-border bg-muted/20">
+            // Clean box-free O/H/L/C (operator: no boxes, plain pro look).
+            // Live feed OHLC, display only; theme tokens → light + dark.
+            <div className="mt-3 flex items-center justify-between border-y border-border/60 py-2.5">
               {[
                 { k: "O", v: quote?.open, cls: "text-foreground" },
                 { k: "H", v: quote?.high, cls: "text-buy" },
                 { k: "L", v: quote?.low, cls: "text-sell" },
                 { k: "C", v: quote?.prev_close, cls: "text-foreground" },
-              ].map((c, i) => (
-                <div
-                  key={c.k}
-                  className={cn(
-                    "flex flex-col items-center gap-0.5 py-2",
-                    i > 0 && "border-l border-border",
-                  )}
-                >
-                  <span className="text-[10px] font-semibold uppercase text-muted-foreground">
+              ].map((c) => (
+                <div key={c.k} className="flex items-baseline gap-1.5">
+                  <span className="text-[11px] font-semibold uppercase text-muted-foreground">
                     {c.k}
                   </span>
-                  <span className={cn("font-tabular text-[12px] font-semibold tabular-nums", c.cls)}>
+                  <span className={cn("font-tabular text-[13px] font-semibold tabular-nums", c.cls)}>
                     {c.v > 0 ? Number(c.v).toFixed(2) : "—"}
                   </span>
                 </div>
@@ -1231,7 +1225,10 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
             per-order cap) — no new order/qty logic. */}
         <div className="mt-2.5 flex gap-2 px-4">
           {[1, 2, 3, 5, 10].map((m) => {
-            const p = +(minLot * m).toFixed(3);
+            // Whole-lot presets (1/2/3/5/10). For fractional-min-lot
+            // segments the base is 1 lot; for large-min-lot segments it
+            // scales to the min so every chip is a valid order size.
+            const p = +(Math.max(1, minLot) * m).toFixed(3);
             const active = Math.abs(lots - p) < 1e-9;
             return (
               <button
