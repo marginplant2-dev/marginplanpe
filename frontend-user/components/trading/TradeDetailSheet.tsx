@@ -937,7 +937,7 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
         </DialogTitle>
 
         {/* ── Header ─────────────────────────────────────────────── */}
-        <div className="shrink-0 border-b border-border px-4 py-3">
+        <div className="shrink-0 border-b border-border px-4 py-2">
           <div className="flex items-start gap-3">
             <InstrumentIcon
               symbol={instrument?.symbol ?? ""}
@@ -977,16 +977,16 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
           {/* Prominent SELL · change · BUY row (mockup layout). Same live
               buy/sell prices the BUY/SELL buttons submit with — display
               only, theme tokens keep it right in light + dark. */}
-          <div className="mt-3 flex items-center justify-between">
+          <div className="mt-2 flex items-center justify-between">
             <div className="text-left">
-              <div className="font-tabular text-2xl font-bold leading-none tabular-nums text-sell">
+              <div className="font-tabular text-lg font-bold leading-none tabular-nums text-sell">
                 {fmtPrice(sellPrice)}
               </div>
-              <div className="mt-1 text-[11px] font-medium text-muted-foreground">Sell</div>
+              <div className="mt-0.5 text-[10px] font-medium text-muted-foreground">Sell</div>
             </div>
             <div
               className={cn(
-                "text-center font-tabular text-xs font-semibold tabular-nums",
+                "text-center font-tabular text-[11px] font-semibold tabular-nums",
                 pnlColor(quote?.change_pct ?? 0),
               )}
             >
@@ -994,10 +994,10 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
               {formatPercent(quote?.change_pct ?? 0)})
             </div>
             <div className="text-right">
-              <div className="font-tabular text-2xl font-bold leading-none tabular-nums text-buy">
+              <div className="font-tabular text-lg font-bold leading-none tabular-nums text-buy">
                 {fmtPrice(buyPrice)}
               </div>
-              <div className="mt-1 text-[11px] font-medium text-muted-foreground">Buy</div>
+              <div className="mt-0.5 text-[10px] font-medium text-muted-foreground">Buy</div>
             </div>
           </div>
 
@@ -1011,7 +1011,7 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
             quote?.prev_close > 0) && (
             // Clean box-free O/H/L/C (operator: no boxes, plain pro look).
             // Live feed OHLC, display only; theme tokens → light + dark.
-            <div className="mt-3 flex items-center justify-between border-y border-border/60 py-2.5">
+            <div className="mt-2 flex items-center justify-between border-y border-border/60 py-1.5">
               {[
                 { k: "O", v: quote?.open, cls: "text-foreground" },
                 { k: "H", v: quote?.high, cls: "text-buy" },
