@@ -17,7 +17,6 @@ import {
   Link2,
   Copy,
   Check,
-  Users,
   Wallet,
   Trophy,
   UserPlus,
