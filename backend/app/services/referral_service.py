@@ -214,7 +214,11 @@ async def admin_stats(admin: User) -> dict:
     ponytail: groups in Python — referral volume is small. Switch to a Mongo
     $group aggregation only if the collection grows past a few thousand rows.
     """
-    q: dict = {} if admin.role == UserRole.SUPER_ADMIN else {"admin_id": admin.id}
+    # Each principal sees ONLY their OWN pool's referrals: a regular admin →
+    # rows priced by them (admin_id == self); the super-admin → the platform
+    # pool (admin_id is None, i.e. referrers who sit directly under super-admin,
+    # not under any sub-admin).
+    q: dict = {"admin_id": None if admin.role == UserRole.SUPER_ADMIN else admin.id}
     rows = await Referral.find(q).to_list()
     total_paid = to_decimal(0)
     agg: dict[PydanticObjectId, dict] = {}
