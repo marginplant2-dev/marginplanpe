@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useQuery } from "@tanstack/react-query";
 import { Bell, LogOut, Megaphone, Search, User as UserIcon, Wallet } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
@@ -32,10 +33,23 @@ function WhatsAppIcon({ className }: { className?: string }) {
   );
 }
 
+// Core items shown as the centred desktop nav (reference layout). The rest
+// (Alerts, Refer & Earn, Profile) live in the profile dropdown on the right.
+const PRIMARY_HREFS = new Set([
+  "/dashboard",
+  "/terminal",
+  "/positions",
+  "/wallet",
+  "/ledger",
+  "/reports/tradebook",
+]);
+
 export function TopBar() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const pathname = usePathname();
+  const primaryNav = NAV_ITEMS.filter((it) => PRIMARY_HREFS.has(it.href));
+  const secondaryNav = NAV_ITEMS.filter((it) => !PRIMARY_HREFS.has(it.href));
 
   // Live wallet balance — drives the pill on the topbar.
   // `placeholderData` paints the last-known balance from localStorage so the
@@ -84,31 +98,34 @@ export function TopBar() {
         <BrandLogo size="sm" />
       </div>
 
-      {/* Desktop (lg+) horizontal nav — replaces the left sidebar. Same
-          NAV_ITEMS the sidebar uses, so the two never drift. */}
-      <nav className="hidden min-w-0 flex-1 items-center gap-0.5 overflow-x-auto lg:flex [&::-webkit-scrollbar]:hidden">
-        {NAV_ITEMS.map((it) => {
-          const active =
-            pathname === it.href ||
-            (it.href !== "/dashboard" && pathname?.startsWith(it.href));
-          const Icon = it.icon;
-          return (
-            <Link
-              key={it.href}
-              href={it.href}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors",
-                active
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
-              )}
-            >
-              <Icon className="size-4 shrink-0" />
-              {it.label}
-            </Link>
-          );
-        })}
+      {/* Desktop (lg+) horizontal nav — centred grouped pill, replacing
+          the left sidebar. Core items only; the rest sit in the profile
+          menu on the right. Uses the same NAV_ITEMS as the sidebar. */}
+      <nav className="hidden flex-1 justify-center lg:flex">
+        <div className="flex items-center gap-0.5 rounded-full border border-border bg-card/60 p-1">
+          {primaryNav.map((it) => {
+            const active =
+              pathname === it.href ||
+              (it.href !== "/dashboard" && pathname?.startsWith(it.href));
+            const Icon = it.icon;
+            return (
+              <Link
+                key={it.href}
+                href={it.href}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
+                  active
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+              >
+                <Icon className="size-4 shrink-0" />
+                {it.label}
+              </Link>
+            );
+          })}
+        </div>
       </nav>
 
       {/* Search — tablet (md) only; on lg the nav takes the centre. */}
@@ -166,20 +183,52 @@ export function TopBar() {
          the Profile bottom-nav tab so the header stays uncluttered. */}
       <div className="hidden items-center gap-1 md:flex">
         <ThemeToggle />
-        <Button variant="ghost" size="icon" aria-label="Profile" asChild>
-          <Link href="/profile">
-            <UserIcon className="size-4" />
-          </Link>
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Sign out"
-          onClick={() => logout().then(() => (window.location.href = "/login"))}
-          title={user ? `Sign out ${user.full_name}` : "Sign out"}
-        >
-          <LogOut className="size-4" />
-        </Button>
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <Button variant="ghost" size="icon" aria-label="Account menu">
+              <UserIcon className="size-4" />
+            </Button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              align="end"
+              sideOffset={8}
+              className="z-50 min-w-[210px] rounded-xl border border-border bg-card p-1.5 shadow-lg data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
+            >
+              {user && (
+                <div className="px-2.5 py-1.5">
+                  <div className="truncate text-sm font-semibold">{user.full_name}</div>
+                  <div className="truncate text-[11px] text-muted-foreground">{user.user_code}</div>
+                </div>
+              )}
+              <DropdownMenu.Separator className="my-1 h-px bg-border" />
+              {secondaryNav.map((it) => {
+                const Icon = it.icon;
+                return (
+                  <DropdownMenu.Item key={it.href} asChild>
+                    <Link
+                      href={it.href}
+                      className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-sm outline-none transition-colors hover:bg-accent focus:bg-accent"
+                    >
+                      <Icon className="size-4 text-muted-foreground" />
+                      {it.label}
+                    </Link>
+                  </DropdownMenu.Item>
+                );
+              })}
+              <DropdownMenu.Separator className="my-1 h-px bg-border" />
+              <DropdownMenu.Item asChild>
+                <button
+                  type="button"
+                  onClick={() => logout().then(() => (window.location.href = "/login"))}
+                  className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-sell outline-none transition-colors hover:bg-sell/10 focus:bg-sell/10"
+                >
+                  <LogOut className="size-4" /> Sign out
+                </button>
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
       </div>
     </header>
   );
