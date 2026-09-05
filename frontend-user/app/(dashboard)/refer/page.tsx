@@ -13,6 +13,7 @@ import { formatINR } from "@/lib/utils";
 export default function ReferPage() {
   const { data } = useQuery({ queryKey: ["referral"], queryFn: () => ReferralAPI.mine() });
   const [copied, setCopied] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
 
   const link = useMemo(() => {
     if (typeof window === "undefined" || !data?.referral_code) return "";
@@ -28,6 +29,18 @@ export default function ReferPage() {
       setCopied(true);
       toast.success("Referral link copied");
       setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error("Couldn't copy — long-press to copy");
+    }
+  }
+
+  async function copyCode() {
+    if (!data?.referral_code) return;
+    try {
+      await navigator.clipboard.writeText(data.referral_code);
+      setCodeCopied(true);
+      toast.success("Referral code copied");
+      setTimeout(() => setCodeCopied(false), 1500);
     } catch {
       toast.error("Couldn't copy — long-press to copy");
     }
@@ -87,14 +100,33 @@ export default function ReferPage() {
           </div>
           <div className="grid grid-cols-2 gap-2">
             <Button variant="outline" onClick={copy}>
-              <Copy className="size-4" /> Copy
+              <Copy className="size-4" /> Copy link
             </Button>
             <Button onClick={share}>
               <Share2 className="size-4" /> Share
             </Button>
           </div>
-          <div className="text-[11px] text-muted-foreground">
-            Referral code: <span className="font-mono font-semibold">{data?.referral_code ?? "…"}</span>
+
+          {/* Referral CODE — prominent + own copy button. A friend can type this
+              straight into the "Referral code" box on the register page. */}
+          <div className="rounded-md border border-dashed border-primary/40 bg-primary/5 p-3">
+            <div className="text-[11px] text-muted-foreground">Referral code</div>
+            <div className="mt-0.5 flex items-center justify-between gap-2">
+              <span className="font-mono text-xl font-bold tracking-[0.2em] text-primary">
+                {data?.referral_code ?? "…"}
+              </span>
+              <button
+                onClick={copyCode}
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/10"
+                aria-label="Copy referral code"
+              >
+                {codeCopied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                {codeCopied ? "Copied" : "Copy code"}
+              </button>
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Friend can enter this code on the sign-up page.
+            </p>
           </div>
         </CardContent>
       </Card>

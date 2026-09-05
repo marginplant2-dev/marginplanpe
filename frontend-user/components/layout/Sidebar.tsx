@@ -6,6 +6,7 @@ import {
   Activity,
   Bell,
   CandlestickChart,
+  Gift,
   ChevronLeft,
   FileText,
   Home,
@@ -35,6 +36,7 @@ const items = [
   { href: "/ledger", label: "Ledger", icon: ScrollText },
   { href: "/reports/tradebook", label: "Reports", icon: FileText },
   { href: "/alerts", label: "Alerts", icon: Bell },
+  { href: "/refer", label: "Refer & Earn", icon: Gift },
   { href: "/profile", label: "Profile", icon: User },
 ];
 
