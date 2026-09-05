@@ -65,7 +65,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!user) return null;
 
   return (
-    <div className="grid min-h-screen grid-cols-1 md:grid-cols-[auto_1fr]">
+    <div className="grid min-h-screen grid-cols-1 md:grid-cols-[auto_1fr] lg:grid-cols-1">
       <UserWsBridge />
       <PagePrewarmer />
       <OfflineBanner />
@@ -77,7 +77,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <main className="flex-1 overflow-y-auto bg-background scrollbar-thin">
           {/* Bottom-nav adds ~3.5rem of fixed height on mobile, so add safe
               bottom padding to the scroll area to prevent content clipping. */}
-          <div className="mx-auto max-w-screen-2xl p-4 pb-24 md:p-6 md:pb-6">{children}</div>
+          {/* Full-width on desktop (no max-w cap) so wide laptop/monitor
+              screens don't leave dead space on the right. Mobile is
+              unaffected — the viewport is already below any cap. */}
+          <div className="mx-auto w-full max-w-screen-2xl p-4 pb-24 md:p-6 md:pb-6 lg:max-w-none">{children}</div>
         </main>
         <StatusBar />
         <BottomNav />
