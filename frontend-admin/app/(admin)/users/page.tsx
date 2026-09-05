@@ -539,7 +539,14 @@ function UserMobileCard({
   const weeklyPnl = Number(r.wallet?.weekly_closed_pnl ?? 0);
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-gradient-to-br from-card to-card/60 p-3 shadow-sm transition-shadow hover:shadow-md">
+    <div
+      className={
+        "overflow-hidden rounded-xl border bg-gradient-to-br from-card to-card/60 p-3 shadow-sm transition-shadow hover:shadow-md " +
+        (r.referred_by
+          ? "border-emerald-500/40 ring-1 ring-emerald-500/20"
+          : "border-border")
+      }
+    >
       {/* Row 1: user_code + status pill on the left, action menu on the
           right. Owner / Transferred chips moved to their own row below
           (operator complaint: code + status + broker-name + transferred
@@ -550,6 +557,11 @@ function UserMobileCard({
             {r.user_code}
           </span>
           <StatusPill status={r.status} />
+          {r.referred_by && (
+            <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+              Referred
+            </span>
+          )}
         </div>
         <div className="shrink-0">
           <UserActionMenu user={r} />

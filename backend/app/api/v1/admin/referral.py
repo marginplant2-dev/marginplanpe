@@ -8,9 +8,19 @@ from pydantic import BaseModel, Field
 
 from app.core.dependencies import CurrentAdmin, require_perm
 from app.schemas.common import APIResponse
+from app.services import referral_service
 from app.utils.decimal_utils import quantize_money, to_decimal, to_decimal128
 
 router = APIRouter(prefix="/referral-settings", tags=["admin-referral"])
+
+
+@router.get("/stats", response_model=APIResponse[dict])
+async def get_stats(
+    admin: CurrentAdmin,
+    _: None = Depends(require_perm("users", "read")),
+):
+    """Referral analytics: total referred users, total paid out, top-5 referrers."""
+    return APIResponse(data=await referral_service.admin_stats(admin))
 
 
 class RefSettingsBody(BaseModel):

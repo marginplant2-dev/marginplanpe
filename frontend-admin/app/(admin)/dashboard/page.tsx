@@ -17,11 +17,14 @@ import {
   Link2,
   Copy,
   Check,
+  Users,
+  Wallet,
+  Trophy,
   UserPlus,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { DashboardAPI, RegistrationAPI } from "@/lib/api";
+import { DashboardAPI, RegistrationAPI, ReferralSettingsAPI } from "@/lib/api";
 import { formatINR, formatINRCompact, formatNumber, pnlColor } from "@/lib/utils";
 import { PageHeader } from "@/components/common/PageHeader";
 import { readDashboardSnapshot, writeDashboardSnapshot } from "@/lib/dashboardSnapshot";
@@ -121,6 +124,11 @@ export default function AdminDashboardPage() {
     queryKey: ["admin", "dashboard", "alerts"],
     queryFn: () => DashboardAPI.riskAlerts(),
     refetchInterval: 15_000,
+  });
+  const { data: refStats } = useQuery({
+    queryKey: ["admin", "dashboard", "referral-stats"],
+    queryFn: () => ReferralSettingsAPI.stats(),
+    refetchInterval: 30_000,
   });
 
   // When stats is undefined (no snapshot, no fetch yet) render an em-dash
@@ -238,6 +246,65 @@ export default function AdminDashboardPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Referral analytics — join count, total payout, top referrers ── */}
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card>
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary">
+              <Users className="size-5" />
+            </div>
+            <div>
+              <div className="font-tabular text-2xl font-bold">{refStats?.total_referred ?? 0}</div>
+              <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                Users joined via referral
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="grid size-11 place-items-center rounded-xl bg-emerald-500/10 text-emerald-500">
+              <Wallet className="size-5" />
+            </div>
+            <div>
+              <div className="font-tabular text-2xl font-bold text-emerald-500">
+                {formatINR(Number(refStats?.total_paid ?? 0))}
+              </div>
+              <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                Total paid to referrers
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+              <Trophy className="size-4 text-amber-500" /> Top referrers
+            </div>
+            {(refStats?.top_referrers?.length ?? 0) === 0 ? (
+              <div className="py-2 text-xs text-muted-foreground">No referrals yet.</div>
+            ) : (
+              <div className="divide-y divide-border">
+                {refStats!.top_referrers.map((r, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 py-1.5 text-sm">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="grid size-5 shrink-0 place-items-center rounded-full bg-muted text-[10px] font-bold">
+                        {i + 1}
+                      </span>
+                      <span className="truncate">{r.name}</span>
+                      <span className="shrink-0 text-[11px] text-muted-foreground">×{r.joined}</span>
+                    </span>
+                    <span className="shrink-0 font-tabular text-xs font-semibold text-emerald-500">
+                      {formatINR(Number(r.earned))}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </section>
 
       {/* Website-registration toggle — the admin (their ?ref= link) or the
           super-admin (the platform pool) turns their own signups on/off. */}

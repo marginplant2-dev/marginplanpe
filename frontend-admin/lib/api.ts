@@ -422,6 +422,18 @@ export const ReferralSettingsAPI = {
   ),
   update: (body: { enabled: boolean; reward_amount: number; min_deposit: number }) =>
     unwrap<{ ok: boolean }>(api.put("/admin/referral-settings", body)),
+  stats: () =>
+    unwrap<{
+      total_referred: number;
+      total_paid: string;
+      top_referrers: {
+        name: string;
+        user_code: string;
+        joined: number;
+        paid: number;
+        earned: string;
+      }[];
+    }>(api.get("/admin/referral-settings/stats")),
 };
 
 // Per-admin / super-admin public-registration toggle.

@@ -67,6 +67,9 @@ def _ser(u: User) -> dict:
         # for admin approval. Drives the user-detail toggle button +
         # the Payments → Settlement Requests tab.
         "auto_settlement": bool(getattr(u, "auto_settlement", True)),
+        # Non-null → this user joined via someone's referral link. Drives the
+        # "Referred" chip / tinted row in the Users table.
+        "referred_by": str(u.referred_by) if getattr(u, "referred_by", None) else None,
     }
 
 

@@ -204,3 +204,44 @@ async def summary(user: User) -> dict:
         "total_earned": str(total_earned),
         "referrals": items,
     }
+
+
+async def admin_stats(admin: User) -> dict:
+    """Referral analytics for an admin's pool (SUPER_ADMIN = whole platform):
+    total referred users, total reward paid out, and the top-5 referrers by
+    joined count with their earnings.
+
+    ponytail: groups in Python — referral volume is small. Switch to a Mongo
+    $group aggregation only if the collection grows past a few thousand rows.
+    """
+    q: dict = {} if admin.role == UserRole.SUPER_ADMIN else {"admin_id": admin.id}
+    rows = await Referral.find(q).to_list()
+    total_paid = to_decimal(0)
+    agg: dict[PydanticObjectId, dict] = {}
+    for r in rows:
+        d = agg.setdefault(r.referrer_id, {"joined": 0, "paid": 0, "earned": to_decimal(0)})
+        d["joined"] += 1
+        if r.status == ReferralStatus.PAID:
+            amt = to_decimal(r.reward_amount)
+            total_paid += amt
+            d["paid"] += 1
+            d["earned"] += amt
+    top = sorted(agg.items(), key=lambda kv: (kv[1]["joined"], kv[1]["earned"]), reverse=True)[:5]
+    ref_ids = [rid for rid, _ in top]
+    users = await User.find({"_id": {"$in": ref_ids}}).to_list() if ref_ids else []
+    meta = {u.id: (u.full_name, u.user_code) for u in users}
+    top_referrers = [
+        {
+            "name": meta.get(rid, ("Unknown", ""))[0],
+            "user_code": meta.get(rid, ("", ""))[1],
+            "joined": d["joined"],
+            "paid": d["paid"],
+            "earned": str(quantize_money(d["earned"])),
+        }
+        for rid, d in top
+    ]
+    return {
+        "total_referred": len(rows),
+        "total_paid": str(quantize_money(total_paid)),
+        "top_referrers": top_referrers,
+    }
