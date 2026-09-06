@@ -215,6 +215,17 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
   const isCrypto = seg.includes("CRYPTO") || exch === "CRYPTO";
   const isForex = seg.includes("FOREX") || seg.includes("FX") || exch === "CDS";
   const isFno = seg.includes("FUTURE") || seg.includes("OPTION");
+  // Compact segment badge — the raw segment ("NSE_INDEX_OPTION_BUY") is far
+  // too long and truncates the instrument name, so show a short tag instead.
+  const segShort = isCrypto
+    ? "Crypto"
+    : isForex
+      ? "Forex"
+      : seg.includes("OPTION")
+        ? "OPT"
+        : seg.includes("FUTURE")
+          ? "FUT"
+          : exch || seg || "—";
   // Indian equity / index / future rows expose an Option Chain shortcut
   // — tapping it opens the strike grid for THIS underlying (NIFTY,
   // RELIANCE, SENSEX…) like Zerodha Kite. Hidden on Infoway-fed rows
@@ -951,15 +962,13 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
               className="mt-0.5"
             />
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="truncate text-lg font-bold">
+              {/* Full instrument name — no truncate; wraps to a 2nd line for
+                  long option symbols so the trader always sees the whole
+                  contract (strike/CE-PE), not "NIFTY…". */}
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span className="text-base font-bold leading-tight">
                   {instrument?.symbol ?? "—"}
                 </span>
-                {(isCrypto || isForex || seg) && (
-                  <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {isCrypto ? "Crypto" : isForex ? "Forex" : seg}
-                  </span>
-                )}
                 {openPosCount > 0 && (
                   <Link
                     href="/positions"
@@ -971,9 +980,19 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
                   </Link>
                 )}
               </div>
-              <div className="mt-0.5 text-[11px] text-muted-foreground">
-                {expiryShort && <span className="mr-1.5">{expiryShort}</span>}
-                LTP <span className="font-tabular tabular-nums">{fmtPrice(ltp)}</span>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span className="rounded bg-muted px-1.5 py-0.5 font-semibold uppercase tracking-wide">
+                  {segShort}
+                </span>
+                {expiryShort && (
+                  <span className="rounded bg-amber-500/10 px-1.5 py-0.5 font-semibold text-amber-600 dark:text-amber-400">
+                    Exp {expiryShort}
+                  </span>
+                )}
+                <span>
+                  LTP{" "}
+                  <span className="font-tabular tabular-nums text-foreground">{fmtPrice(ltp)}</span>
+                </span>
               </div>
             </div>
             {/* Plain, clear "Close" — no box, no X. */}
