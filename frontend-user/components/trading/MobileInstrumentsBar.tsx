@@ -845,7 +845,9 @@ function InstrumentRow({
     <div
       className={cn(
         "relative overflow-hidden border-b border-border/40",
-        onDelete && "bg-red-500",
+        // Red fill ONLY while the row is swiped/open — at rest the border
+        // stays the plain subtle line (no red tint bleeding through).
+        onDelete && dx !== 0 && "bg-red-500",
       )}
     >
       {/* Delete action revealed by swiping the row left (favourites). */}
