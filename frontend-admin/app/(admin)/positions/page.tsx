@@ -794,9 +794,12 @@ function AdminPositionsInner() {
       // colour stays correct even though the signed qty is 0.
       render: (r: any) => {
         const isClosed = r.status === "CLOSED";
-        const displayQty = isClosed
+        const rawQty = isClosed
           ? Math.abs(Number(r.opening_quantity ?? 0))
           : Number(r.quantity);
+        // Strip binary float dust (0.9999999999999999 → 1, 4.0000000002 → 4)
+        // while keeping genuine fractional crypto qtys (0.1, 0.001) intact.
+        const displayQty = Number(rawQty.toFixed(8));
         const direction = isClosed
           ? String(r.opened_side || "").toUpperCase() === "SELL"
             ? -1
