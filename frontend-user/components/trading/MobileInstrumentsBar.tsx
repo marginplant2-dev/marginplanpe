@@ -787,13 +787,15 @@ function InstrumentRow({
   // Foreground row slides left to reveal a red delete button, like the
   // Positions blotter. Axis-locked so vertical list scrolling is never
   // hijacked. No-op when `onDelete` is absent.
-  const OPEN = -76;
+  const OPEN = -76; // resting reveal (button shown, still tappable)
+  const COMMIT = -170; // swipe past this and release → delete immediately
+  const MIN = -300; // how far the row may slide while dragging
   const [dx, setDx] = useState(0);
-  const drag = useRef({ startX: 0, startY: 0, baseDx: 0, axis: "" as "" | "h" | "v", moved: false });
+  const drag = useRef({ startX: 0, startY: 0, baseDx: 0, axis: "" as "" | "h" | "v", moved: false, cur: 0 });
   function onTouchStart(e: React.TouchEvent) {
     if (!onDelete) return;
     const t = e.touches[0];
-    drag.current = { startX: t.clientX, startY: t.clientY, baseDx: dx, axis: "", moved: false };
+    drag.current = { startX: t.clientX, startY: t.clientY, baseDx: dx, axis: "", moved: false, cur: dx };
   }
   function onTouchMove(e: React.TouchEvent) {
     if (!onDelete) return;
@@ -805,11 +807,21 @@ function InstrumentRow({
     }
     if (drag.current.axis !== "h") return; // let the list scroll vertically
     drag.current.moved = true;
-    setDx(Math.max(OPEN, Math.min(0, drag.current.baseDx + dxr)));
+    const next = Math.max(MIN, Math.min(0, drag.current.baseDx + dxr));
+    drag.current.cur = next;
+    setDx(next);
   }
   function onTouchEnd() {
     if (!onDelete) return;
-    setDx((v) => (v < OPEN / 2 ? OPEN : 0));
+    // Full swipe past COMMIT → remove straight away (no need to tap the
+    // button). A shorter swipe just parks the row open so the red delete
+    // button is revealed and tappable.
+    if (drag.current.cur <= COMMIT) {
+      setDx(0);
+      onDelete();
+      return;
+    }
+    setDx(drag.current.cur < OPEN / 2 ? OPEN : 0);
   }
   // Two-price watchlist row (operator-approved layout): change% sits under
   // the symbol on the left, and the SELL (bid, red) + BUY (ask, green)
@@ -830,7 +842,12 @@ function InstrumentRow({
         ? "text-emerald-500"
         : "text-red-500";
   return (
-    <div className="relative overflow-hidden border-b border-border/40">
+    <div
+      className={cn(
+        "relative overflow-hidden border-b border-border/40",
+        onDelete && "bg-red-500",
+      )}
+    >
       {/* Delete action revealed by swiping the row left (favourites). */}
       {onDelete && (
         <button
