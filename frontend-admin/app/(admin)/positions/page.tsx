@@ -165,6 +165,23 @@ function fmtHoldingTime(
   return hrPart > 0 ? `${days}d ${hrPart}h` : `${days}d`;
 }
 
+/** Holding duration in whole seconds (null when either end is missing).
+ *  Used to flag ultra-short closes (< 30 s) — possible scalping / gaming. */
+function holdingSeconds(
+  opened: string | Date | null | undefined,
+  closed: string | Date | null | undefined,
+): number | null {
+  const a = parseDate(opened);
+  const b = parseDate(closed);
+  if (!a || !b) return null;
+  const ms = b.getTime() - a.getTime();
+  return ms < 0 ? null : Math.floor(ms / 1000);
+}
+
+// Threshold below which a closed trade is flagged as a suspiciously quick
+// close (light-red row tint + red holding time).
+const QUICK_CLOSE_SEC = 30;
+
 export default function AdminPositionsPage() {
   // useSearchParams must sit inside Suspense for the static prerender
   // to succeed (Next 14 App Router contract).
@@ -1023,14 +1040,25 @@ function AdminPositionsInner() {
             key: "holding_time",
             header: "Holding Time",
             align: "right" as const,
-            render: (r: any) => (
-              <span
-                className="whitespace-nowrap font-tabular text-muted-foreground"
-                title={r.closed_at ?? undefined}
-              >
-                {fmtHoldingTime(r.opened_at, r.closed_at)}
-              </span>
-            ),
+            render: (r: any) => {
+              const s = holdingSeconds(r.opened_at, r.closed_at);
+              const quick = s != null && s < QUICK_CLOSE_SEC;
+              return (
+                <span
+                  className={
+                    "whitespace-nowrap font-tabular " +
+                    (quick ? "font-semibold text-red-500" : "text-muted-foreground")
+                  }
+                  title={
+                    quick
+                      ? `Closed in ${s}s — possible scalping / gaming`
+                      : (r.closed_at ?? undefined)
+                  }
+                >
+                  {fmtHoldingTime(r.opened_at, r.closed_at)}
+                </span>
+              );
+            },
           },
         ]
       : []),
@@ -1448,13 +1476,19 @@ function AdminPositionsInner() {
           // across the full card width (operator: "bahut gap hai").
           tableClassName="w-max"
           onRowClick={(r: any) => setNettingId(String(r.id))}
-          rowClassName={(r) =>
-            tab === "open" && Number(r.unrealized_pnl) < -Number(r.margin_used) * 0.5
+          rowClassName={(r) => {
+            // Closed Trades: subtle light-red tint when the position was
+            // squared off in under 30 s (possible scalping / gaming).
+            if (tab === "closed") {
+              const s = holdingSeconds(r.opened_at, r.closed_at);
+              return s != null && s < QUICK_CLOSE_SEC ? "bg-red-500/[0.06]" : undefined;
+            }
+            return Number(r.unrealized_pnl) < -Number(r.margin_used) * 0.5
               ? "bg-destructive/5"
-              : tab === "open" && Number(r.unrealized_pnl) < -Number(r.margin_used) * 0.25
+              : Number(r.unrealized_pnl) < -Number(r.margin_used) * 0.25
                 ? "bg-atm/5"
-                : undefined
-          }
+                : undefined;
+          }}
         />
       </div>
 
