@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Search, Star, X } from "lucide-react";
+import { Search, Star, Trash2, X } from "lucide-react";
 import { InstrumentAPI, MarketwatchAPI, SegmentSettingsAPI } from "@/lib/api";
 import { useMarketStream } from "@/lib/useMarketStream";
 import { cn, formatPrice, pnlColor } from "@/lib/utils";
@@ -725,6 +725,14 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
                     })
                   }
                   rightAction={rightAction}
+                  // Swipe-left-to-remove — only for favourited rows (the
+                  // gesture removes from favourites), matching the Positions
+                  // swipe. Non-fav / managed-segment rows keep tap actions.
+                  onDelete={
+                    !managedSegmentName && starred
+                      ? () => toggleFavorite(token)
+                      : undefined
+                  }
                 />
               );
             })}
@@ -758,6 +766,7 @@ function InstrumentRow({
   isActive,
   onSelect,
   rightAction,
+  onDelete,
 }: {
   token: string;
   symbol: string;
@@ -771,8 +780,37 @@ function InstrumentRow({
   isActive: boolean;
   onSelect: () => void;
   rightAction: React.ReactNode;
+  onDelete?: () => void;
 }) {
   const stickyChange = useStickyNumber(changePct);
+  // ── Swipe-left-to-delete (favourites) ──────────────────────────────
+  // Foreground row slides left to reveal a red delete button, like the
+  // Positions blotter. Axis-locked so vertical list scrolling is never
+  // hijacked. No-op when `onDelete` is absent.
+  const OPEN = -76;
+  const [dx, setDx] = useState(0);
+  const drag = useRef({ startX: 0, startY: 0, baseDx: 0, axis: "" as "" | "h" | "v", moved: false });
+  function onTouchStart(e: React.TouchEvent) {
+    if (!onDelete) return;
+    const t = e.touches[0];
+    drag.current = { startX: t.clientX, startY: t.clientY, baseDx: dx, axis: "", moved: false };
+  }
+  function onTouchMove(e: React.TouchEvent) {
+    if (!onDelete) return;
+    const t = e.touches[0];
+    const dxr = t.clientX - drag.current.startX;
+    const dyr = t.clientY - drag.current.startY;
+    if (!drag.current.axis && (Math.abs(dxr) > 6 || Math.abs(dyr) > 6)) {
+      drag.current.axis = Math.abs(dxr) > Math.abs(dyr) ? "h" : "v";
+    }
+    if (drag.current.axis !== "h") return; // let the list scroll vertically
+    drag.current.moved = true;
+    setDx(Math.max(OPEN, Math.min(0, drag.current.baseDx + dxr)));
+  }
+  function onTouchEnd() {
+    if (!onDelete) return;
+    setDx((v) => (v < OPEN / 2 ? OPEN : 0));
+  }
   // Two-price watchlist row (operator-approved layout): change% sits under
   // the symbol on the left, and the SELL (bid, red) + BUY (ask, green)
   // prices stack on the right so the trader sees both sides of the spread
@@ -792,24 +830,54 @@ function InstrumentRow({
         ? "text-emerald-500"
         : "text-red-500";
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
-      className={cn(
-        // Right column `auto` so Indian-segment rows fit both star + X
-        // without clipping; single-button rows still sit flush on the
-        // right edge.
-        "grid w-full cursor-pointer grid-cols-[1fr_auto_auto] items-center gap-3 border-b border-border/40 px-3 py-2.5 text-xs transition-colors",
-        isActive ? "bg-primary/10" : "hover:bg-muted/30",
+    <div className="relative overflow-hidden border-b border-border/40">
+      {/* Delete action revealed by swiping the row left (favourites). */}
+      {onDelete && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setDx(0);
+            onDelete();
+          }}
+          aria-label={`Remove ${symbol} from favorites`}
+          className="absolute inset-y-0 right-0 flex w-[76px] items-center justify-center bg-red-500 text-white"
+        >
+          <Trash2 className="size-5" />
+        </button>
       )}
-    >
+      <div
+        role="button"
+        tabIndex={0}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onClick={() => {
+          // A revealed row's first tap closes it; a tap that ends a swipe
+          // is ignored; a clean tap opens the trade sheet.
+          if (dx !== 0) {
+            setDx(0);
+            return;
+          }
+          if (drag.current.moved) return;
+          onSelect();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelect();
+          }
+        }}
+        style={{ transform: `translateX(${dx}px)`, transition: "transform .18s ease" }}
+        className={cn(
+          // Right column `auto` so Indian-segment rows fit both star + X
+          // without clipping; single-button rows still sit flush on the
+          // right edge. Opaque bg so the delete button stays hidden until
+          // the row is swiped.
+          "relative z-[1] grid w-full cursor-pointer grid-cols-[1fr_auto_auto] items-center gap-3 px-3 py-2.5 text-xs",
+          isActive ? "bg-primary/10" : "bg-background hover:bg-muted/30",
+        )}
+      >
       {/* Bold symbol + change% (left, stacked) */}
       <div className="flex min-w-0 flex-col items-start leading-tight">
         <span
@@ -875,7 +943,8 @@ function InstrumentRow({
         )}
       </div>
 
-      {rightAction}
+        {rightAction}
+      </div>
     </div>
   );
 }
