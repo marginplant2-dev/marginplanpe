@@ -830,7 +830,14 @@ async def list_positions(
         }
         oldest_open = min((r.opened_at for r in rows if r.opened_at), default=None)
         if oldest_open is not None:
-            trade_q["executed_at"] = {"$gte": oldest_open - _td_charges(seconds=5)}
+            # 60-day lookback (was `opened_at - 5s`). Carry-forward / weekly-
+            # settlement re-opens RESET a position's opened_at to a LATER time
+            # than its real opening fill (e.g. opened_at 05-Sep but the MIS
+            # opening trade executed 03-Sep). A tight `opened_at - 5s` floor
+            # then excluded that fill → the Order-Type column went blank and
+            # charges under-counted. The query stays bounded by the page's
+            # user_ids + tokens, so widening the time floor is cheap.
+            trade_q["executed_at"] = {"$gte": oldest_open - _td_charges(days=60)}
         trade_rows = await Trade.find(trade_q).sort("+executed_at").to_list()
         for t in trade_rows:
             key = (str(t.user_id), t.instrument.token, t.product_type.value)
