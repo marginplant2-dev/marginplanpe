@@ -162,7 +162,12 @@ export function OrderPanel({ instrument, ltp, bid, ask, open, high, low, close, 
   const _rawAsk = ask ?? 0;
   let dispBid = _rawBid;
   let dispAsk = _rawAsk;
-  if (spreadPips > 0 && ltp > 0) {
+  // FIXED mode is broker-controlled → always mid ± half (half 0 ⇒ mid, i.e.
+  // zero spread when admin sets 0). Only FLOATING needs pips > 0 (it just
+  // widens a too-tight live book). Previously gated `spreadPips > 0`, so a 0
+  // setting showed the raw feed bid/ask — and crypto/forex feeds carry a
+  // natural spread, so BUY/SELL still differed despite spread = 0.
+  if (ltp > 0 && (spreadType !== "floating" || spreadPips > 0)) {
     const half = spreadPips / 2;
     const liveSpread = _rawBid > 0 && _rawAsk > 0 ? _rawAsk - _rawBid : 0;
     if (spreadType !== "floating" || liveSpread < spreadPips) {

@@ -331,8 +331,25 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
   const ask = Number(
     liveTick?.ask || quote?.ask || quote?.depth?.asks?.[0]?.price || seedQuote?.ask || ltp,
   );
-  const sellPrice = bid || ltp;
-  const buyPrice = ask || ltp;
+  // Broker spread (per-user, pool-aware) — mirror OrderPanel + the matching
+  // engine so the displayed BUY/SELL equals the fill. FIXED mode is fully
+  // broker-controlled → mid ± half (half 0 ⇒ mid = zero spread when admin sets
+  // 0, so crypto/forex no longer show the feed's natural bid-ask). FLOATING
+  // only widens a too-tight live book to the configured minimum.
+  const spreadPips = Number(effSettings?.spread_pips ?? 0) || 0;
+  const spreadType = String(effSettings?.spread_type ?? "fixed").toLowerCase();
+  let dispBid = bid || ltp;
+  let dispAsk = ask || ltp;
+  if (ltp > 0 && (spreadType !== "floating" || spreadPips > 0)) {
+    const half = spreadPips / 2;
+    const liveSpread = bid > 0 && ask > 0 ? ask - bid : 0;
+    if (spreadType !== "floating" || liveSpread < spreadPips) {
+      dispAsk = ltp + half;
+      dispBid = ltp - half;
+    }
+  }
+  const sellPrice = dispBid || ltp;
+  const buyPrice = dispAsk || ltp;
   const sideQuote = side === "BUY" ? buyPrice : sellPrice;
   const refPrice = orderType === "MARKET" ? sideQuote : Number(limitPrice || ltp);
   // fx_rate is intentionally not consumed — margin/notional run on the
