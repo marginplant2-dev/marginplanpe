@@ -270,16 +270,26 @@ export function UserWsBridge() {
             qc.invalidateQueries({ queryKey: ["support", "chat"] });
             qc.invalidateQueries({ queryKey: ["support", "chat", "unread"] });
             {
-              const body = String((msg as any).message?.body || "Sent an attachment");
+              const p = (msg as any).message || {};
+              const who = String(p.sender_name || "").trim();
+              const title = who ? `Support · ${who}` : "Support replied";
+              const body = String(p.body || "Sent an attachment");
               if (userNotificationsEnabled()) {
-                toast.message("Support replied", { description: body, duration: 8000 });
+                toast.message(title, { description: body, duration: 8000 });
                 playNotifyPing();
-                // One tag for the whole conversation so a burst of replies
-                // collapses into a single tray row instead of stacking.
-                showNativeNotification("Support replied", body, {
-                  tag: "mp-support",
+                // UNIQUE tag per message. A shared tag collapses successive
+                // replies into one tray row and — as the deposit case in
+                // AdminWsBridge found the hard way — the device then stops
+                // alerting for the 2nd and later ones until the first is
+                // dismissed. The message id is stable and already unique.
+                showNativeNotification(title, body, {
+                  tag: `mp-support-${p.id || Date.now()}`,
                   url: "/support",
                 });
+                // Spoken announcement — the piece that makes it land like the
+                // admin broadcast rather than a silent badge. Voice is primed
+                // on first gesture at the top of this component.
+                speakNotification(body ? `${title}. ${body}` : title);
               }
             }
             break;

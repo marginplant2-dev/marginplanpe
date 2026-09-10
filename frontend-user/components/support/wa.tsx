@@ -242,9 +242,16 @@ export function WaBubble({
   const hasImage = isImage(m.attachment_name, m.attachment_url);
   return (
     <div className={cn("flex px-[3%] py-[1px]", mine ? "justify-end" : "justify-start")}>
+      {/* Flex-wrap layout, NOT an absolutely-positioned stamp over a spacer.
+          The spacer trick needs the reserved width to be at least as wide as
+          the rendered time+ticks at every font and locale, and when it isn't
+          the stamp prints straight through the last word. Here the stamp is a
+          real flex item: it shares the last line when there's room and drops
+          to its own right-aligned line when there isn't, so it can never
+          overlap regardless of message length. */}
       <div
         className={cn(
-          "relative max-w-[85%] rounded-[7.5px] px-[9px] pb-[8px] pt-[6px] text-[14.2px] leading-[19px] shadow-[0_1px_.5px_rgba(11,20,26,.13)] sm:max-w-[65%]",
+          "relative flex max-w-[85%] flex-wrap items-end justify-end gap-x-[8px] rounded-[7.5px] px-[9px] pb-[6px] pt-[6px] text-[14.2px] leading-[19px] shadow-[0_1px_.5px_rgba(11,20,26,.13)] sm:max-w-[65%]",
           mine
             ? "bg-[#d9fdd3] text-[#111b21] dark:bg-[#005c4b] dark:text-[#e9edef]"
             : "bg-white text-[#111b21] dark:bg-[#202c33] dark:text-[#e9edef]",
@@ -266,7 +273,9 @@ export function WaBubble({
         )}
 
         {senderLabel && (
-          <p className="mb-[2px] text-[12.8px] font-medium text-[#06cf9c]">{senderLabel}</p>
+          <p className="w-full text-[12.8px] font-medium leading-[17px] text-[#06cf9c]">
+            {senderLabel}
+          </p>
         )}
 
         {m.attachment_url && (
@@ -274,7 +283,7 @@ export function WaBubble({
             href={fileUrl(m.attachment_url)}
             target="_blank"
             rel="noreferrer"
-            className="mb-[3px] block"
+            className="mb-[3px] block w-full"
           >
             {hasImage ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -292,26 +301,16 @@ export function WaBubble({
           </a>
         )}
 
-        {/* The trailing pad reserves room for the time+ticks so the last text
-            line never runs underneath them — WhatsApp's own trick. The stamp
-            itself is absolutely positioned rather than floated: a float here
-            depends on line-height arithmetic and breaks the moment the text
-            wraps differently, while bottom-right is exact at any wrap. */}
+        {/* `min-w-0` lets this shrink below its longest line so the text wraps
+            INSIDE the bubble; without it a long message would force the bubble
+            past its max-width. */}
         {m.body && (
-          <span className="whitespace-pre-wrap break-words">
+          <span className="min-w-0 whitespace-pre-wrap break-words text-left">
             {m.body}
-            <span className="inline-block w-[62px]" />
           </span>
         )}
 
-        <span
-          className={cn(
-            "absolute bottom-[5px] right-[9px] flex items-center gap-[3px] text-[11px] leading-none text-[#667781] dark:text-[#8696a0]",
-            // Attachment-only bubble has no text line to hang off, so the
-            // stamp gets its own row instead of overlaying the image.
-            !m.body && "static mt-[2px] justify-end",
-          )}
-        >
+        <span className="flex shrink-0 items-center gap-[3px] text-[11px] leading-[17px] text-[#667781] dark:text-[#8696a0]">
           {waTime(m.created_at)}
           {mine && <WaTicks read={!!m.read_at} />}
         </span>

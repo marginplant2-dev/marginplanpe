@@ -32,7 +32,12 @@
  * regression ships. NEVER reuse an old version string.
  */
 
-const VERSION = "marginplant-pwa-v8";
+// v9 — support chat. The installed PWA serves navigations from a
+// VERSION-scoped page cache, so WITHOUT this bump a phone that already
+// had the app installed keeps painting the pre-support-chat shell from
+// cache and the new /support route never appears. Bump on every deploy
+// that adds or changes a route.
+const VERSION = "marginplant-pwa-v9";
 // How long a navigation waits for the network before it paints the last
 // cached shell instead. Short enough to feel instant on weak networks,
 // long enough that a healthy connection almost always wins the race and

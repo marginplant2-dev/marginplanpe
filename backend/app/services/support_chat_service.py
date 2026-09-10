@@ -151,14 +151,18 @@ async def _fanout(thread: SupportThread, msg: SupportMessage, user: User) -> Non
         try:
             from app.services import push_service
 
+            who = (msg.sender_name or "").strip()
             await push_service.send_to_user(
                 thread.user_id,
-                title="Support replied",
+                title=f"Support - {who}" if who else "Support replied",
                 body=thread.last_message_preview or "New message",
                 url="/support",
-                # One tag for the whole thread so a burst of replies collapses
-                # into a single tray entry instead of stacking N of them.
-                tag="support-chat",
+                # UNIQUE tag per message, not one per thread. The service
+                # worker passes the tag straight to showNotification, and a
+                # repeated tag makes the device stop alerting for the 2nd and
+                # later replies until the first is dismissed - the same trap
+                # the deposit push hit (see AdminWsBridge's deposit case).
+                tag=f"support-chat-{msg.id}",
             )
         except Exception:  # pragma: no cover
             logger.exception("support_user_push_failed user=%s", thread.user_id)
@@ -177,7 +181,9 @@ async def _fanout(thread: SupportThread, msg: SupportMessage, user: User) -> Non
             title=f"Support: {user.full_name or user.user_code}",
             body=thread.last_message_preview or "New message",
             url="/support-chat",
-            tag=f"support-chat-{thread.user_id}",
+            # Per-message, same reasoning as the user push above: one tag per
+            # user would silence every follow-up message from that user.
+            tag=f"support-chat-{msg.id}",
         )
     except Exception:  # pragma: no cover
         logger.exception("support_admin_push_failed user=%s", thread.user_id)

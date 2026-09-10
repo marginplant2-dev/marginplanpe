@@ -257,7 +257,12 @@ function SupportShortcut() {
         asChild
       >
         <a href={waUrl} target="_blank" rel="noopener noreferrer">
-          <WhatsAppGlyph className="size-4 text-[#25D366]" />
+          {/* Filled disc rather than a bare 16px outline glyph: at the size a
+              ghost icon button gives it, a thin mark reads as decoration and
+              users miss it. Solid green + white mark is unmistakable. */}
+          <span className="grid size-8 place-items-center rounded-full bg-[#25D366] text-white shadow-sm">
+            <WhatsAppGlyph className="size-[19px]" />
+          </span>
         </a>
       </Button>
     );
@@ -274,9 +279,14 @@ function SupportShortcut() {
       asChild
     >
       <Link href="/support">
-        <ChatGlyph className="size-4 text-[#25D366]" />
+        <span className="grid size-8 place-items-center rounded-full bg-[#25D366] text-white shadow-sm">
+          <ChatGlyph className="size-[19px]" />
+        </span>
+        {/* Badge rides the disc's top-right corner. `ring` in the bar colour
+            cuts a gap between badge and disc so the count stays readable
+            where the two overlap. */}
         {unread > 0 && (
-          <span className="absolute right-1 top-1 grid min-w-[15px] place-items-center rounded-full bg-[#25D366] px-1 text-[9px] font-semibold leading-[15px] text-white">
+          <span className="absolute -right-0.5 -top-0.5 grid min-w-[17px] place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-[17px] text-white ring-2 ring-background">
             {unread > 9 ? "9+" : unread}
           </span>
         )}
