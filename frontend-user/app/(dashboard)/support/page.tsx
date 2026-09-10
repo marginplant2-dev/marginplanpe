@@ -188,9 +188,10 @@ export default function SupportChatPage() {
                     m={m}
                     mine={mine}
                     tail={tail}
-                    // Name the operator who replied, on the first bubble of
-                    // their run — a pool can have several people answering.
-                    senderLabel={!mine && tail ? m.sender_name || null : null}
+                    // Show the POOL BRAND on the first bubble of an admin run —
+                    // never the operator's personal name / role ("Super Admin",
+                    // "Broker"). The user should only ever see the brand answering.
+                    senderLabel={!mine && tail ? supportName : null}
                   />
                 </div>
               );

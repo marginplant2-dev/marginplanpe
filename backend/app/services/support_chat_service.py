@@ -151,10 +151,21 @@ async def _fanout(thread: SupportThread, msg: SupportMessage, user: User) -> Non
         try:
             from app.services import push_service
 
-            who = (msg.sender_name or "").strip()
+            # Title carries the POOL BRAND, never the admin's personal name or
+            # role ("Super Admin" / "Broker"). The user sees "<Brand> Support"
+            # branded to whoever owns them (e.g. "MarginPlant Support",
+            # "Stockcafe Support").
+            brand = ""
+            try:
+                from app.services import branding_service
+
+                _ba = await branding_service.resolve_branding_admin_for_user(user)
+                brand = (getattr(_ba, "brand_name", None) or "").strip() if _ba else ""
+            except Exception:  # pragma: no cover
+                brand = ""
             await push_service.send_to_user(
                 thread.user_id,
-                title=f"Support - {who}" if who else "Support replied",
+                title=f"{brand} Support" if brand else "Support",
                 body=thread.last_message_preview or "New message",
                 url="/support",
                 # UNIQUE tag per message, not one per thread. The service

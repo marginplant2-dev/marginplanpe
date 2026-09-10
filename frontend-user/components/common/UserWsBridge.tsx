@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useAuthStore } from "@/stores/authStore";
+import { useBranding } from "@/lib/branding-context";
 import { STORAGE_KEYS, WS_URL } from "@/lib/constants";
 import {
   ensureNotificationPermission,
@@ -83,6 +84,10 @@ function walletReasonToToast(
 export function UserWsBridge() {
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  // Pool brand for support notifications — show "<Brand> Support", never the
+  // admin's personal name / role.
+  const { branding } = useBranding();
+  const brandName = (branding?.brand_name || "").trim();
 
   useEffect(() => {
     if (!user) return;
@@ -268,8 +273,7 @@ export function UserWsBridge() {
             qc.invalidateQueries({ queryKey: ["support", "chat", "unread"] });
             {
               const p = (msg as any).message || {};
-              const who = String(p.sender_name || "").trim();
-              const title = who ? `Support · ${who}` : "Support replied";
+              const title = brandName ? `${brandName} Support` : "Support";
               const body = String(p.body || "Sent an attachment");
               if (userNotificationsEnabled()) {
                 toast.message(title, { description: body, duration: 8000 });
