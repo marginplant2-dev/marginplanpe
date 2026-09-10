@@ -9,6 +9,7 @@ needed beyond the standard `CurrentAdmin` dependency.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -29,6 +30,10 @@ from app.services.audit_service import log_event
 from app.utils.time_utils import now_utc
 
 logger = logging.getLogger(__name__)
+
+# Fire-and-forget broadcast delivery tasks. Holding a strong ref stops the GC
+# from cancelling them mid-flight (asyncio only keeps weak refs to tasks).
+_BG_TASKS: set[asyncio.Task] = set()
 
 router = APIRouter(prefix="/notifications", tags=["admin-notifications"])
 
@@ -173,41 +178,7 @@ async def broadcast_notification(
     ]
     await Notification.insert_many(docs)
 
-    # Live push — best-effort; the DB rows above are the source of truth.
-    try:
-        from app.core.redis_client import publish_batch
-
-        payload = {
-            "type": "notification",
-            "payload": {
-                "title": title,
-                "message": message,
-                "link": link,
-                "level": body.level.value,
-            },
-        }
-        await publish_batch(
-            [(f"user:{uid}:notification", payload) for uid in recipients]
-        )
-    except Exception:
-        logger.exception("broadcast_ws_push_failed admin=%s", admin.id)
-
-    # Web Push — wakes the phone/tray even when the PWA is force-stopped or
-    # the socket above is closed. Best-effort; no-ops when VAPID is
-    # unconfigured. Single bulk subscription query for the whole pool.
-    try:
-        from app.services import push_service
-
-        await push_service.send_to_users(
-            recipients,
-            title=title,
-            body=message,
-            url=link or "/notifications",
-            tag=f"mp-broadcast-{admin.id}",
-        )
-    except Exception:
-        logger.exception("broadcast_webpush_failed admin=%s", admin.id)
-
+    # Audit now (fast) — the broadcast is committed the moment the rows land.
     try:
         await log_event(
             action=AuditAction.CREATE,
@@ -218,4 +189,48 @@ async def broadcast_notification(
     except Exception:
         logger.exception("broadcast_audit_failed")
 
-    return APIResponse(data={"count": len(recipients)})
+    # ── Live delivery in the BACKGROUND ────────────────────────────────
+    # The Notification rows above are the source of truth (users see them on
+    # next load / WS). WS fan-out + per-subscription Web Push are network-bound
+    # and, for a multi-thousand-user pool, run WELL past the client's 30 s
+    # timeout. So schedule them fire-and-forget and return immediately — the
+    # admin's request no longer waits on the whole pool being pushed.
+    ws_payload = {
+        "type": "notification",
+        "payload": {
+            "title": title,
+            "message": message,
+            "link": link,
+            "level": body.level.value,
+        },
+    }
+    admin_id = admin.id
+
+    async def _deliver() -> None:
+        try:
+            from app.core.redis_client import publish_batch
+
+            await publish_batch(
+                [(f"user:{uid}:notification", ws_payload) for uid in recipients]
+            )
+        except Exception:
+            logger.exception("broadcast_ws_push_failed admin=%s", admin_id)
+        try:
+            from app.services import push_service
+
+            await push_service.send_to_users(
+                recipients,
+                title=title,
+                body=message,
+                url=link or "/notifications",
+                tag=f"mp-broadcast-{admin_id}",
+            )
+        except Exception:
+            logger.exception("broadcast_webpush_failed admin=%s", admin_id)
+
+    task = asyncio.create_task(_deliver())
+    _BG_TASKS.add(task)
+    task.add_done_callback(_BG_TASKS.discard)
+
+    # `delivering: true` — rows are saved; live push is finishing in the bg.
+    return APIResponse(data={"count": len(recipients), "delivering": True})
