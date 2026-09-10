@@ -239,7 +239,11 @@ async def get_support_contacts(user: CurrentUser):
 
 # Same shape + mount as KYC proofs (uploads/ is already a StaticFiles mount).
 CHAT_UPLOAD_ROOT = _Path("uploads") / "support"
-CHAT_ALLOWED_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf"}
+CHAT_ALLOWED_EXTS = {
+    ".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf",
+    # Voice notes — MediaRecorder emits webm/mp4(m4a)/ogg depending on browser.
+    ".webm", ".m4a", ".mp4", ".mp3", ".ogg", ".oga", ".wav", ".aac",
+}
 CHAT_MAX_BYTES = 8 * 1024 * 1024
 
 

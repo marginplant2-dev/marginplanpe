@@ -16,6 +16,7 @@ import {
   WaWallpaperStyles,
   waDayLabel,
 } from "@/components/support/wa";
+import { VoiceRecorder } from "@/components/support/VoiceRecorder";
 import { cn } from "@/lib/utils";
 
 export default function SupportChatPage() {
@@ -98,6 +99,21 @@ export default function SupportChatPage() {
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  // Voice note — upload the recording then send it as an audio attachment
+  // (empty body). Reuses the same upload + send path as file attachments.
+  async function sendVoice(file: File) {
+    if (sendMut.isPending || uploading) return;
+    setUploading(true);
+    try {
+      const res = await SupportChatAPI.upload(file);
+      sendMut.mutate({ body: "", attachment: { url: res.url, name: res.name } });
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't send voice message");
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -272,19 +288,24 @@ export default function SupportChatPage() {
                 "dark:bg-[#2a3942] dark:text-[#e9edef] dark:placeholder:text-[#8696a0]",
               )}
             />
-            <button
-              type="button"
-              onClick={submit}
-              disabled={sendMut.isPending || (!draft.trim() && !pending)}
-              className="grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full bg-[#00a884] text-white transition-opacity disabled:opacity-40"
-              aria-label="Send message"
-            >
-              {sendMut.isPending ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <SendHorizonal className="h-5 w-5" />
-              )}
-            </button>
+            {draft.trim() || pending ? (
+              <button
+                type="button"
+                onClick={submit}
+                disabled={sendMut.isPending}
+                className="grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full bg-[#00a884] text-white transition-opacity disabled:opacity-40"
+                aria-label="Send message"
+              >
+                {sendMut.isPending ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <SendHorizonal className="h-5 w-5" />
+                )}
+              </button>
+            ) : (
+              // Empty box → mic (WhatsApp behaviour). Record → auto-send.
+              <VoiceRecorder onRecorded={sendVoice} disabled={sendMut.isPending || uploading} />
+            )}
           </div>
         </div>
       </div>

@@ -308,7 +308,11 @@ async def set_my_terms(
 # users they already see on /users, and never one row more.
 
 CHAT_UPLOAD_ROOT = _Path("uploads") / "support"
-CHAT_ALLOWED_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf"}
+CHAT_ALLOWED_EXTS = {
+    ".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf",
+    # Voice notes — MediaRecorder emits webm/mp4(m4a)/ogg depending on browser.
+    ".webm", ".m4a", ".mp4", ".mp3", ".ogg", ".oga", ".wav", ".aac",
+}
 CHAT_MAX_BYTES = 8 * 1024 * 1024
 
 

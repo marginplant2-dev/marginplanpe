@@ -28,6 +28,7 @@ import {
   waDayLabel,
   waListTime,
 } from "@/components/support/wa";
+import { VoiceRecorder } from "@/components/support/VoiceRecorder";
 import { cn } from "@/lib/utils";
 
 export default function AdminSupportChatPage() {
@@ -121,6 +122,19 @@ export default function AdminSupportChatPage() {
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function sendVoice(file: File) {
+    if (!activeUserId || sendMut.isPending || uploading) return;
+    setUploading(true);
+    try {
+      const res = await SupportChatAPI.upload(file);
+      sendMut.mutate({ userId: activeUserId, body: "", attachment: { url: res.url, name: res.name } });
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't send voice message");
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -491,19 +505,26 @@ export default function AdminSupportChatPage() {
                       "dark:bg-[#2a3942] dark:text-[#e9edef] dark:placeholder:text-[#8696a0]",
                     )}
                   />
-                  <button
-                    type="button"
-                    onClick={submit}
-                    disabled={sendMut.isPending || (!draft.trim() && !pending)}
-                    className="grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full bg-[#00a884] text-white transition-opacity disabled:opacity-40"
-                    aria-label="Send message"
-                  >
-                    {sendMut.isPending ? (
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                    ) : (
-                      <SendHorizonal className="h-5 w-5" />
-                    )}
-                  </button>
+                  {draft.trim() || pending ? (
+                    <button
+                      type="button"
+                      onClick={submit}
+                      disabled={sendMut.isPending}
+                      className="grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full bg-[#00a884] text-white transition-opacity disabled:opacity-40"
+                      aria-label="Send message"
+                    >
+                      {sendMut.isPending ? (
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      ) : (
+                        <SendHorizonal className="h-5 w-5" />
+                      )}
+                    </button>
+                  ) : (
+                    <VoiceRecorder
+                      onRecorded={sendVoice}
+                      disabled={sendMut.isPending || uploading || !activeUserId}
+                    />
+                  )}
                 </div>
               </div>
               )}

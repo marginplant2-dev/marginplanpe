@@ -45,6 +45,10 @@ export function isImage(name: string | null, url: string | null): boolean {
   return /\.(png|jpe?g|webp|gif)$/.test((name || url || "").toLowerCase());
 }
 
+export function isAudio(name: string | null, url: string | null): boolean {
+  return /\.(webm|m4a|mp3|ogg|oga|wav|aac)$/.test((name || url || "").toLowerCase());
+}
+
 /** Bubble clock — IST, no date (the date lives on the day chip). */
 export function waTime(v: string | null): string {
   if (!v) return "";
@@ -240,6 +244,7 @@ export function WaBubble({
   senderLabel?: string | null;
 }) {
   const hasImage = isImage(m.attachment_name, m.attachment_url);
+  const hasAudio = isAudio(m.attachment_name, m.attachment_url);
   return (
     <div className={cn("flex px-[3%] py-[1px]", mine ? "justify-end" : "justify-start")}>
       {/* Flex-wrap layout, NOT an absolutely-positioned stamp over a spacer.
@@ -278,7 +283,17 @@ export function WaBubble({
           </p>
         )}
 
-        {m.attachment_url && (
+        {m.attachment_url && hasAudio && (
+          // Voice note — inline player, not a download link.
+          <audio
+            controls
+            preload="metadata"
+            src={fileUrl(m.attachment_url)}
+            className="mb-[3px] w-[220px] max-w-full sm:w-[260px]"
+          />
+        )}
+
+        {m.attachment_url && !hasAudio && (
           <a
             href={fileUrl(m.attachment_url)}
             target="_blank"
