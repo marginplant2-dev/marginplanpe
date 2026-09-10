@@ -36,6 +36,14 @@ export function fileUrl(u: string): string {
   return u.startsWith("http") ? u : `${API_URL}${u}`;
 }
 
+// created_at / read_at come back from Mongo as NAIVE UTC (no tz marker), so a
+// bare Date() would read them as LOCAL time — shifting support timestamps by
+// the viewer's offset (~5.5h early in IST). Pin Z when there's no tz so it's
+// parsed as UTC, then the toLocaleTimeString(Asia/Kolkata) below is correct.
+function waParse(v: string): Date {
+  return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(v) ? v : v + "Z");
+}
+
 export function isImage(name: string | null, url: string | null): boolean {
   return /\.(png|jpe?g|webp|gif)$/.test((name || url || "").toLowerCase());
 }
