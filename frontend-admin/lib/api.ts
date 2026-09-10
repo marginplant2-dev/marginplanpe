@@ -1305,3 +1305,86 @@ export type PlatformReport = {
 export const PlatformReportsAPI = {
   get: () => unwrap<PlatformReport>(api.get("/admin/platform-reports")),
 };
+
+// ── Support chat (admin/broker side) ──────────────────────────────────
+// Every endpoint here is scoped server-side to the caller's own pool, so a
+// broker with the `support` permission sees exactly their own users' chats.
+export type SupportChatMessage = {
+  id: string;
+  sender: "USER" | "ADMIN";
+  sender_id: string | null;
+  sender_name: string;
+  body: string;
+  attachment_url: string | null;
+  attachment_name: string | null;
+  read_at: string | null;
+  created_at: string | null;
+};
+
+export type SupportChatThread = {
+  id: string;
+  user_id: string;
+  user_code: string;
+  user_name: string;
+  user_email: string;
+  last_message_at: string | null;
+  last_message_preview: string;
+  last_sender: "USER" | "ADMIN" | null;
+  unread_for_user: number;
+  unread_for_admin: number;
+};
+
+export type SupportChatCandidate = {
+  user_id: string;
+  user_name: string;
+  user_code: string;
+  user_email: string;
+  has_thread: boolean;
+};
+
+export const SupportChatAPI = {
+  threads: (params?: { q?: string; unread_only?: boolean; page?: number; page_size?: number }) =>
+    unwrap<{
+      items: SupportChatThread[];
+      total: number;
+      page: number;
+      page_size: number;
+      // False for a broker granted `support` at VIEW: they may read their
+      // pool's chats but not answer. The UI must disable the composer —
+      // the backend rejects the send either way.
+      can_reply: boolean;
+    }>(api.get("/admin/support/chat/threads", { params })),
+  unreadTotal: () =>
+    unwrap<{ unread_threads: number }>(api.get("/admin/support/chat/unread-total")),
+  // Finds users who have NEVER chatted, so the admin can send the first
+  // message. Threads list only knows about existing conversations.
+  searchUsers: (q: string) =>
+    unwrap<{ items: SupportChatCandidate[] }>(
+      api.get("/admin/support/chat/search-users", { params: { q } }),
+    ),
+  messages: (userId: string, before?: string) =>
+    unwrap<{
+      thread: SupportChatThread;
+      messages: SupportChatMessage[];
+      can_reply: boolean;
+    }>(api.get(`/admin/support/chat/${userId}`, { params: before ? { before } : undefined })),
+  send: (userId: string, body: string, attachment?: { url: string; name: string } | null) =>
+    unwrap<SupportChatMessage>(
+      api.post(`/admin/support/chat/${userId}`, {
+        body,
+        attachment_url: attachment?.url ?? null,
+        attachment_name: attachment?.name ?? null,
+      }),
+    ),
+  markRead: (userId: string) =>
+    unwrap<{ marked: number }>(api.post(`/admin/support/chat/${userId}/read`, {})),
+  upload: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return unwrap<{ url: string; name: string; size: number }>(
+      api.post("/admin/support/chat/upload", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      }),
+    );
+  },
+};

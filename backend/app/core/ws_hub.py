@@ -400,7 +400,15 @@ class UserChannelHub(_BaseHub):
     # clients. Adding it is purely additive: existing topics behave
     # identically, and new clients listening for ``marketwatch`` now
     # actually receive the event.
-    _ALLOWED_TOPICS = frozenset({"positions", "orders", "wallet", "kyc", "marketwatch", "risk"})
+    # `support` — WhatsApp-style support chat (admin reply → user's open tab).
+    # `notification` — admin broadcast (api/v1/admin/notifications.py publishes
+    #   `user:{id}:notification`). It was MISSING from this set, so the frontend
+    #   UserWsBridge's `case "notification"` toast could never fire live; the row
+    #   only appeared after a refetch. Same silent-drop class of bug as the
+    #   marketwatch one described above.
+    _ALLOWED_TOPICS = frozenset(
+        {"positions", "orders", "wallet", "kyc", "marketwatch", "risk", "support", "notification"}
+    )
 
     async def _do_subscribe(self, ps: Any) -> None:
         await ps.psubscribe("user:*")

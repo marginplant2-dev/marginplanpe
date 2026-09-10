@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { SupportChatAPI } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAdminAuthStore } from "@/stores/authStore";
 import { BrandLogo } from "@/components/layout/BrandLogo";
@@ -16,6 +18,21 @@ export function AdminSidebar() {
   const pathname = usePathname();
   const admin = useAdminAuthStore((s) => s.admin);
   const visible = useAdminNav();
+
+  // Support-chat badge. Gated on the nav item actually being visible so an
+  // admin without the `support` permission never fires a request that comes
+  // back 403. The AdminWsBridge invalidates this key on every incoming
+  // message, so the count moves the moment a user writes in.
+  const canSeeChat = visible.some((g) =>
+    g.items.some((i) => i.href === "/support-chat"),
+  );
+  const { data: chatUnread } = useQuery({
+    queryKey: ["support-chat", "unread-total"],
+    queryFn: () => SupportChatAPI.unreadTotal(),
+    enabled: canSeeChat,
+    refetchInterval: 60_000,
+  });
+  const chatBadge = chatUnread?.unread_threads ?? 0;
 
   return (
     <aside className="sticky top-0 z-30 hidden h-screen w-64 flex-col border-r border-border bg-card md:flex">
@@ -46,6 +63,11 @@ export function AdminSidebar() {
                 >
                   <Icon className="size-4 shrink-0" />
                   <span className="truncate">{resolveNavLabel(it, admin)}</span>
+                  {it.href === "/support-chat" && chatBadge > 0 && (
+                    <span className="ml-auto shrink-0 rounded-full bg-profit px-1.5 text-[10px] font-semibold text-black">
+                      {chatBadge}
+                    </span>
+                  )}
                 </Link>
               );
             })}

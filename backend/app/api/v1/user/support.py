@@ -25,14 +25,23 @@ shape no longer works once cascade is in play.
 
 from __future__ import annotations
 
+import uuid as _uuid
+from datetime import datetime as _dt
+from pathlib import Path as _Path
+from typing import Any
+
 from beanie import PydanticObjectId
-from fastapi import APIRouter
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from pydantic import BaseModel as _BaseModel
+from pydantic import Field as _Field
 
 from app.core.dependencies import CurrentUser
 from app.models._base import PermissionLevel
 from app.models.platform_setting import PlatformSetting
+from app.models.support_chat import SupportMessage, SupportSender
 from app.models.user import User, UserRole
 from app.schemas.common import APIResponse
+from app.services import support_chat_service as _chat
 from app.utils.time_utils import now_utc
 
 router = APIRouter(prefix="/support", tags=["user-support"])
@@ -218,5 +227,129 @@ async def get_support_contacts(user: CurrentUser):
         data={
             "whatsapp": whatsapp,
             "email": email,
+        }
+    )
+
+
+# ── Support chat (WhatsApp-style thread with the user's admin/broker) ──
+#
+# One thread per user, so there is no thread-id in any of these paths: the
+# caller's JWT already identifies the only conversation they can see. The
+# admin side of the same conversation lives in api/v1/admin/support.py.
+
+# Same shape + mount as KYC proofs (uploads/ is already a StaticFiles mount).
+CHAT_UPLOAD_ROOT = _Path("uploads") / "support"
+CHAT_ALLOWED_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf"}
+CHAT_MAX_BYTES = 8 * 1024 * 1024
+
+
+class ChatSendPayload(_BaseModel):
+    body: str = _Field(default="", max_length=4000)
+    attachment_url: str | None = None
+    attachment_name: str | None = None
+
+
+async def _messages_page(
+    user_id: Any, before: str | None, limit: int
+) -> list[dict[str, Any]]:
+    """Newest-first page of a thread, returned oldest-first for rendering.
+
+    Cursor is the `created_at` of the oldest row already on screen — an
+    offset/skip would re-shuffle as new messages arrive mid-scroll, which is
+    exactly when a user is scrolling back.
+    """
+    q: dict[str, Any] = {"user_id": user_id}
+    if before:
+        try:
+            q["created_at"] = {"$lt": _dt.fromisoformat(before.replace("Z", "+00:00"))}
+        except ValueError:
+            pass
+    rows = (
+        await SupportMessage.find(q).sort("-created_at").limit(limit).to_list()
+    )
+    return [_chat.serialise_message(m) for m in reversed(rows)]
+
+
+@router.get("/chat", response_model=APIResponse[dict])
+async def get_my_chat(
+    user: CurrentUser,
+    before: str | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+):
+    """The calling user's thread + a page of messages. Does NOT mark anything
+    read — the client calls /chat/read once the pane is actually visible, so a
+    background prefetch can't silently clear the badge."""
+    thread = await _chat.get_or_create_thread(user)
+    return APIResponse(
+        data={
+            "thread": _chat.serialise_thread(thread),
+            "messages": await _messages_page(user.id, before, limit),
+        }
+    )
+
+
+@router.get("/chat/unread", response_model=APIResponse[dict])
+async def get_my_chat_unread(user: CurrentUser):
+    """Just the badge number for the sidebar. Deliberately separate from
+    /chat so polling the badge doesn't drag the whole message page along."""
+    from app.models.support_chat import SupportThread
+
+    thread = await SupportThread.find_one(SupportThread.user_id == user.id)
+    return APIResponse(data={"unread": thread.unread_for_user if thread else 0})
+
+
+@router.post("/chat", response_model=APIResponse[dict])
+async def send_my_chat(payload: ChatSendPayload, user: CurrentUser):
+    """Send a message to support. Creates the thread on first send."""
+    try:
+        msg = await _chat.send(
+            user,
+            SupportSender.USER,
+            payload.body,
+            attachment_url=payload.attachment_url,
+            attachment_name=payload.attachment_name,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return APIResponse(data=_chat.serialise_message(msg))
+
+
+@router.post("/chat/read", response_model=APIResponse[dict])
+async def mark_my_chat_read(user: CurrentUser):
+    """Mark every admin message in this thread as seen (blue ticks on the
+    admin's side) and clear the user's badge."""
+    flipped = await _chat.mark_read(user.id, SupportSender.USER)
+    return APIResponse(data={"marked": flipped})
+
+
+@router.post("/chat/upload", response_model=APIResponse[dict])
+async def upload_chat_attachment(user: CurrentUser, file: UploadFile = File(...)):
+    """Stage an image / PDF, returning `{url, name}` to pass to POST /chat.
+    Two-step (upload then send) rather than multipart-with-text so a failed
+    send never orphans the user's typed message."""
+    ext = (_Path(file.filename or "").suffix or "").lower()
+    if ext not in CHAT_ALLOWED_EXTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type. Allowed: {sorted(CHAT_ALLOWED_EXTS)}",
+        )
+    contents = await file.read()
+    if len(contents) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(contents) > CHAT_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large (max {CHAT_MAX_BYTES // (1024 * 1024)} MB)",
+        )
+
+    user_dir = CHAT_UPLOAD_ROOT / str(user.id)
+    user_dir.mkdir(parents=True, exist_ok=True)
+    fname = f"{_uuid.uuid4().hex}{ext}"
+    (user_dir / fname).write_bytes(contents)
+    return APIResponse(
+        data={
+            "url": f"/uploads/support/{user.id}/{fname}",
+            "name": file.filename or fname,
+            "size": len(contents),
         }
     )

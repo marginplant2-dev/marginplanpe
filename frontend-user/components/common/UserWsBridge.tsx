@@ -262,6 +262,32 @@ export function UserWsBridge() {
             }
             break;
           }
+          case "support_message": {
+            // Support replied. Refresh the thread + the sidebar badge, then
+            // pop the same toast + ping + tray notification an admin
+            // broadcast gets — this is a person waiting on an answer, it
+            // should land as loudly as one.
+            qc.invalidateQueries({ queryKey: ["support", "chat"] });
+            qc.invalidateQueries({ queryKey: ["support", "chat", "unread"] });
+            {
+              const body = String((msg as any).message?.body || "Sent an attachment");
+              if (userNotificationsEnabled()) {
+                toast.message("Support replied", { description: body, duration: 8000 });
+                playNotifyPing();
+                // One tag for the whole conversation so a burst of replies
+                // collapses into a single tray row instead of stacking.
+                showNativeNotification("Support replied", body, {
+                  tag: "mp-support",
+                  url: "/support",
+                });
+              }
+            }
+            break;
+          }
+          case "support_seen":
+            // Admin opened our chat — refetch so our ticks turn blue.
+            qc.invalidateQueries({ queryKey: ["support", "chat"] });
+            break;
           case "marketwatch":
             // Cross-tab / cross-device sync: when this user adds /
             // removes an instrument on web, the apk (or another web

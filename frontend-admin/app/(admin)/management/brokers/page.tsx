@@ -62,7 +62,7 @@ const PERMISSION_LABELS: Array<{ key: keyof BrokerPermissions; label: string }> 
   { key: "sub_brokers", label: "Sub-brokers" },
   { key: "bonuses", label: "Bonuses" },
   { key: "user_password", label: "Change password" },
-  { key: "support", label: "Support number" },
+  { key: "support", label: "Support (WhatsApp number + user chat)" },
 ];
 
 const ALL_OFF: BrokerPermissions = {

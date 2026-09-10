@@ -268,6 +268,57 @@ export function AdminWsBridge() {
             // probe.
             qc.invalidateQueries({ queryKey: ["admin", "notifications"] });
             break;
+          case "support_message": {
+            // Support chat. The list + open conversation always refresh —
+            // both queries are server-scoped, so a refetch for someone
+            // else's pool is a cheap no-op that returns nothing new.
+            qc.invalidateQueries({ queryKey: ["support-chat", "threads"] });
+            qc.invalidateQueries({ queryKey: ["support-chat", "unread-total"] });
+            if (msg.user_id) {
+              qc.invalidateQueries({
+                queryKey: ["support-chat", "messages", String(msg.user_id)],
+              });
+            }
+            // The TOAST is a different matter: `admin:events` is one global
+            // channel, so pop it only for an admin/broker who actually owns
+            // this user. Same `recipient_admin_ids` filter the deposit and
+            // withdrawal cases use.
+            if (msg.message?.sender !== "USER" || !notificationsEnabled()) break;
+            {
+              const recipients: string[] | undefined = msg.recipient_admin_ids;
+              const myId = String(admin?.id || "");
+              if (Array.isArray(recipients) && myId && !recipients.includes(myId)) {
+                break;
+              }
+              const who = msg.user_name || msg.user_code || "A user";
+              const body = String(msg.message?.body || "Sent an attachment");
+              const open = () =>
+                routerRef.current.push("/support-chat");
+              toast.message(`New support message — ${who}`, {
+                description: body,
+                duration: 9000,
+                action: { label: "Open", onClick: open },
+              });
+              playNotifyPing();
+              // One tag per user so a burst from the SAME person collapses
+              // into one tray row, while two different users still surface
+              // separately.
+              showNativeNotification(`Support · ${who}`, body, {
+                tag: `mp-support-${msg.user_id}`,
+                onClick: open,
+              });
+            }
+            break;
+          }
+          case "support_seen":
+            // The user opened the chat — re-fetch so our sent bubbles flip
+            // to double-blue ticks without waiting for the 15s poll.
+            if (msg.user_id) {
+              qc.invalidateQueries({
+                queryKey: ["support-chat", "messages", String(msg.user_id)],
+              });
+            }
+            break;
           // hello / heartbeat — ignore
         }
       };

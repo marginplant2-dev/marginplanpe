@@ -27,6 +27,7 @@ import {
   ListChecks,
   ListOrdered,
   MessageCircle,
+  MessagesSquare,
   Plug,
   ShieldCheck,
   Users,
@@ -147,6 +148,10 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { href: "/holidays", label: "Holiday calendar", icon: Calendar, superOnly: true },
       { href: "/backup", label: "Backup & EOD", icon: DatabaseBackup, superOnly: true },
       { href: "/support", label: "Support", icon: MessageCircle, empPerm: "support", brokerPerm: "support" },
+      // Same `support` permission as the settings page above: an admin who
+      // grants a broker Support gets them both the number override AND the
+      // chat with their own pool. One switch, one mental model.
+      { href: "/support-chat", label: "Support Chat", icon: MessagesSquare, empPerm: "support", brokerPerm: "support" },
       { href: "/audit", label: "Audit logs", icon: History, empPerm: "audit" },
       { href: "/admin-actions", label: "Admin Actions", icon: History, empPerm: "audit" },
     ],

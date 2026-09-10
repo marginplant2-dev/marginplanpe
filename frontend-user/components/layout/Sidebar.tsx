@@ -16,6 +16,9 @@ import {
   Wallet,
 } from "lucide-react";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { SupportChatAPI } from "@/lib/api";
+import { WhatsAppGlyph } from "@/components/support/wa";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { BrandLogo } from "@/components/layout/BrandLogo";
@@ -39,12 +42,21 @@ export const NAV_ITEMS = [
   { href: "/reports/tradebook", label: "Reports", icon: FileText },
   { href: "/alerts", label: "Alerts", icon: Bell },
   { href: "/refer", label: "Refer & Earn", icon: Gift },
+  { href: "/support", label: "Support", icon: MessageCircle },
   { href: "/profile", label: "Profile", icon: User },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  // Support-chat unread badge. The WS bridge invalidates this key when a
+  // reply arrives, so the poll below is only the dead-socket fallback.
+  const { data: chatUnread } = useQuery({
+    queryKey: ["support", "chat", "unread"],
+    queryFn: () => SupportChatAPI.unread(),
+    refetchInterval: 60_000,
+  });
+  const chatBadge = chatUnread?.unread ?? 0;
   const { data: support } = useSupportContacts();
   const waUrl = buildWhatsappUrl(
     support?.whatsapp,
@@ -101,6 +113,18 @@ export function Sidebar() {
               )}
               <Icon className={cn("size-4 shrink-0", active && "text-primary")} />
               {!collapsed && <span className="truncate">{it.label}</span>}
+              {it.href === "/support" && chatBadge > 0 && (
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full bg-profit px-1.5 text-[10px] font-semibold text-black",
+                    // Collapsed rail has no room for a pill next to the label,
+                    // so it rides the icon's top-right corner instead.
+                    collapsed ? "absolute right-1 top-1" : "ml-auto",
+                  )}
+                >
+                  {chatBadge}
+                </span>
+              )}
             </Link>
           );
         })}
@@ -123,7 +147,7 @@ export function Sidebar() {
                   aria-label="WhatsApp support"
                   title="WhatsApp support"
                 >
-                  <MessageCircle className="size-4" />
+                  <WhatsAppGlyph className="size-4" />
                 </a>
               )}
             </div>
@@ -139,7 +163,7 @@ export function Sidebar() {
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 rounded-md bg-[#25D366]/10 px-2 py-1.5 text-xs font-medium text-[#25D366] transition-colors hover:bg-[#25D366]/20"
                 >
-                  <MessageCircle className="size-3.5" />
+                  <WhatsAppGlyph className="size-3.5" />
                   <span className="truncate">{support?.whatsapp || "WhatsApp"}</span>
                 </a>
               )}

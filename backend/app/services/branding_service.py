@@ -200,6 +200,52 @@ async def find_platform_super_admin() -> User | None:
     return await User.get(doc["_id"])
 
 
+async def resolve_branding_admin_for_user(user: User) -> User | None:
+    """Walk UP a user's ownership chain and return the admin-tier node whose
+    branding they should see.
+
+    Why a walk and not just ``assigned_admin_id``: that single field misses
+    every client sitting under a BROKER. Broker-pool rows are frequently
+    created with only ``assigned_broker_id`` / ``broker_ancestry`` set (the
+    broker-transfer path mutates the broker row, not its descendants), so the
+    old lookup returned None for them and the frontend silently fell back to
+    the PLATFORM brand — a broker's client saw MarginPlant instead of the
+    admin who actually owns them.
+
+    Walk order at each hop mirrors the support-contact cascade in
+    ``api/v1/user/support.py`` so the two can't disagree about who owns a user:
+
+      1. ``assigned_broker_id`` — direct broker / sub-broker
+      2. ``assigned_admin_id``  — admin pool owner
+
+    BROKER nodes are stepped OVER rather than returned: branding is admin-tier
+    only (see ``admin/branding.py::_require_admin_role``), so a broker has no
+    brand of its own and its clients inherit the parent admin's.
+
+    Returns None when the chain has no active admin-tier node — the caller
+    then leaves the platform default in place. Capped at 8 hops as a guard
+    against a corrupted chain, same as the support resolver.
+    """
+    cur: User | None = user
+    seen: set[PydanticObjectId] = set()
+    hops = 0
+    while cur is not None and hops < 8:
+        if cur.id in seen:
+            break
+        seen.add(cur.id)
+        if (
+            cur.role in {UserRole.ADMIN, UserRole.SUPER_ADMIN}
+            and cur.status == UserStatus.ACTIVE
+        ):
+            return cur
+        next_id = cur.assigned_broker_id or cur.assigned_admin_id
+        if next_id is None or next_id in seen:
+            break
+        cur = await User.get(next_id)
+        hops += 1
+    return None
+
+
 async def find_admin_by_domain(domain: str) -> User | None:
     """Lookup an admin by their configured ``custom_domain``.
 

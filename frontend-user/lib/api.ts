@@ -617,3 +617,60 @@ export const PushAPI = {
 };
 
 export { getAccessToken, getRefreshToken };
+
+// ── Support chat ──────────────────────────────────────────────────────
+// One thread per user, so no thread id in any path: the JWT identifies the
+// only conversation this caller can see.
+export type SupportChatMessage = {
+  id: string;
+  sender: "USER" | "ADMIN";
+  sender_id: string | null;
+  sender_name: string;
+  body: string;
+  attachment_url: string | null;
+  attachment_name: string | null;
+  read_at: string | null;
+  created_at: string | null;
+};
+
+export type SupportChatThread = {
+  id: string;
+  user_id: string;
+  user_code: string;
+  user_name: string;
+  user_email: string;
+  last_message_at: string | null;
+  last_message_preview: string;
+  last_sender: "USER" | "ADMIN" | null;
+  unread_for_user: number;
+  unread_for_admin: number;
+};
+
+export const SupportChatAPI = {
+  // `before` is the created_at of the oldest message on screen — a cursor,
+  // not an offset, so loading older messages can't re-shuffle when a new
+  // reply lands mid-scroll.
+  get: (before?: string) =>
+    unwrap<{ thread: SupportChatThread; messages: SupportChatMessage[] }>(
+      api.get("/user/support/chat", { params: before ? { before } : undefined }),
+    ),
+  unread: () => unwrap<{ unread: number }>(api.get("/user/support/chat/unread")),
+  send: (body: string, attachment?: { url: string; name: string } | null) =>
+    unwrap<SupportChatMessage>(
+      api.post("/user/support/chat", {
+        body,
+        attachment_url: attachment?.url ?? null,
+        attachment_name: attachment?.name ?? null,
+      }),
+    ),
+  markRead: () => unwrap<{ marked: number }>(api.post("/user/support/chat/read", {})),
+  upload: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return unwrap<{ url: string; name: string; size: number }>(
+      api.post("/user/support/chat/upload", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      }),
+    );
+  },
+};

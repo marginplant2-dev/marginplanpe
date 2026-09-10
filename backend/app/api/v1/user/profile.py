@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.core.config import settings
 from app.core.dependencies import CurrentUser
-from app.models.user import User, UserRole, UserStatus
+from app.models.user import User, UserRole
 from app.schemas.common import APIResponse
 from app.schemas.user import UpdateProfileRequest, UserMeOut
 from app.services import branding_service
@@ -46,29 +46,27 @@ async def update_me(payload: UpdateProfileRequest, user: CurrentUser):
 
 @router.get("/me/branding", response_model=APIResponse[dict])
 async def get_my_branding(user: CurrentUser):
-    """Return the branding payload for the logged-in user's
-    ``assigned_admin_id`` (or ``None`` if the user is in the
-    super-admin/platform pool).
+    """Return the branding payload for the admin-tier node that OWNS the
+    logged-in user, or ``None`` when the chain has no active one.
 
-    The frontend's ``BrandingProvider`` calls this once after login
-    to apply the right logo / brand-name / favicon on the dashboard,
-    and to decide whether to redirect to the admin's custom domain
-    (gated on ``user.signup_origin``).
+    The frontend's ``BrandingProvider`` calls this once after login to apply
+    the right logo / brand-name / favicon on the dashboard, and to decide
+    whether to redirect to the admin's custom domain (gated on
+    ``user.signup_origin``). It falls back to the platform brand on ``None``.
+
+    Ownership is resolved by ``branding_service.resolve_branding_admin_for_user``,
+    which WALKS the chain (broker -> admin) instead of reading
+    ``assigned_admin_id`` alone. The flat read missed every client sitting
+    under a broker — those rows often carry only ``assigned_broker_id`` — so
+    a broker's clients fell through to the platform brand instead of seeing
+    the admin who actually owns them.
     """
     if not settings.BRANDING_ENABLED:
         return APIResponse(
             data={"branding": None, "signup_origin": user.signup_origin}
         )
-    if user.assigned_admin_id is None:
-        return APIResponse(
-            data={"branding": None, "signup_origin": user.signup_origin}
-        )
-    admin = await User.get(user.assigned_admin_id)
-    if (
-        admin is None
-        or admin.role != UserRole.ADMIN
-        or admin.status != UserStatus.ACTIVE
-    ):
+    admin = await branding_service.resolve_branding_admin_for_user(user)
+    if admin is None:
         return APIResponse(
             data={"branding": None, "signup_origin": user.signup_origin}
         )

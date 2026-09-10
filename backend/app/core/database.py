@@ -59,6 +59,7 @@ def _document_models() -> list[type["Document"]]:
     from app.models.tick_snapshot import TickSnapshot
     from app.models.kyc import KycSubmission
     from app.models.notification import AdminNotification, Notification
+    from app.models.support_chat import SupportMessage, SupportThread
     from app.models.order import Order
     from app.models.platform_setting import PlatformSetting
     from app.models.expiry_override import ExpiryOverride
@@ -153,6 +154,8 @@ def _document_models() -> list[type["Document"]]:
         KycSubmission,
         Notification,
         AdminNotification,
+        SupportThread,
+        SupportMessage,
         PriceAlert,
         PlatformSetting,
         ExpiryOverride,

@@ -29,7 +29,8 @@ import {
   User as UserIcon,
   Wallet as WalletIcon,
 } from "lucide-react";
-import { ProfileAPI, AuthAPI, SegmentSettingsAPI } from "@/lib/api";
+import { ProfileAPI, AuthAPI, SegmentSettingsAPI, SupportChatAPI } from "@/lib/api";
+import { ChatGlyph, WhatsAppGlyph } from "@/components/support/wa";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -258,7 +259,7 @@ export default function ProfilePage() {
           icon={HelpCircle}
           tone="info"
           label="Help & support"
-          sub="WhatsApp · email"
+          sub="Support chat · WhatsApp"
           onClick={() => setSubView("support")}
         />
       </ListGroup>
@@ -723,16 +724,41 @@ function SupportLinks() {
     support?.whatsapp,
     "Hi, I need help with my MarginPlant account",
   );
-  if (!waUrl) {
-    return (
-      <section className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
-        Support channels haven't been configured yet. Please contact your broker.
-      </section>
-    );
-  }
+  const { data: chatUnread } = useQuery({
+    queryKey: ["support", "chat", "unread"],
+    queryFn: () => SupportChatAPI.unread(),
+    refetchInterval: 60_000,
+  });
+  const unread = chatUnread?.unread ?? 0;
+
+  // No "nothing configured" dead end any more: the in-app thread is always
+  // reachable, so this screen always has at least one working channel even
+  // when the broker never published a WhatsApp number.
   return (
     <section className="overflow-hidden rounded-xl border border-border bg-card">
       <ul className="divide-y divide-border">
+        <li>
+          <Link
+            href="/support"
+            className="flex items-center gap-3 px-3 py-3 transition-colors hover:bg-muted/30"
+          >
+            <div className="grid size-10 place-items-center rounded-xl bg-[#25D366]/15 text-[#25D366]">
+              <ChatGlyph className="size-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium">Support chat</div>
+              <p className="truncate text-[11px] text-muted-foreground">
+                Chat with our team right here
+              </p>
+            </div>
+            {unread > 0 && (
+              <span className="grid min-w-[20px] place-items-center rounded-full bg-[#25D366] px-1.5 text-[11px] font-semibold leading-5 text-white">
+                {unread > 99 ? "99+" : unread}
+              </span>
+            )}
+            <ChevronRight className="size-4 text-muted-foreground" />
+          </Link>
+        </li>
         {waUrl && (
           <li>
             <a
@@ -742,7 +768,7 @@ function SupportLinks() {
               className="flex items-center gap-3 px-3 py-3 transition-colors hover:bg-muted/30"
             >
               <div className="grid size-10 place-items-center rounded-xl bg-[#25D366]/15 text-[#25D366]">
-                <MessageCircle className="size-5" />
+                <WhatsAppGlyph className="size-5" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium">WhatsApp support</div>
