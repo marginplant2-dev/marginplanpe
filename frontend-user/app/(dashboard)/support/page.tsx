@@ -69,19 +69,32 @@ export default function SupportChatPage() {
   }, [messages.length]);
 
   const sendMut = useMutation({
-    mutationFn: (vars: { body: string; attachment: { url: string; name: string } | null }) =>
-      SupportChatAPI.send(vars.body, vars.attachment),
-    onSuccess: (msg) => {
-      // Append straight into the cache rather than invalidating: the message
-      // is already authoritative (the server returned it), and a refetch here
-      // would blank the pane for a frame on a slow connection.
-      qc.setQueryData(["support", "chat"], (old: any) =>
-        old ? { ...old, messages: [...old.messages, msg] } : old,
-      );
+    mutationFn: (vars: {
+      body: string;
+      attachment: { url: string; name: string } | null;
+      tempId?: string;
+    }) => SupportChatAPI.send(vars.body, vars.attachment),
+    onSuccess: (msg, vars) => {
+      // Swap the optimistic bubble for the server's authoritative row (or just
+      // append if there was none, e.g. a voice note sent without a temp).
+      qc.setQueryData(["support", "chat"], (old: any) => {
+        if (!old) return old;
+        const has = vars.tempId && old.messages.some((m: any) => m.id === vars.tempId);
+        return {
+          ...old,
+          messages: has
+            ? old.messages.map((m: any) => (m.id === vars.tempId ? msg : m))
+            : [...old.messages, msg],
+        };
+      });
     },
-    // The draft was cleared synchronously in submit(); on failure put it back
-    // so the user doesn't lose what they typed.
+    // Roll back the optimistic bubble and restore the draft so nothing is lost.
     onError: (e: any, vars) => {
+      if (vars.tempId) {
+        qc.setQueryData(["support", "chat"], (old: any) =>
+          old ? { ...old, messages: old.messages.filter((m: any) => m.id !== vars.tempId) } : old,
+        );
+      }
       setDraft((d) => d || vars.body);
       if (vars.attachment) setPending((p) => p || vars.attachment);
       toast.error(e?.message || "Could not send");
@@ -127,7 +140,32 @@ export default function SupportChatPage() {
     // + the text lingering after send.
     setDraft("");
     setPending(null);
-    sendMut.mutate({ body, attachment });
+    // Optimistic bubble — show the message INSTANTLY, reconcile on success.
+    // Without this the bubble only appeared after the server round-trip, which
+    // read as a 2-3 s lag on a slow link.
+    const tempId = `temp-${Date.now()}`;
+    qc.setQueryData(["support", "chat"], (old: any) =>
+      old
+        ? {
+            ...old,
+            messages: [
+              ...old.messages,
+              {
+                id: tempId,
+                sender: "USER",
+                sender_id: null,
+                sender_name: "",
+                body,
+                attachment_url: attachment?.url ?? null,
+                attachment_name: attachment?.name ?? null,
+                read_at: null,
+                created_at: new Date().toISOString(),
+              },
+            ],
+          }
+        : old,
+    );
+    sendMut.mutate({ body, attachment, tempId });
   }
 
   return (

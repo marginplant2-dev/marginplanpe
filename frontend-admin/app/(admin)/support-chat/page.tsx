@@ -94,17 +94,30 @@ export default function AdminSupportChatPage() {
       userId: string;
       body: string;
       attachment: { url: string; name: string } | null;
+      tempId?: string;
     }) => SupportChatAPI.send(vars.userId, vars.body, vars.attachment),
     onSuccess: (msg, vars) => {
-      qc.setQueryData(["support-chat", "messages", vars.userId], (old: any) =>
-        old ? { ...old, messages: [...old.messages, msg] } : old,
-      );
+      qc.setQueryData(["support-chat", "messages", vars.userId], (old: any) => {
+        if (!old) return old;
+        const has = vars.tempId && old.messages.some((m: any) => m.id === vars.tempId);
+        return {
+          ...old,
+          messages: has
+            ? old.messages.map((m: any) => (m.id === vars.tempId ? msg : m))
+            : [...old.messages, msg],
+        };
+      });
       // The thread may not have existed a second ago (first message sent from
       // search) — refresh the list so it appears at the top.
       qc.invalidateQueries({ queryKey: ["support-chat", "threads"] });
     },
-    // Draft cleared synchronously in submit(); restore it if the send failed.
+    // Roll back the optimistic bubble + restore the draft if the send failed.
     onError: (e: any, vars) => {
+      if (vars.tempId) {
+        qc.setQueryData(["support-chat", "messages", vars.userId], (old: any) =>
+          old ? { ...old, messages: old.messages.filter((m: any) => m.id !== vars.tempId) } : old,
+        );
+      }
       setDraft((d) => d || vars.body);
       if (vars.attachment) setPending((p) => p || vars.attachment);
       toast.error(e?.message || "Could not send");
@@ -143,11 +156,35 @@ export default function AdminSupportChatPage() {
     const body = draft.trim();
     if (!body && !pending) return;
     const attachment = pending;
+    const userId = activeUserId;
     // Clear synchronously so a 2nd Enter in the same frame sees an empty draft
     // and bails — fixes the duplicate send + text lingering after send.
     setDraft("");
     setPending(null);
-    sendMut.mutate({ userId: activeUserId, body, attachment });
+    // Optimistic bubble — instant, reconciled on success (kills the 2-3 s lag).
+    const tempId = `temp-${Date.now()}`;
+    qc.setQueryData(["support-chat", "messages", userId], (old: any) =>
+      old
+        ? {
+            ...old,
+            messages: [
+              ...old.messages,
+              {
+                id: tempId,
+                sender: "ADMIN",
+                sender_id: null,
+                sender_name: "",
+                body,
+                attachment_url: attachment?.url ?? null,
+                attachment_name: attachment?.name ?? null,
+                read_at: null,
+                created_at: new Date().toISOString(),
+              },
+            ],
+          }
+        : old,
+    );
+    sendMut.mutate({ userId, body, attachment, tempId });
   }
 
   // A broker granted `support` at VIEW reads their pool's chats but cannot

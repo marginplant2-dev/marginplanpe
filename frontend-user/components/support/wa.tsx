@@ -41,6 +41,14 @@ export function fileUrl(u: string): string {
   return u.startsWith("http") ? u : `${API_URL}${u}`;
 }
 
+// created_at / read_at come back from Mongo as NAIVE UTC (no tz marker), so a
+// bare `waParse(v)` reads them as LOCAL time — shifting support timestamps by
+// the viewer's offset (~5.5h early in IST). Pin Z when there's no tz so it's
+// parsed as UTC, then the toLocaleTimeString(Asia/Kolkata) below is correct.
+function waParse(v: string): Date {
+  return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(v) ? v : v + "Z");
+}
+
 export function isImage(name: string | null, url: string | null): boolean {
   return /\.(png|jpe?g|webp|gif)$/.test((name || url || "").toLowerCase());
 }
@@ -52,7 +60,7 @@ export function isAudio(name: string | null, url: string | null): boolean {
 /** Bubble clock — IST, no date (the date lives on the day chip). */
 export function waTime(v: string | null): string {
   if (!v) return "";
-  return new Date(v)
+  return waParse(v)
     .toLocaleTimeString("en-IN", {
       timeZone: "Asia/Kolkata",
       hour: "2-digit",
@@ -64,7 +72,7 @@ export function waTime(v: string | null): string {
 
 export function waDayLabel(v: string | null): string {
   if (!v) return "";
-  const d = new Date(v);
+  const d = waParse(v);
   const key = (x: Date) => x.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" });
   const now = new Date();
   const yest = new Date(now.getTime() - 86_400_000);
@@ -86,7 +94,7 @@ export function waListTime(v: string | null): string {
   const label = waDayLabel(v);
   if (label === "TODAY") return waTime(v);
   if (label === "YESTERDAY") return "Yesterday";
-  return new Date(v).toLocaleDateString("en-IN", {
+  return waParse(v).toLocaleDateString("en-IN", {
     timeZone: "Asia/Kolkata",
     day: "2-digit",
     month: "2-digit",
