@@ -29,7 +29,7 @@ import {
   User as UserIcon,
   Wallet as WalletIcon,
 } from "lucide-react";
-import { ProfileAPI, AuthAPI, SegmentSettingsAPI, SupportChatAPI } from "@/lib/api";
+import { ProfileAPI, AuthAPI, PushAPI, SegmentSettingsAPI, SupportChatAPI } from "@/lib/api";
 import { ChatGlyph, WhatsAppGlyph } from "@/components/support/wa";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -780,8 +780,90 @@ function SupportLinks() {
             </a>
           </li>
         )}
+        <li className="px-3 py-3">
+          <PushDiagnostics />
+        </li>
       </ul>
     </section>
+  );
+}
+
+/** Notification self-check.
+ *
+ * Push has three independent failure points that all look the same from the
+ * app — no VAPID pair on the server, no subscription for this device (OS
+ * permission denied), or the OS blocking the PWA — and none of them raise an
+ * error anywhere the user or the operator can see. This row names which one
+ * is broken and fires a real test push through the same path a support reply
+ * takes, so "kuch nahi aa raha" becomes a specific, fixable answer.
+ */
+function PushDiagnostics() {
+  const { data, refetch, isFetching } = useQuery({
+    queryKey: ["push", "status"],
+    queryFn: () => PushAPI.status(),
+    staleTime: 30_000,
+  });
+  const [testing, setTesting] = useState(false);
+
+  const permission =
+    typeof window !== "undefined" && typeof Notification !== "undefined"
+      ? Notification.permission
+      : "default";
+
+  async function runTest() {
+    setTesting(true);
+    try {
+      const res = await PushAPI.test();
+      await refetch();
+      if (res.sent) {
+        toast.success("Test sent — check your notification tray");
+      } else if (!res.vapid_configured) {
+        toast.error("Server has no push keys configured. Contact your admin.");
+      } else {
+        toast.error("This device isn't registered. Allow notifications, then reopen the app.");
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Could not send test");
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  const problem =
+    permission !== "granted"
+      ? "Notifications are blocked for this app. Allow them in your phone's app settings."
+      : data && !data.vapid_configured
+        ? "Server-side push isn't configured yet. Contact your admin."
+        : data && data.subscription_count === 0
+          ? "This device isn't registered yet. Reopen the app after allowing notifications."
+          : null;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-3">
+        <div className="grid size-10 place-items-center rounded-xl bg-info/12 text-info">
+          <Bell className="size-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium">Notifications</div>
+          <p className="truncate text-[11px] text-muted-foreground">
+            {isFetching && !data
+              ? "Checking…"
+              : problem
+                ? "Not working"
+                : `Active on ${data?.subscription_count ?? 0} device(s)`}
+          </p>
+        </div>
+        <Button size="sm" variant="outline" onClick={runTest} disabled={testing}>
+          {testing ? "Sending…" : "Send test"}
+        </Button>
+      </div>
+      {problem && (
+        <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-[11px] leading-[16px] text-amber-700 dark:text-amber-400">
+          {problem}
+        </p>
+      )}
+    </div>
   );
 }
 

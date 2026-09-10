@@ -95,13 +95,35 @@ async def _send_one(sub: PushSubscription, payload: dict[str, Any]) -> None:
             pass
 
 
+# Set once the first no-VAPID drop is reported, so the warning below doesn't
+# repeat on every subsequent send.
+_vapid_warned = False
+
+
 async def _fan_out(subs: list[PushSubscription], payload: dict[str, Any]) -> None:
     """Send to every subscription concurrently. Each task is independent;
     one bad subscription never starves the others."""
     if not subs:
         return
     if not _push_enabled():
-        logger.debug("push_send_skipped (no VAPID configured) count=%d", len(subs))
+        # WARNING, not debug: production runs at INFO, so the old debug line
+        # meant an entire deployment could have push silently dead — every
+        # send returning "ok", nothing ever reaching a phone, and no trace in
+        # journalctl to explain it. Once per process is enough to spot it
+        # without flooding the log on every tick.
+        global _vapid_warned
+        if not _vapid_warned:
+            _vapid_warned = True
+            logger.warning(
+                "push_disabled_no_vapid: dropped a notification for %d "
+                "subscription(s) because VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY "
+                "are unset. Generate them with "
+                "`python -m scripts.generate_vapid_keys`, add both to .env and "
+                "restart. Logged once per process.",
+                len(subs),
+            )
+        else:
+            logger.debug("push_send_skipped (no VAPID configured) count=%d", len(subs))
         return
     await asyncio.gather(*[_send_one(s, payload) for s in subs], return_exceptions=True)
 

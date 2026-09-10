@@ -614,6 +614,19 @@ export const PushAPI = {
     unwrap<{ id: string; created: boolean }>(api.post("/user/push/subscribe", body)),
   unsubscribe: (endpoint: string) =>
     unwrap<{ ok: boolean; found: boolean }>(api.post("/user/push/unsubscribe", { endpoint })),
+  // Diagnostics. Push fails silently in three different ways that look
+  // identical from the app; these say which one it is.
+  status: () =>
+    unwrap<PushStatus>(api.get("/user/push/status")),
+  test: () => unwrap<PushStatus & { sent: boolean }>(api.post("/user/push/test", {})),
+};
+
+export type PushStatus = {
+  /** Server has a VAPID pair. False ⇒ nobody on the platform gets push. */
+  vapid_configured: boolean;
+  /** How many devices registered for THIS user. Zero ⇒ permission denied. */
+  subscription_count: number;
+  devices: { label: string; created_at: string | null }[];
 };
 
 export { getAccessToken, getRefreshToken };
