@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Loader2, Paperclip, SendHorizonal, Sprout, X } from "lucide-react";
 import { API_URL } from "@/lib/constants";
 import { useBranding } from "@/lib/branding-context";
+import { useAuthStore } from "@/stores/authStore";
 import { SupportChatAPI, type SupportChatMessage } from "@/lib/api";
 import {
   WA,
@@ -20,6 +21,12 @@ import { cn } from "@/lib/utils";
 export default function SupportChatPage() {
   const qc = useQueryClient();
   const router = useRouter();
+  // Demo accounts don't get support chat — bounce to the dashboard even on a
+  // direct URL hit.
+  const isDemo = !!useAuthStore((s) => s.user)?.is_demo;
+  useEffect(() => {
+    if (isDemo) router.replace("/dashboard");
+  }, [isDemo, router]);
   const { branding } = useBranding();
   const supportName = branding?.brand_name?.trim() || "Support";
   const logoUrl = branding?.logo_url ? `${API_URL}${branding.logo_url}` : null;
@@ -64,8 +71,6 @@ export default function SupportChatPage() {
     mutationFn: (vars: { body: string; attachment: { url: string; name: string } | null }) =>
       SupportChatAPI.send(vars.body, vars.attachment),
     onSuccess: (msg) => {
-      setDraft("");
-      setPending(null);
       // Append straight into the cache rather than invalidating: the message
       // is already authoritative (the server returned it), and a refetch here
       // would blank the pane for a frame on a slow connection.
@@ -73,7 +78,13 @@ export default function SupportChatPage() {
         old ? { ...old, messages: [...old.messages, msg] } : old,
       );
     },
-    onError: (e: any) => toast.error(e?.message || "Could not send"),
+    // The draft was cleared synchronously in submit(); on failure put it back
+    // so the user doesn't lose what they typed.
+    onError: (e: any, vars) => {
+      setDraft((d) => d || vars.body);
+      if (vars.attachment) setPending((p) => p || vars.attachment);
+      toast.error(e?.message || "Could not send");
+    },
   });
 
   async function pickFile(f: File | undefined) {
@@ -91,9 +102,16 @@ export default function SupportChatPage() {
   }
 
   function submit() {
+    if (sendMut.isPending) return; // guard against a fast double Enter/tap
     const body = draft.trim();
     if (!body && !pending) return;
-    sendMut.mutate({ body, attachment: pending });
+    const attachment = pending;
+    // Clear the input SYNCHRONOUSLY so a second Enter fired in the same frame
+    // sees an empty draft and bails — this is what stopped the duplicate send
+    // + the text lingering after send.
+    setDraft("");
+    setPending(null);
+    sendMut.mutate({ body, attachment });
   }
 
   return (

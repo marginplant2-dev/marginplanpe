@@ -35,8 +35,13 @@ export function TopBar() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const pathname = usePathname();
+  // Demo accounts don't get the support-chat system (it routes to a real
+  // admin/broker — meaningless for the shared universal demo login).
+  const isDemo = !!user?.is_demo;
   const primaryNav = NAV_ITEMS.filter((it) => PRIMARY_HREFS.has(it.href));
-  const secondaryNav = NAV_ITEMS.filter((it) => !PRIMARY_HREFS.has(it.href));
+  const secondaryNav = NAV_ITEMS.filter(
+    (it) => !PRIMARY_HREFS.has(it.href) && !(isDemo && it.href === "/support"),
+  );
 
   // Live wallet balance — drives the pill on the topbar.
   // `placeholderData` paints the last-known balance from localStorage so the
@@ -161,7 +166,7 @@ export function TopBar() {
       {/* Support shortcut — visible on mobile + desktop. Opens WhatsApp when
           the broker published a number, otherwise the in-app chat, so the
           header always has a working way to reach support. */}
-      <SupportShortcut />
+      {!isDemo && <SupportShortcut />}
 
       {/* ── Desktop-only cluster ────────────────────────────────
          ThemeToggle / Profile / Logout. Mobile users get these from

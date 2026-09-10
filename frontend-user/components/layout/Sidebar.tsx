@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useAuthStore } from "@/stores/authStore";
 import { SupportChatAPI } from "@/lib/api";
 import { WhatsAppGlyph } from "@/components/support/wa";
 import { cn } from "@/lib/utils";
@@ -49,6 +50,9 @@ export const NAV_ITEMS = [
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  // Demo accounts don't get support chat (routes to a real admin/broker).
+  const isDemo = !!useAuthStore((s) => s.user)?.is_demo;
+  const navItems = NAV_ITEMS.filter((it) => !(isDemo && it.href === "/support"));
   // Support-chat unread badge. The WS bridge invalidates this key when a
   // reply arrives, so the poll below is only the dead-socket fallback.
   const { data: chatUnread } = useQuery({
@@ -89,7 +93,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto p-2 scrollbar-thin">
-        {NAV_ITEMS.map((it) => {
+        {navItems.map((it) => {
           const active =
             pathname === it.href ||
             (it.href !== "/dashboard" && pathname?.startsWith(it.href));

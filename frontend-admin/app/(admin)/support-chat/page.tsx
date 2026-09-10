@@ -95,8 +95,6 @@ export default function AdminSupportChatPage() {
       attachment: { url: string; name: string } | null;
     }) => SupportChatAPI.send(vars.userId, vars.body, vars.attachment),
     onSuccess: (msg, vars) => {
-      setDraft("");
-      setPending(null);
       qc.setQueryData(["support-chat", "messages", vars.userId], (old: any) =>
         old ? { ...old, messages: [...old.messages, msg] } : old,
       );
@@ -104,7 +102,12 @@ export default function AdminSupportChatPage() {
       // search) — refresh the list so it appears at the top.
       qc.invalidateQueries({ queryKey: ["support-chat", "threads"] });
     },
-    onError: (e: any) => toast.error(e?.message || "Could not send"),
+    // Draft cleared synchronously in submit(); restore it if the send failed.
+    onError: (e: any, vars) => {
+      setDraft((d) => d || vars.body);
+      if (vars.attachment) setPending((p) => p || vars.attachment);
+      toast.error(e?.message || "Could not send");
+    },
   });
 
   async function pickFile(f: File | undefined) {
@@ -122,10 +125,15 @@ export default function AdminSupportChatPage() {
   }
 
   function submit() {
-    if (!activeUserId) return;
+    if (!activeUserId || sendMut.isPending) return; // guard fast double send
     const body = draft.trim();
     if (!body && !pending) return;
-    sendMut.mutate({ userId: activeUserId, body, attachment: pending });
+    const attachment = pending;
+    // Clear synchronously so a 2nd Enter in the same frame sees an empty draft
+    // and bails — fixes the duplicate send + text lingering after send.
+    setDraft("");
+    setPending(null);
+    sendMut.mutate({ userId: activeUserId, body, attachment });
   }
 
   // A broker granted `support` at VIEW reads their pool's chats but cannot
