@@ -10,7 +10,6 @@ import {
   playNotifyPing,
   primeVoiceOnFirstGesture,
   showNativeNotification,
-  speakNotification,
   subscribeForWebPush,
   userNotificationsEnabled,
 } from "@/lib/notify-sound";
@@ -256,8 +255,6 @@ export function UserWsBridge() {
                   tag: `mp-broadcast-${Date.now()}`,
                   url: p.link || "/notifications",
                 });
-                // Voice announcement so it lands like a "real" notification.
-                speakNotification(body ? `${title}. ${body}` : title);
               }
             }
             break;
@@ -286,10 +283,6 @@ export function UserWsBridge() {
                   tag: `mp-support-${p.id || Date.now()}`,
                   url: "/support",
                 });
-                // Spoken announcement — the piece that makes it land like the
-                // admin broadcast rather than a silent badge. Voice is primed
-                // on first gesture at the top of this component.
-                speakNotification(body ? `${title}. ${body}` : title);
               }
             }
             break;
