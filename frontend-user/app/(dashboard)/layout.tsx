@@ -10,6 +10,7 @@ import { TopBar } from "@/components/layout/TopBar";
 import { StatusBar } from "@/components/layout/StatusBar";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { UserWsBridge } from "@/components/common/UserWsBridge";
+import { EnableNotificationsPrompt } from "@/components/common/EnableNotificationsPrompt";
 import { OfflineBanner } from "@/components/common/OfflineBanner";
 import { TermsGate } from "@/components/common/TermsGate";
 import { PagePrewarmer } from "@/components/common/PagePrewarmer";
@@ -67,6 +68,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="grid min-h-screen grid-cols-1 md:grid-cols-[auto_1fr] lg:grid-cols-1">
       <UserWsBridge />
+      <EnableNotificationsPrompt />
       <PagePrewarmer />
       <OfflineBanner />
       <TermsGate />
