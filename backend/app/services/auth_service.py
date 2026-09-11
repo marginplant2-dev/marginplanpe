@@ -419,23 +419,48 @@ GLOBAL_DEMO_EMAIL = "demo@test.app"
 GLOBAL_DEMO_MOBILE = "9000000000"
 
 
-async def create_demo_session(*, ip: str = "0.0.0.0", user_agent: str | None = None) -> TokenPair:
-    """Log into the single shared demo account (find-or-create), return a JWT pair."""
+def _demo_identity(admin) -> tuple[str, str, "PydanticObjectId | None"]:
+    """Deterministic (email, mobile, assigned_admin_id) for a pool's demo.
+
+    Platform / super-admin → the original shared demo@test.app. Every other
+    admin gets their OWN universal demo account, keyed by their id, so each
+    admin's visitors share THAT admin's demo (isolated from other admins'
+    positions/balance). The synthetic mobile is derived from the admin id
+    (10 digits, leading 9) so it's unique per admin and never collides with a
+    real Indian number."""
+    from app.models.user import UserRole
+
+    if admin is None or admin.role == UserRole.SUPER_ADMIN:
+        return GLOBAL_DEMO_EMAIL, GLOBAL_DEMO_MOBILE, None
+    suffix = str(int(str(admin.id), 16) % 1_000_000_000).zfill(9)
+    return f"demo+{admin.id}@test.app", f"9{suffix}", admin.id
+
+
+async def create_demo_session(
+    *, admin=None, ip: str = "0.0.0.0", user_agent: str | None = None
+) -> TokenPair:
+    """Log into the pool's shared demo account (find-or-create), return a JWT
+    pair. `admin` selects WHICH universal demo (per-admin); None = platform."""
     from app.models.transaction import TransactionType
     from app.models.user import AccountType, User
+
     from app.services import wallet_service
 
-    user = await User.find_one(User.email == GLOBAL_DEMO_EMAIL)
+    demo_email, demo_mobile, demo_admin_id = _demo_identity(admin)
+
+    user = await User.find_one(User.email == demo_email)
     if user is None:
-        # First-ever demo login — provision the shared account exactly once.
+        # First-ever demo login for this pool — provision it exactly once.
         try:
             user = await user_service.create_user(
-                email=GLOBAL_DEMO_EMAIL,
-                mobile=GLOBAL_DEMO_MOBILE,
+                email=demo_email,
+                mobile=demo_mobile,
                 password=secrets.token_hex(16),
                 full_name="Demo User",
                 is_demo=True,
             )
+            if demo_admin_id is not None:
+                user.assigned_admin_id = demo_admin_id
             user.account_type = AccountType.DEMO
             await user.save()
             await wallet_service.adjust(
@@ -447,18 +472,18 @@ async def create_demo_session(*, ip: str = "0.0.0.0", user_agent: str | None = N
         except Exception:
             # Race: two first-time clicks landed together and one already
             # inserted the row (unique email/mobile). Re-fetch the winner.
-            user = await User.find_one(User.email == GLOBAL_DEMO_EMAIL)
+            user = await User.find_one(User.email == demo_email)
 
     if user is None:
         raise AppError("Could not start demo session. Please try again.")
 
-    # Self-heal the shared demo identity: force the display name + mobile back
-    # to the fixed defaults on every login. The profile is now locked for demo
-    # (user/profile.py), but this also SCRUBS any abusive name a visitor set
-    # before the lock, so the next visitor never sees it.
-    if user.full_name != "Demo" or user.mobile != GLOBAL_DEMO_MOBILE:
+    # Self-heal the demo identity: force the display name + mobile back to the
+    # fixed defaults on every login. The profile is locked for demo, but this
+    # also SCRUBS any abusive name a visitor set before the lock, so the next
+    # visitor never sees it.
+    if user.full_name != "Demo" or user.mobile != demo_mobile:
         user.full_name = "Demo"
-        user.mobile = GLOBAL_DEMO_MOBILE
+        user.mobile = demo_mobile
         try:
             await user.save()
         except Exception:

@@ -17,6 +17,7 @@ from app.api.v1.admin import (
     instruments,
     kyc,
     ledger,
+    demo_leads,
     management,
     marketwatch,
     money_transactions,
@@ -47,6 +48,7 @@ router.include_router(netting.router)
 router.include_router(trading.router)
 router.include_router(payin_out.router)
 router.include_router(referral.router)
+router.include_router(demo_leads.router)
 router.include_router(brokerage.router)
 router.include_router(crypto_config.router)
 router.include_router(bonuses.router)

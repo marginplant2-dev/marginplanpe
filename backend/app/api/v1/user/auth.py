@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, status
+from pydantic import BaseModel, Field
 
 from app.core.dependencies import CurrentUser
 from app.core.exceptions import (
@@ -342,18 +343,51 @@ async def two_fa_disable(payload: TwoFADisableRequest, user: CurrentUser):
 
 
 # ── Demo login ────────────────────────────────────────────────────────
+class DemoLoginBody(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    mobile: str = Field(min_length=6, max_length=20)
+    # Optional broker/admin ref from the visited link, so a branded/referral
+    # demo lands in the right pool even off the custom domain.
+    referral_code: str | None = None
+
+
 @router.post(
     "/demo",
     response_model=APIResponse[TokenPair],
     dependencies=[rate_limit("auth")],
 )
-async def demo_login(request: Request):
-    """Log into the shared demo account pre-funded with ₹50 Lakh virtual money.
+async def demo_login(payload: DemoLoginBody, request: Request):
+    """Log into the pool's demo account, pre-funded with ₹50 Lakh virtual money.
 
-    No signup required — returns a full JWT pair immediately. The shared demo
-    account is flattened + re-funded to ₹50,00,000 every 24h (demo_reset_loop).
+    The visitor first leaves a name + mobile (captured as a DemoLead, deduped
+    per pool). Which demo they land in is resolved from the request's tenant
+    host / referral code, so each admin runs their OWN universal demo account.
+    That account is flattened + re-funded every 24h (demo_reset_loop).
     """
+    request_host = _signup_host(request)
+    assigned_admin_id, _broker_id, _ancestry, _origin = (
+        await branding_service.resolve_signup_attribution(
+            request_host=request_host,
+            referral_code=payload.referral_code,
+        )
+    )
+    from app.models.user import User as _User
+
+    admin = await _User.get(assigned_admin_id) if assigned_admin_id else None
+
+    # Capture the lead so the owning admin sees who tried their demo. Strictly
+    # best-effort — a lead-write hiccup must never block the demo login itself.
+    try:
+        from app.services import demo_lead_service
+
+        await demo_lead_service.capture(
+            admin_id=assigned_admin_id, name=payload.name, mobile=payload.mobile
+        )
+    except Exception:  # pragma: no cover
+        pass
+
     pair = await auth_service.create_demo_session(
+        admin=admin,
         ip=_client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )

@@ -436,6 +436,23 @@ export const ReferralSettingsAPI = {
     }>(api.get("/admin/referral-settings/stats")),
 };
 
+export type DemoLead = {
+  id: string;
+  name: string;
+  mobile: string;
+  login_count: number;
+  last_login_at: string | null;
+  created_at: string | null;
+};
+
+// Demo Accounts — the name + phone every visitor left before trying the demo.
+export const DemoLeadsAPI = {
+  list: (params: { search?: string; page?: number; page_size?: number } = {}) =>
+    unwrap<{ total: number; page: number; page_size: number; items: DemoLead[] }>(
+      api.get("/admin/demo-leads", { params }),
+    ),
+};
+
 // Per-admin / super-admin public-registration toggle.
 export const RegistrationAPI = {
   status: () => unwrap<{ enabled: boolean }>(api.get("/admin/dashboard/registration-status")),

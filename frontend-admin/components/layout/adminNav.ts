@@ -18,6 +18,7 @@ import {
   Cog,
   DatabaseBackup,
   Download,
+  FlaskConical,
   FileText,
   Gift,
   Layers,
@@ -75,6 +76,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { href: "/users", label: "All users", icon: Users, perm: "users" },
       { href: "/send-notification", label: "Send Notification", icon: MessageCircle, perm: "users" },
       { href: "/referral-settings", label: "Referral Settings", icon: Gift, perm: "users" },
+      { href: "/demo-accounts", label: "Demo Accounts", icon: FlaskConical, perm: "users" },
     ],
   },
   {

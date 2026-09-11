@@ -347,7 +347,8 @@ export const AuthAPI = {
   twoFASetup: () => unwrap<{ secret: string; provisioning_uri: string }>(api.post("/user/auth/2fa/setup")),
   twoFAEnable: (code: string) => unwrap(api.post("/user/auth/2fa/enable", { code })),
   twoFADisable: (password: string, code: string) => unwrap(api.post("/user/auth/2fa/disable", { password, code })),
-  demoLogin: () => unwrap<TokenPair>(api.post("/user/auth/demo")),
+  demoLogin: (body: { name: string; mobile: string; referral_code?: string }) =>
+    unwrap<TokenPair>(api.post("/user/auth/demo", body)),
 };
 
 export const ReferralAPI = {

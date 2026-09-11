@@ -57,6 +57,9 @@ function LoginPageInner() {
   const [showPwd, setShowPwd] = useState(false);
   const [needs2fa, setNeeds2fa] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
+  const [demoOpen, setDemoOpen] = useState(false);
+  const [demoName, setDemoName] = useState("");
+  const [demoMobile, setDemoMobile] = useState("");
   // Maintenance popup — shown both when a live session gets kicked here
   // (?maintenance=1, set by the api interceptor) and when a fresh login is
   // rejected with MAINTENANCE_MODE below.
@@ -123,15 +126,25 @@ function LoginPageInner() {
   });
 
   async function handleDemoLogin() {
+    const name = demoName.trim();
+    const mobile = demoMobile.trim();
+    if (name.length < 2) {
+      toast.error("Please enter your name");
+      return;
+    }
+    if (mobile.replace(/\D/g, "").length < 10) {
+      toast.error("Please enter a valid 10-digit mobile number");
+      return;
+    }
     setDemoLoading(true);
     try {
-      const pair = await AuthAPI.demoLogin();
+      const rc = searchParams.get("rc") || searchParams.get("ref") || undefined;
+      const pair = await AuthAPI.demoLogin({ name, mobile, referral_code: rc });
       setSession(pair as any);
       toast.success("Demo account ready — ₹50,00,000 virtual balance");
       router.push("/dashboard");
     } catch {
       toast.error("Could not start demo. Please try again.");
-    } finally {
       setDemoLoading(false);
     }
   }
@@ -300,7 +313,7 @@ function LoginPageInner() {
         </div>
         <button
           type="button"
-          onClick={handleDemoLogin}
+          onClick={() => setDemoOpen(true)}
           disabled={demoLoading}
           className="flex w-full items-center gap-2.5 rounded-xl border border-mp-primary/25 bg-mp-primary/5 px-3 py-2.5 text-left transition-colors hover:bg-mp-primary/10 active:scale-[0.99] disabled:pointer-events-none disabled:opacity-70"
         >
@@ -333,6 +346,70 @@ function LoginPageInner() {
           )}
         </button>
       </div>
+
+      {/* Demo lead form — name + mobile before the demo session starts. */}
+      {demoOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
+          onClick={() => !demoLoading && setDemoOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-t-2xl border border-border bg-card p-5 shadow-2xl sm:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-mp-primary text-white">
+                <Zap className="size-4 fill-white" />
+              </span>
+              <div>
+                <h2 className="text-base font-semibold leading-tight">Start your free demo</h2>
+                <p className="text-[11px] text-muted-foreground">₹50,00,000 virtual · risk-free</p>
+              </div>
+            </div>
+            <div className="mt-4 space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="demo-name">Your name</Label>
+                <Input
+                  id="demo-name"
+                  value={demoName}
+                  onChange={(e) => setDemoName(e.target.value)}
+                  placeholder="e.g. Rahul Sharma"
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="demo-mobile">Mobile number</Label>
+                <Input
+                  id="demo-mobile"
+                  value={demoMobile}
+                  onChange={(e) => setDemoMobile(e.target.value.replace(/[^\d]/g, "").slice(0, 10))}
+                  inputMode="numeric"
+                  placeholder="10-digit mobile"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleDemoLogin();
+                    }
+                  }}
+                />
+              </div>
+            </div>
+            <div className="mt-5 flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setDemoOpen(false)}
+                disabled={demoLoading}
+              >
+                Cancel
+              </Button>
+              <Button className="flex-1" onClick={handleDemoLogin} disabled={demoLoading}>
+                {demoLoading ? <Loader2 className="size-4 animate-spin" /> : "Start demo"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer — "no account?" link + minimalist Install App CTA */}
       <div className="space-y-3">

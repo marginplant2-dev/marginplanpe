@@ -27,30 +27,16 @@ _DEMO_FUND = Decimal128("5000000")  # ₹50,00,000 virtual demo balance
 _ZERO = Decimal128("0")
 
 
-async def reset_global_demo() -> dict:
-    """Flatten the shared demo account and restore its ₹50L virtual balance.
-
-    Idempotent — safe to call repeatedly. Returns a small summary dict (used
-    by the scheduler log and the admin manual-trigger, if any). No-op when the
-    demo account hasn't been provisioned yet (nobody has clicked Try Demo).
-    """
-    from app.services.auth_service import GLOBAL_DEMO_EMAIL
-
-    user = await User.find_one(User.email == GLOBAL_DEMO_EMAIL)
-    if user is None:
-        return {"reset": False, "reason": "global demo not provisioned yet"}
-
+async def _reset_demo_user(user: User) -> None:
+    """Flatten one demo account and restore its ₹50L virtual balance."""
     uid = user.id
-
-    # Full wipe — it's a demo, a clean slate every cycle keeps the account
-    # light (the whole point: open demo trades were never closing and piling
-    # up). Order matters little since these are independent collections.
-    pos_res = await Position.find(Position.user_id == uid).delete()
-    ord_res = await Order.find(Order.user_id == uid).delete()
-    trd_res = await Trade.find(Trade.user_id == uid).delete()
+    # Full wipe — a clean slate every cycle keeps the account light (open demo
+    # trades were never closing and piling up).
+    await Position.find(Position.user_id == uid).delete()
+    await Order.find(Order.user_id == uid).delete()
+    await Trade.find(Trade.user_id == uid).delete()
     await WalletTransaction.find(WalletTransaction.user_id == uid).delete()
 
-    # Restore the virtual balance: flat ₹50L, no blocked margin, no shortfall.
     wallet = await wallet_service.get_or_create(uid)
     wallet.available_balance = _DEMO_FUND
     wallet.used_margin = _ZERO
@@ -58,7 +44,6 @@ async def reset_global_demo() -> dict:
     wallet.version = (wallet.version or 0) + 1
     await wallet.save()
 
-    # One clean ledger row so the wallet history shows the daily credit.
     await WalletTransaction(
         user_id=uid,
         transaction_type=TransactionType.BONUS,
@@ -69,13 +54,28 @@ async def reset_global_demo() -> dict:
         status=TransactionStatus.COMPLETED,
     ).insert()
 
-    summary = {
-        "reset": True,
-        "positions_cleared": getattr(pos_res, "deleted_count", None),
-        "orders_cleared": getattr(ord_res, "deleted_count", None),
-        "trades_cleared": getattr(trd_res, "deleted_count", None),
-    }
-    logger.info("demo_global_reset_done", extra=summary)
+
+async def reset_global_demo() -> dict:
+    """Flatten EVERY demo account (the platform demo + each admin's own
+    universal demo) and restore each one's ₹50L virtual balance.
+
+    Idempotent — safe to call repeatedly. No-op when no demo account has been
+    provisioned yet (nobody has clicked Try Demo anywhere).
+    """
+    users = await User.find(User.is_demo == True).to_list()  # noqa: E712
+    if not users:
+        return {"reset": False, "reason": "no demo accounts provisioned yet"}
+
+    reset_count = 0
+    for user in users:
+        try:
+            await _reset_demo_user(user)
+            reset_count += 1
+        except Exception:
+            logger.exception("demo_reset_failed user=%s", user.id)
+
+    summary = {"reset": True, "accounts_reset": reset_count, "demo_accounts": len(users)}
+    logger.info("demo_reset_done", extra=summary)
     return summary
 
 
