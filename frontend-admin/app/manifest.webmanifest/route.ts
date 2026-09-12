@@ -72,12 +72,37 @@ async function fetchBranding(userCode: string): Promise<Branding | null> {
   }
 }
 
+async function fetchBrandingByDomain(domain: string): Promise<Branding | null> {
+  if (!API_BASE || !domain) return null;
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/v1/branding/by-domain?domain=${encodeURIComponent(domain)}`,
+      { cache: "no-store", headers: { Accept: "application/json" } },
+    );
+    if (!res.ok) return null;
+    const json = await res.json();
+    const data = json?.data ?? null;
+    if (!data) return null;
+    return { brand_name: data.brand_name ?? null, logo_url: data.logo_url ?? null };
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(req: NextRequest) {
   const userCode = (req.nextUrl.searchParams.get("u") || "").trim().toUpperCase();
+  // `?d=<domain>` lets the pre-auth login page brand the install icon to the
+  // domain's admin (broker page included — its PWA logo is the admin's logo).
+  const domain = (req.nextUrl.searchParams.get("d") || "").trim().toLowerCase();
   let manifest: Record<string, unknown> = { ...PLATFORM_DEFAULT };
 
-  if (userCode) {
-    const brand = await fetchBranding(userCode);
+  const resolved = userCode
+    ? await fetchBranding(userCode)
+    : domain
+      ? await fetchBrandingByDomain(domain)
+      : null;
+  if (resolved) {
+    const brand = resolved;
     if (brand?.brand_name || brand?.logo_url) {
       const name = brand.brand_name?.trim() || PLATFORM_DEFAULT.name;
       const shortName = (brand.brand_name?.trim() || PLATFORM_DEFAULT.short_name).slice(0, 12);
