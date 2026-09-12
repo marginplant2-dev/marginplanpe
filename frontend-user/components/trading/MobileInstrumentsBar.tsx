@@ -354,17 +354,13 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
   // is good enough until the user scrolls.
   const LIVE_TOKEN_CAP = 30;
   const tokensKey = useMemo<string>(() => {
+    // ONLY subscribe / batch-quote the rows the user has ADDED — the Favourites
+    // watchlist and managed-segment additions. Search results and the segment
+    // BROWSE lists are a name-only picker now: they never subscribe or fetch a
+    // price (operator: "search me price mat dikhe, add karu tab price aaye" —
+    // typing used to subscribe every match + show its price, hammering the WS).
     const all = (() => {
-      if (debouncedSearch.trim().length > 0 && bucket?.mode !== "watchlist") {
-        return (searchHits ?? []).map((s: any) => s.token);
-      }
       if (bucket?.mode === "watchlist") {
-        // Subscribe the FAVOURITE tokens to WS + batch quotes too. Without
-        // this the Favorites tab got no live overlay — `quoteByToken` was
-        // empty, so the enrich() below fell back to the /marketwatch/quotes
-        // REST ltp, which is 0 for Infoway (crypto/forex/metals). Result:
-        // those rows froze at 0.00 while every other bucket ticked live.
-        // instrument_token == symbol for Infoway, so they stream fine.
         return (activeWl?.items ?? []).map((it: any) =>
           String(it.instrument_token ?? it.token),
         );
@@ -372,10 +368,10 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
       if (managedSegmentName) {
         return (segmentItems ?? []).map((it: any) => String(it.instrument_token));
       }
-      return (bucketHits ?? []).map((s: any) => s.token);
+      return [];
     })();
     return all.slice(0, LIVE_TOKEN_CAP).join(",");
-  }, [debouncedSearch, searchHits, bucketHits, bucket?.mode, managedSegmentName, segmentItems, activeWl?.items]);
+  }, [bucket?.mode, managedSegmentName, segmentItems, activeWl?.items]);
   const visibleTokens = useMemo<string[]>(
     () => (tokensKey ? tokensKey.split(",") : []),
     [tokensKey],
@@ -442,6 +438,7 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
             livePrice(live?.last_ltp) ??
             livePrice(q.last_ltp),
           change_pct: live?.change_pct ?? q.change_pct ?? null,
+          priced: true,
         };
       });
       const needle = debouncedSearch.trim().toLowerCase();
@@ -453,10 +450,13 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
     // ── Segment / browse buckets ────────────────────────────────────────
     // A search term shows segment-scoped search hits (managed Indian
     // segments stay scoped via `searchScopeSegments`); empty search browses.
-    if (debouncedSearch.trim().length > 0) return (searchHits ?? []).map(enrich);
+    // `priced:false` on search/browse rows → name-only, no live price (they
+    // aren't subscribed); ADDED rows below carry `priced:true`.
+    if (debouncedSearch.trim().length > 0)
+      return (searchHits ?? []).map((s: any) => ({ ...enrich(s), priced: false }));
     if (managedSegmentName) {
-      return (segmentItems ?? []).map((it: any) =>
-        enrich({
+      return (segmentItems ?? []).map((it: any) => ({
+        ...enrich({
           token: it.instrument_token,
           symbol: it.symbol,
           exchange: it.exchange,
@@ -466,9 +466,10 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
           expiry: it.expiry ?? null,
           instrument_type: it.instrument_type ?? null,
         }),
-      );
+        priced: true,
+      }));
     }
-    return (bucketHits ?? []).map(enrich);
+    return (bucketHits ?? []).map((s: any) => ({ ...enrich(s), priced: false }));
   }, [debouncedSearch, searchHits, wlQuotes, bucketHits, bucket, quoteByToken, managedSegmentName, segmentItems]);
 
   return (
@@ -589,20 +590,25 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
               const isActive = token === String(activeToken);
               const starred = isFav(token);
               const liveOverlay = quoteByToken.get(token);
-              const bid = livePrice(q.bid) ?? livePrice(liveOverlay?.bid);
-              const ask = livePrice(q.ask) ?? livePrice(liveOverlay?.ask);
+              // Search / browse rows (priced === false) are a name-only picker:
+              // no subscription, and no price shown even if the search API
+              // returned one. Price appears only once ADDED.
+              const priced = q.priced !== false;
+              const bid = priced ? (livePrice(q.bid) ?? livePrice(liveOverlay?.bid)) : null;
+              const ask = priced ? (livePrice(q.ask) ?? livePrice(liveOverlay?.ask)) : null;
               // Display chain, in order of truthfulness: live tick → REST
               // snapshot → the backend's persisted `last_ltp` (7-day Redis
               // `mdlast`, DISPLAY-ONLY by design — the matching engine reads
               // `ltp` which stays 0, so a stale price can never fill an
               // order). This is what keeps a REAL price on screen instead of
               // "0.00" or "—" during a cold start / market-closed feed gap.
-              const ltp =
-                livePrice(q.ltp) ??
-                livePrice(liveOverlay?.ltp) ??
-                livePrice(q.last_ltp) ??
-                livePrice(liveOverlay?.last_ltp);
-              const changePct = q.change_pct ?? liveOverlay?.change_pct ?? null;
+              const ltp = priced
+                ? livePrice(q.ltp) ??
+                  livePrice(liveOverlay?.ltp) ??
+                  livePrice(q.last_ltp) ??
+                  livePrice(liveOverlay?.last_ltp)
+                : null;
+              const changePct = priced ? (q.change_pct ?? liveOverlay?.change_pct ?? null) : null;
               const inSearchMode = debouncedSearch.trim().length > 0;
               const alreadyAdded = managedSegmentName ? addedTokenSet.has(token) : false;
               // Right-edge action button — see desktop InstrumentsPanel
@@ -713,6 +719,7 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
                   ask={ask}
                   ltp={ltp}
                   changePct={changePct}
+                  priced={priced}
                   isActive={isActive}
                   onSelect={() =>
                     onSelect(token, {
@@ -763,6 +770,7 @@ function InstrumentRow({
   ask,
   ltp,
   changePct,
+  priced = true,
   isActive,
   onSelect,
   rightAction,
@@ -777,6 +785,7 @@ function InstrumentRow({
   ask: number | null;
   ltp: number | null;
   changePct: number | null;
+  priced?: boolean;
   isActive: boolean;
   onSelect: () => void;
   rightAction: React.ReactNode;
@@ -908,16 +917,18 @@ function InstrumentRow({
           {symbol}
         </span>
         <div className="mt-0.5 flex min-w-0 items-baseline gap-1.5">
-          <span
-            className={cn(
-              "font-tabular tabular-nums text-[11px] font-semibold",
-              changeColor,
-            )}
-          >
-            {stickyChange != null
-              ? `${stickyChange >= 0 ? "+" : ""}${stickyChange.toFixed(2)}%`
-              : "—"}
-          </span>
+          {priced && (
+            <span
+              className={cn(
+                "font-tabular tabular-nums text-[11px] font-semibold",
+                changeColor,
+              )}
+            >
+              {stickyChange != null
+                ? `${stickyChange >= 0 ? "+" : ""}${stickyChange.toFixed(2)}%`
+                : "—"}
+            </span>
+          )}
           {/* Contract month — F&O only, blank for equity/index rows. */}
           {expiryLabel && (
             <span className="truncate text-[11px] font-medium uppercase text-muted-foreground">
@@ -929,7 +940,12 @@ function InstrumentRow({
 
       {/* Bid (sell, red) on top + Ask (buy, green) below — both prices
           shown so the trader reads the full spread at a glance. GLIDE + flash
-          only for Infoway/Binance asset classes; Indian rows unchanged. */}
+          only for Infoway/Binance asset classes; Indian rows unchanged.
+          Hidden entirely for search/browse rows (priced=false): those are a
+          name-only picker, price appears only after the row is ADDED. */}
+      {!priced ? (
+        <span className="text-[11px] font-medium text-muted-foreground">Tap Add</span>
+      ) : (
       <div className="flex flex-col items-end leading-tight">
         {/^(FOREX|STOCKS|INDICES|COMMODIT|METAL|ENERGY|CRYPTO)/i.test(
           String(segment || ""),
@@ -961,6 +977,7 @@ function InstrumentRow({
           </>
         )}
       </div>
+      )}
 
         {rightAction}
       </div>
