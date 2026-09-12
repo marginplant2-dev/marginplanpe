@@ -1337,12 +1337,31 @@ async def validate(
             # closed session is hours stale — so this never false-rejects a live
             # contract yet always catches the closed-session case.
             _SESSION_STALE_SEC = 600
+            # OPTIONS freeze fast and are the classic "frozen strike price" B-book
+            # leak — a much TIGHTER freshness gate applies to them so a user can
+            # never buy/sell an option at a jammed price. Futures / equity /
+            # commodity keep the lenient 600 s session gate (operator: "sirf
+            # option ke liye, NRML me kuch mat karna"). Options are identified by
+            # their segment name (…_OPTION_… for NSE/BSE index+stock and MCX).
+            _OPTION_STALE_SEC = 25
+            _is_option = "OPTION" in (segment_type or "").upper()
+            _stale_limit = _OPTION_STALE_SEC if _is_option else _SESSION_STALE_SEC
 
             _ex_age: float | None = None
             try:
                 _ex_age = _zerodha_for_tick_check.get_exchange_ts_age_sec(instrument.token)
             except Exception:
                 _ex_age = None
+            # For options, ALSO treat a stale RECEIVED-tick age (feed froze — no
+            # new packets landing) as stale. On the feed-leader this is warm; on
+            # a non-leader it's None and we fall back to the exchange-ts age.
+            if _is_option:
+                try:
+                    _rx_age = _zerodha_for_tick_check.get_last_tick_age_sec(instrument.token)
+                    if _rx_age is not None and (_ex_age is None or _rx_age > _ex_age):
+                        _ex_age = _rx_age
+                except Exception:
+                    pass
             # Multi-worker: ticks_by_token is warm only on the feed-leader, but
             # the leader mirrors `exchange_timestamp` into mdlive:{token}, so a
             # non-leader reads the live-session signal from there.
@@ -1367,7 +1386,14 @@ async def validate(
             # and the phantom-P&L class of bug). A briefly-quiet-but-live feed
             # no longer blocks; when no exchange timestamp exists at all the
             # order simply proceeds.
-            if _ex_age is not None and _ex_age > _SESSION_STALE_SEC:
+            if _ex_age is not None and _ex_age > _stale_limit:
+                if _is_option:
+                    raise MarketClosedError(
+                        f"{instrument.symbol}: option price is stale/frozen — the "
+                        f"live feed is {int(_ex_age)}s old (limit {_OPTION_STALE_SEC}s). "
+                        f"Order blocked to prevent a fill at a frozen price. Try "
+                        f"again once the price is ticking live."
+                    )
                 raise MarketClosedError(
                     f"{instrument.symbol}: no live session — the exchange feed "
                     f"is {int(_ex_age)}s stale, so the market appears closed "
