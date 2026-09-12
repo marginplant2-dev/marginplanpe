@@ -1,8 +1,18 @@
 /** @type {import('next').NextConfig} */
+// Optional path-prefix build. The tenant-domain instance is built with
+// NEXT_PUBLIC_ADMIN_BASE_PATH=/admin (+ its own ADMIN_DIST_DIR) so the whole
+// admin app lives under `/admin/*` — routes AND `/_next/*` assets — letting
+// nginx serve it at `marginx.in/admin` alongside the user app on `/` without
+// the `_next` asset collision. Unset (admin.marginplant.com) → byte-identical
+// to before.
+const BASE_PATH = process.env.NEXT_PUBLIC_ADMIN_BASE_PATH || "";
+
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   compress: true,
+  ...(BASE_PATH ? { basePath: BASE_PATH } : {}),
+  ...(process.env.ADMIN_DIST_DIR ? { distDir: process.env.ADMIN_DIST_DIR } : {}),
   images: { formats: ["image/avif", "image/webp"] },
   experimental: {
     optimizePackageImports: ["lucide-react", "date-fns"],
