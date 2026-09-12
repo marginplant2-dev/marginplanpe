@@ -117,7 +117,31 @@ export default function SegmentPnlPage() {
           <div className="mt-1 text-xs opacity-90">
             {total >= 0 ? "Users are net in PROFIT" : "Users are net in LOSS"} ·{" "}
             {data?.position_count ?? 0} closed trades
-            <span className="ml-1 opacity-75">(your B-book side is the inverse)</span>
+          </div>
+          {/* Broker view — reconciles with the Positions "Total of Both". */}
+          <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-white/15 p-2.5 text-center backdrop-blur">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider opacity-80">Users P&L</div>
+              <div className="font-tabular text-sm font-bold tabular-nums">
+                {total >= 0 ? "+" : ""}
+                {formatINR(total)}
+              </div>
+            </div>
+            <div className="border-x border-white/20">
+              <div className="text-[10px] uppercase tracking-wider opacity-80">Brokerage</div>
+              <div className="font-tabular text-sm font-bold tabular-nums">
+                +{formatINR(Number(data?.total_brokerage ?? 0))}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider opacity-80">Your Total</div>
+              <div className="font-tabular text-sm font-bold tabular-nums">
+                {formatINR(Number(data?.total_of_both ?? 0))}
+              </div>
+            </div>
+          </div>
+          <div className="mt-1.5 text-[11px] opacity-75">
+            Your Total = (users’ P&L inverted) + brokerage — matches Positions “Total of Both”.
           </div>
         </CardContent>
       </Card>
@@ -145,14 +169,21 @@ export default function SegmentPnlPage() {
                         {segLabel(s.segment)}
                         <span className="text-[11px] text-muted-foreground">· {s.trades}</span>
                       </span>
-                      <span
-                        className={cn(
-                          "font-tabular font-semibold tabular-nums",
-                          v >= 0 ? "text-emerald-500" : "text-rose-500",
+                      <span className="text-right">
+                        <span
+                          className={cn(
+                            "block font-tabular font-semibold tabular-nums",
+                            v >= 0 ? "text-emerald-500" : "text-rose-500",
+                          )}
+                        >
+                          {v >= 0 ? "+" : ""}
+                          {formatINR(v)}
+                        </span>
+                        {Number(s.brokerage) > 0 && (
+                          <span className="block text-[10px] text-muted-foreground">
+                            bkg +{formatINR(Number(s.brokerage))}
+                          </span>
                         )}
-                      >
-                        {v >= 0 ? "+" : ""}
-                        {formatINR(v)}
                       </span>
                     </div>
                     <div className="mt-1 h-2 overflow-hidden rounded-full bg-muted">

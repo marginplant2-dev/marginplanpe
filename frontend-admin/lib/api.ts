@@ -1209,10 +1209,12 @@ export type WeekOption = {
 
 export type SegmentPnl = {
   total_pnl: string;
+  total_brokerage: string;
+  total_of_both: string;
   position_count: number;
   range: "day" | "week";
   label: string;
-  segments: { segment: string; pnl: string; trades: number }[];
+  segments: { segment: string; pnl: string; brokerage: string; trades: number }[];
   top_instruments: { symbol: string; segment: string; pnl: string; trades: number }[];
 };
 

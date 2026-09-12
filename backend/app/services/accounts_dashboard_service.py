@@ -993,7 +993,7 @@ async def segment_pnl_breakdown(
         v = _realised_inr(p, fallback_usd_inr)
         total += v
         seg = (p.segment_type or getattr(p.instrument, "segment", None) or "OTHER")
-        s = seg_map.setdefault(seg, {"pnl": Decimal("0"), "trades": 0})
+        s = seg_map.setdefault(seg, {"pnl": Decimal("0"), "brokerage": Decimal("0"), "trades": 0})
         s["pnl"] += v
         s["trades"] += 1
         sym = p.instrument.symbol
@@ -1003,8 +1003,31 @@ async def segment_pnl_breakdown(
         i["pnl"] += v
         i["trades"] += 1
 
+    # Brokerage per segment — Σ |brokerage| of trades executed in the window
+    # (same definition as net_client_bkg on the accounts KPIs), grouped by the
+    # trade's segment. Comes from Trade, not Position, so it aligns with the
+    # Positions card's "+ Brokerage" line.
+    total_bkg = Decimal("0")
+    bkg_q: dict[str, Any] = {
+        "user_id": {"$in": user_ids},
+        "superseded_by_reopen": {"$ne": True},
+    }
+    if date_filter:
+        bkg_q["executed_at"] = date_filter
+    for t in await Trade.find(bkg_q).to_list():
+        bkg = abs(to_decimal(t.brokerage))
+        total_bkg += bkg
+        seg = getattr(t.instrument, "segment", None) or "OTHER"
+        s = seg_map.setdefault(seg, {"pnl": Decimal("0"), "brokerage": Decimal("0"), "trades": 0})
+        s["brokerage"] = s.get("brokerage", Decimal("0")) + bkg
+
     segments = [
-        {"segment": k, "pnl": str(quantize_money(d["pnl"])), "trades": d["trades"]}
+        {
+            "segment": k,
+            "pnl": str(quantize_money(d["pnl"])),
+            "brokerage": str(quantize_money(d.get("brokerage", Decimal("0")))),
+            "trades": d["trades"],
+        }
         for k, d in sorted(seg_map.items(), key=lambda kv: kv[1]["pnl"], reverse=True)
     ]
     top = sorted(inst_map.values(), key=lambda x: abs(x["pnl"]), reverse=True)[:5]
@@ -1012,8 +1035,13 @@ async def segment_pnl_breakdown(
         {"symbol": i["symbol"], "segment": i["segment"], "pnl": str(quantize_money(i["pnl"])), "trades": i["trades"]}
         for i in top
     ]
+    # Broker view (matches Positions "Total of Both"): users' loss becomes your
+    # gain (−total) plus the brokerage you collected.
+    total_of_both = -total + total_bkg
     return {
         "total_pnl": str(quantize_money(total)),
+        "total_brokerage": str(quantize_money(total_bkg)),
+        "total_of_both": str(quantize_money(total_of_both)),
         "segments": segments,
         "top_instruments": top_instruments,
         "position_count": len(positions),
