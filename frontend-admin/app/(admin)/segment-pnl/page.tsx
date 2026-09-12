@@ -30,7 +30,7 @@ function segLabel(seg: string): string {
 export default function SegmentPnlPage() {
   // sel: "day" | "week" (current) | "<YYYY-MM-DD>" (a chosen past week)
   const [sel, setSel] = useState<string>("day");
-  const [showUsers, setShowUsers] = useState(true);
+  const [showUsers, setShowUsers] = useState(false);
   const [drillSeg, setDrillSeg] = useState<string | null>(null);
 
   const { data: weeks } = useQuery({
