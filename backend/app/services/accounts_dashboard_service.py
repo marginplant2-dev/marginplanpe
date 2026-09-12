@@ -966,14 +966,19 @@ async def segment_pnl_breakdown(
     user_ids: list[PydanticObjectId],
     start_utc: datetime | None,
     end_utc: datetime | None,
+    segment: str | None = None,
 ) -> dict[str, Any]:
     """Per-segment net realized P&L (USER perspective: + = users in profit,
     - = users in loss) for a pool over a window, plus the top-5 instruments by
-    absolute P&L. Same CLOSED-position + `_realised_inr` math as the accounts
-    KPI tiles, so the numbers reconcile.
+    absolute P&L and top-10 users by P&L. Same CLOSED-position + `_realised_inr`
+    math as the accounts KPI tiles, so the numbers reconcile.
+
+    Pass `segment` to DRILL INTO one segment: every aggregate (total, brokerage,
+    top instruments, top users) is then scoped to that segment only.
     """
     if not user_ids:
-        return {"total_pnl": "0", "segments": [], "top_instruments": [], "position_count": 0}
+        return {"total_pnl": "0", "segments": [], "top_instruments": [], "top_users": [], "position_count": 0}
+    seg_filter = segment.upper().strip() if segment else None
 
     fallback_usd_inr = to_decimal(market_data_service.get_usd_inr_rate())
     q: dict[str, Any] = {"user_id": {"$in": user_ids}, "status": PositionStatus.CLOSED.value}
@@ -991,9 +996,11 @@ async def segment_pnl_breakdown(
     user_map: dict[Any, dict[str, Any]] = {}
     total = Decimal("0")
     for p in positions:
+        seg = (p.segment_type or getattr(p.instrument, "segment", None) or "OTHER")
+        if seg_filter and seg.upper() != seg_filter:
+            continue
         v = _realised_inr(p, fallback_usd_inr)
         total += v
-        seg = (p.segment_type or getattr(p.instrument, "segment", None) or "OTHER")
         s = seg_map.setdefault(seg, {"pnl": Decimal("0"), "brokerage": Decimal("0"), "trades": 0})
         s["pnl"] += v
         s["trades"] += 1
@@ -1019,9 +1026,11 @@ async def segment_pnl_breakdown(
     if date_filter:
         bkg_q["executed_at"] = date_filter
     for t in await Trade.find(bkg_q).to_list():
+        seg = getattr(t.instrument, "segment", None) or "OTHER"
+        if seg_filter and seg.upper() != seg_filter:
+            continue
         bkg = abs(to_decimal(t.brokerage))
         total_bkg += bkg
-        seg = getattr(t.instrument, "segment", None) or "OTHER"
         s = seg_map.setdefault(seg, {"pnl": Decimal("0"), "brokerage": Decimal("0"), "trades": 0})
         s["brokerage"] = s.get("brokerage", Decimal("0")) + bkg
 
@@ -1067,5 +1076,5 @@ async def segment_pnl_breakdown(
         "segments": segments,
         "top_instruments": top_instruments,
         "top_users": top_users,
-        "position_count": len(positions),
+        "position_count": sum(int(d["trades"]) for d in seg_map.values()),
     }

@@ -1270,7 +1270,7 @@ export const AccountsAPI = {
       api.get("/admin/accounts/weeks", { params: numWeeks ? { num_weeks: numWeeks } : undefined }),
     ),
 
-  segmentPnl: (params: { range: "day" | "week"; week_start?: string }) =>
+  segmentPnl: (params: { range: "day" | "week"; week_start?: string; segment?: string }) =>
     unwrap<SegmentPnl>(api.get("/admin/accounts/segment-pnl", { params })),
 
   brokerTotals: (entityId: string, params?: DateParams) =>

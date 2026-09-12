@@ -419,6 +419,7 @@ async def segment_pnl(
     admin: CurrentAdmin,
     range: str = Query(default="day"),  # "day" | "week"
     week_start: str | None = Query(default=None),  # ISO Monday (IST) for a chosen week
+    segment: str | None = Query(default=None),  # drill into ONE segment
     _: None = Depends(require_perm("users", "read")),
 ) -> APIResponse:
     """Net realized P&L per segment (user perspective) + top-5 instruments for
@@ -449,7 +450,7 @@ async def segment_pnl(
     end_utc = end_ist.astimezone(timezone.utc)
 
     user_ids = await ads._entity_pool_ids(admin.id, admin.role.value)
-    data = await ads.segment_pnl_breakdown(user_ids, start_utc, end_utc)
+    data = await ads.segment_pnl_breakdown(user_ids, start_utc, end_utc, segment=segment)
     data["range"] = "week" if range == "week" else "day"
     data["label"] = label
     return APIResponse(data=data)

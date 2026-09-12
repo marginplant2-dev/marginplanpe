@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { TrendingUp, TrendingDown, Trophy, Layers, RotateCcw, Users, ChevronDown } from "lucide-react";
+import { TrendingUp, TrendingDown, Trophy, Layers, RotateCcw, Users, ChevronDown, X } from "lucide-react";
 import { AccountsAPI } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -31,6 +31,7 @@ export default function SegmentPnlPage() {
   // sel: "day" | "week" (current) | "<YYYY-MM-DD>" (a chosen past week)
   const [sel, setSel] = useState<string>("day");
   const [showUsers, setShowUsers] = useState(true);
+  const [drillSeg, setDrillSeg] = useState<string | null>(null);
 
   const { data: weeks } = useQuery({
     queryKey: ["accounts", "weeks"],
@@ -218,7 +219,13 @@ export default function SegmentPnlPage() {
                 const v = Number(s.pnl);
                 const w = Math.round((Math.abs(v) / maxAbs) * 100);
                 return (
-                  <div key={s.segment}>
+                  <button
+                    key={s.segment}
+                    type="button"
+                    onClick={() => setDrillSeg(s.segment)}
+                    className="block w-full rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-muted/50"
+                    title="Tap to see this segment's top users & instruments"
+                  >
                     <div className="flex items-center justify-between gap-2 text-sm">
                       <span className="flex items-center gap-2 font-medium">
                         <span className={cn("size-2.5 rounded-full", accent(s.segment))} />
@@ -248,13 +255,22 @@ export default function SegmentPnlPage() {
                         style={{ width: `${Math.max(4, w)}%` }}
                       />
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* ── Segment drill-down modal ── */}
+      {drillSeg && (
+        <SegmentDrill
+          segment={drillSeg}
+          params={params}
+          onClose={() => setDrillSeg(null)}
+        />
+      )}
 
       {/* ── Top 5 instruments ── */}
       <Card>
@@ -324,5 +340,124 @@ function Seg({
     >
       {children}
     </button>
+  );
+}
+
+// Per-segment drill-down modal — that segment's P&L + brokerage, its top users
+// and top instruments, scoped to the same period.
+function SegmentDrill({
+  segment,
+  params,
+  onClose,
+}: {
+  segment: string;
+  params: { range: "day" | "week"; week_start?: string };
+  onClose: () => void;
+}) {
+  const { data, isFetching } = useQuery({
+    queryKey: ["segment-pnl-drill", segment, params],
+    queryFn: () => AccountsAPI.segmentPnl({ ...params, segment }),
+  });
+  const total = Number(data?.total_pnl ?? 0);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-card p-0 shadow-2xl sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          className={cn(
+            "flex items-start justify-between gap-2 p-4 text-white",
+            total >= 0 ? "bg-emerald-600" : "bg-rose-600",
+          )}
+        >
+          <div>
+            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider opacity-90">
+              <span className={cn("size-2.5 rounded-full", accent(segment))} /> {segLabel(segment)}
+            </div>
+            <div className="mt-1 font-tabular text-2xl font-bold tabular-nums">
+              {total >= 0 ? "+" : ""}
+              {formatINR(total)}
+            </div>
+            <div className="text-[11px] opacity-90">
+              {data?.position_count ?? 0} closed trades · Brokerage +
+              {formatINR(Number(data?.total_brokerage ?? 0))}
+            </div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="rounded-md p-1 hover:bg-white/20">
+            <X className="size-5" />
+          </button>
+        </div>
+
+        <div className="space-y-4 p-4">
+          {isFetching && !data ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">Loading…</div>
+          ) : (
+            <>
+              {/* Top users in this segment */}
+              <div>
+                <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                  <Users className="size-4 text-primary" /> Top users
+                </div>
+                {(data?.top_users?.length ?? 0) === 0 ? (
+                  <div className="py-4 text-center text-xs text-muted-foreground">No users.</div>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {data!.top_users.map((u, i) => {
+                      const v = Number(u.pnl);
+                      return (
+                        <div key={u.user_code + i} className="flex items-center justify-between gap-2 py-2 text-sm">
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span className={cn("grid size-5 shrink-0 place-items-center rounded-full text-[10px] font-bold", i < 3 ? "bg-amber-400 text-amber-950" : "bg-muted")}>{i + 1}</span>
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium">{u.name}</span>
+                              <span className="text-[11px] text-muted-foreground">{u.user_code} · {u.trades}</span>
+                            </span>
+                          </span>
+                          <span className={cn("shrink-0 font-tabular font-semibold tabular-nums", v >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                            {v >= 0 ? "+" : ""}
+                            {formatINR(v)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Top instruments in this segment */}
+              <div>
+                <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                  <Trophy className="size-4 text-amber-500" /> Top instruments
+                </div>
+                {(data?.top_instruments?.length ?? 0) === 0 ? (
+                  <div className="py-4 text-center text-xs text-muted-foreground">Nothing.</div>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {data!.top_instruments.map((t, i) => {
+                      const v = Number(t.pnl);
+                      return (
+                        <div key={t.symbol + i} className="flex items-center justify-between gap-2 py-2 text-sm">
+                          <span className="min-w-0 truncate font-medium">{t.symbol}</span>
+                          <span className={cn("shrink-0 font-tabular font-semibold tabular-nums", v >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                            {v >= 0 ? "+" : ""}
+                            {formatINR(v)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
