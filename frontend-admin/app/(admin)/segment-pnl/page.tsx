@@ -180,8 +180,8 @@ export default function SegmentPnlPage() {
                           {formatINR(v)}
                         </span>
                         {Number(s.brokerage) > 0 && (
-                          <span className="block text-[10px] text-muted-foreground">
-                            bkg +{formatINR(Number(s.brokerage))}
+                          <span className="block text-[11px] font-semibold text-foreground/70">
+                            Brokerage +{formatINR(Number(s.brokerage))}
                           </span>
                         )}
                       </span>
