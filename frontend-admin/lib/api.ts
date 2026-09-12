@@ -1207,6 +1207,15 @@ export type WeekOption = {
   end: string;
 };
 
+export type SegmentPnl = {
+  total_pnl: string;
+  position_count: number;
+  range: "day" | "week";
+  label: string;
+  segments: { segment: string; pnl: string; trades: number }[];
+  top_instruments: { symbol: string; segment: string; pnl: string; trades: number }[];
+};
+
 export type BrokerTotals = {
   net_client_pnl: string;
   net_client_bkg: string;
@@ -1257,6 +1266,9 @@ export const AccountsAPI = {
     unwrap<WeekOption[]>(
       api.get("/admin/accounts/weeks", { params: numWeeks ? { num_weeks: numWeeks } : undefined }),
     ),
+
+  segmentPnl: (params: { range: "day" | "week"; week_start?: string }) =>
+    unwrap<SegmentPnl>(api.get("/admin/accounts/segment-pnl", { params })),
 
   brokerTotals: (entityId: string, params?: DateParams) =>
     unwrap<BrokerTotals>(

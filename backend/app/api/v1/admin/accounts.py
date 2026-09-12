@@ -12,7 +12,7 @@ All calculations verified per spec — see docstring at module top.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from io import BytesIO
 from typing import Any
@@ -411,6 +411,48 @@ async def accounts_weeks(
     _: None = Depends(require_perm("users", "read")),
 ) -> APIResponse:
     return APIResponse(data=ads.generate_week_options(num_weeks))
+
+
+# ── Segment-wise P&L (per admin, day / week / selected week) ──────────
+@router.get("/segment-pnl")
+async def segment_pnl(
+    admin: CurrentAdmin,
+    range: str = Query(default="day"),  # "day" | "week"
+    week_start: str | None = Query(default=None),  # ISO Monday (IST) for a chosen week
+    _: None = Depends(require_perm("users", "read")),
+) -> APIResponse:
+    """Net realized P&L per segment (user perspective) + top-5 instruments for
+    the admin's pool over today / this-week / a chosen week."""
+    now_ist = datetime.now(IST)
+    if range == "week":
+        if week_start:
+            try:
+                mon = date.fromisoformat(week_start)
+            except ValueError:
+                d = now_ist.date()
+                mon = d - timedelta(days=d.weekday())
+        else:
+            d = now_ist.date()
+            mon = d - timedelta(days=d.weekday())
+        sun = mon + timedelta(days=6)
+        start_ist = datetime(mon.year, mon.month, mon.day, tzinfo=IST)
+        end_ist = datetime(sun.year, sun.month, sun.day, 23, 59, 59, tzinfo=IST)
+        if end_ist > now_ist:
+            end_ist = now_ist
+        label = f"{mon.strftime('%d %b')} – {sun.strftime('%d %b %Y')}"
+    else:
+        start_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_ist = now_ist
+        label = start_ist.strftime("%d %b %Y")
+
+    start_utc = start_ist.astimezone(timezone.utc)
+    end_utc = end_ist.astimezone(timezone.utc)
+
+    user_ids = await ads._entity_pool_ids(admin.id, admin.role.value)
+    data = await ads.segment_pnl_breakdown(user_ids, start_utc, end_utc)
+    data["range"] = "week" if range == "week" else "day"
+    data["label"] = label
+    return APIResponse(data=data)
 
 
 # ── Broker totals (PNL sharing snapshot) ─────────────────────────────

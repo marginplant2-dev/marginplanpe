@@ -959,3 +959,62 @@ def render_broker_totals_pdf(
     pdf_bytes = buf.getvalue()
     buf.close()
     return pdf_bytes
+
+
+# ── Segment-wise realized P&L (admin "Segment P&L" view) ──────────────
+async def segment_pnl_breakdown(
+    user_ids: list[PydanticObjectId],
+    start_utc: datetime | None,
+    end_utc: datetime | None,
+) -> dict[str, Any]:
+    """Per-segment net realized P&L (USER perspective: + = users in profit,
+    - = users in loss) for a pool over a window, plus the top-5 instruments by
+    absolute P&L. Same CLOSED-position + `_realised_inr` math as the accounts
+    KPI tiles, so the numbers reconcile.
+    """
+    if not user_ids:
+        return {"total_pnl": "0", "segments": [], "top_instruments": [], "position_count": 0}
+
+    fallback_usd_inr = to_decimal(market_data_service.get_usd_inr_rate())
+    q: dict[str, Any] = {"user_id": {"$in": user_ids}, "status": PositionStatus.CLOSED.value}
+    date_filter: dict[str, Any] = {}
+    if start_utc:
+        date_filter["$gte"] = start_utc
+    if end_utc:
+        date_filter["$lte"] = end_utc
+    if date_filter:
+        q["closed_at"] = date_filter
+
+    positions = await Position.find(q).to_list()
+    seg_map: dict[str, dict[str, Any]] = {}
+    inst_map: dict[str, dict[str, Any]] = {}
+    total = Decimal("0")
+    for p in positions:
+        v = _realised_inr(p, fallback_usd_inr)
+        total += v
+        seg = (p.segment_type or getattr(p.instrument, "segment", None) or "OTHER")
+        s = seg_map.setdefault(seg, {"pnl": Decimal("0"), "trades": 0})
+        s["pnl"] += v
+        s["trades"] += 1
+        sym = p.instrument.symbol
+        i = inst_map.setdefault(
+            sym, {"symbol": sym, "segment": seg, "pnl": Decimal("0"), "trades": 0}
+        )
+        i["pnl"] += v
+        i["trades"] += 1
+
+    segments = [
+        {"segment": k, "pnl": str(quantize_money(d["pnl"])), "trades": d["trades"]}
+        for k, d in sorted(seg_map.items(), key=lambda kv: kv[1]["pnl"], reverse=True)
+    ]
+    top = sorted(inst_map.values(), key=lambda x: abs(x["pnl"]), reverse=True)[:5]
+    top_instruments = [
+        {"symbol": i["symbol"], "segment": i["segment"], "pnl": str(quantize_money(i["pnl"])), "trades": i["trades"]}
+        for i in top
+    ]
+    return {
+        "total_pnl": str(quantize_money(total)),
+        "segments": segments,
+        "top_instruments": top_instruments,
+        "position_count": len(positions),
+    }

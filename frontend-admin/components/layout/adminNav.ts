@@ -68,6 +68,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     items: [
       { href: "/dashboard", label: "Dashboard", icon: Home },
       { href: "/accounts-dashboard", label: "Accounts", icon: BarChart3, empPerm: "accounts" },
+      { href: "/segment-pnl", label: "Segment P&L", icon: LineChart, perm: "users" },
     ],
   },
   {
