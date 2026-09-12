@@ -722,7 +722,11 @@ async def list_positions(
             except ValueError:
                 cl_range = {}
         if not cl_range:
-            cl_range = {"$gte": _last_week_start_utc()}
+            # Default (no explicit From/To): last ~4 months of closed trades,
+            # browsable page-by-page. It's still server-side paginated (count +
+            # skip/limit below), so each Next click fetches only that one 25-row
+            # page — a wide default window never dumps everything at once.
+            cl_range = {"$gte": datetime.now(_tz_cl.utc) - _td_cl(days=124)}
         qfilter["closed_at"] = cl_range
 
     # Product filter (MIS / NRML / CNC) — Position carries product_type, so

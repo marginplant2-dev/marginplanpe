@@ -133,6 +133,10 @@ class Position(TimestampMixin):
             # fetch), so each shard resolves "which users do I own" without
             # deserialising positions it will discard.
             IndexModel([("status", ASCENDING), ("user_id", ASCENDING)]),
+            # Admin Closed-Trades blotter: status=CLOSED + closed_at range,
+            # sorted -closed_at, paged deep (4-month default window). This
+            # compound serves the range + sort so deep skips stay fast.
+            IndexModel([("status", ASCENDING), ("closed_at", DESCENDING)]),
             IndexModel([("opened_at", DESCENDING)]),
         ]
 
