@@ -60,6 +60,19 @@ function currentHost(): string {
   return window.location.hostname;
 }
 
+// Platform host = the un-branded MarginPlant surface. ONLY here may we fall
+// back to "MarginPlant" / the default glyph. On any connected tenant domain we
+// must never show MarginPlant — use the admin's brand (or the bare domain).
+function isPlatformHost(host: string): boolean {
+  const h = (host || "").toLowerCase();
+  return (
+    h === "localhost" ||
+    h === "127.0.0.1" ||
+    h === "marginplant.com" ||
+    h.endsWith(".marginplant.com")
+  );
+}
+
 export function BrandedLogin({ variant }: { variant: Variant }) {
   const router = useRouter();
   const login = useAdminAuthStore((s) => s.login);
@@ -104,7 +117,11 @@ export function BrandedLogin({ variant }: { variant: Variant }) {
         ? branding.logo_url
         : `${API_URL}${branding.logo_url}`
       : null;
-    document.title = name ? `${name} · ${t.title}` : `${APP_NAME} · ${t.title}`;
+    // On a connected tenant domain NEVER fall back to "MarginPlant": use the
+    // brand, else the bare domain, else just the role title.
+    const platform = isPlatformHost(currentHost());
+    const forTitle = name || (platform ? APP_NAME : currentHost());
+    document.title = forTitle ? `${forTitle} · ${t.title}` : t.title;
     if (logo) {
       document
         .querySelectorAll<HTMLLinkElement>('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]')
@@ -136,6 +153,10 @@ export function BrandedLogin({ variant }: { variant: Variant }) {
       : `${API_URL}${branding.logo_url}`
     : null;
   const brandName = (branding?.brand_name || "").trim();
+  const platform = isPlatformHost(currentHost());
+  // Name shown in the hero: brand → bare domain (tenant) → MarginPlant (only
+  // on the platform host). Never "MarginPlant" on a connected tenant domain.
+  const heroName = brandName || (platform ? "" : currentHost());
 
   return (
     <main className="grid min-h-screen bg-background lg:grid-cols-2">
@@ -149,13 +170,15 @@ export function BrandedLogin({ variant }: { variant: Variant }) {
         <div className="relative flex items-center gap-3">
           {logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={logoUrl} alt={brandName || "logo"} className="h-10 w-auto max-w-[200px] rounded-lg bg-white/95 object-contain p-1.5" />
-          ) : (
+            <img src={logoUrl} alt={heroName || "logo"} className="h-10 w-auto max-w-[200px] rounded-lg bg-white/95 object-contain p-1.5" />
+          ) : platform ? (
+            // Platform host only — never render the MarginPlant glyph on a
+            // connected tenant domain.
             <span className="rounded-lg bg-white/95 p-1.5">
               <BrandLogo href={null} size="sm" showAdminBadge={false} />
             </span>
-          )}
-          {brandName && <span className="text-lg font-bold">{brandName}</span>}
+          ) : null}
+          {heroName && <span className="text-lg font-bold">{heroName}</span>}
         </div>
         <div className="relative hidden lg:block">
           <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-semibold uppercase tracking-wider backdrop-blur">

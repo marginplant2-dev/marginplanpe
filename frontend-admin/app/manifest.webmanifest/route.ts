@@ -104,8 +104,11 @@ export async function GET(req: NextRequest) {
   if (resolved) {
     const brand = resolved;
     if (brand?.brand_name || brand?.logo_url) {
-      const name = brand.brand_name?.trim() || PLATFORM_DEFAULT.name;
-      const shortName = (brand.brand_name?.trim() || PLATFORM_DEFAULT.short_name).slice(0, 12);
+      // On a tenant domain never fall back to the MarginPlant name — use the
+      // brand, else the bare domain.
+      const fallbackName = domain || PLATFORM_DEFAULT.name;
+      const name = brand.brand_name?.trim() || fallbackName;
+      const shortName = (brand.brand_name?.trim() || fallbackName).slice(0, 12);
       const logo = brand.logo_url ? `${API_BASE}${brand.logo_url}` : null;
       manifest = {
         ...PLATFORM_DEFAULT,
