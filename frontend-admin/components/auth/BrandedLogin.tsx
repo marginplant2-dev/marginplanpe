@@ -13,7 +13,6 @@ import { API_URL, APP_NAME } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { BrandLogo } from "@/components/layout/BrandLogo";
 import { InstallPWAButton } from "@/components/pwa/InstallPWAButton";
 
@@ -159,87 +158,83 @@ export function BrandedLogin({ variant }: { variant: Variant }) {
   const heroName = brandName || (platform ? "" : currentHost());
 
   return (
-    <main className="grid min-h-screen bg-background lg:grid-cols-2">
-      {/* ── Colourful brand hero — emerald (admin) vs indigo/violet (broker).
-          The whole point of the two pages: instantly distinguishable. On
-          mobile it collapses to a compact top band. ── */}
-      <div className={`relative flex flex-col justify-between overflow-hidden bg-gradient-to-br ${t.grad} p-8 text-white lg:p-12`}>
-        {/* soft decorative blobs */}
-        <div className="pointer-events-none absolute -right-16 -top-16 size-64 rounded-full bg-white/10 blur-2xl" />
-        <div className="pointer-events-none absolute -bottom-20 -left-10 size-72 rounded-full bg-black/10 blur-2xl" />
-        <div className="relative flex items-center gap-3">
-          {logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={logoUrl} alt={heroName || "logo"} className="h-10 w-auto max-w-[200px] rounded-lg bg-white/95 object-contain p-1.5" />
-          ) : platform ? (
-            // Platform host only — never render the MarginPlant glyph on a
-            // connected tenant domain.
-            <span className="rounded-lg bg-white/95 p-1.5">
+    // Force-light auth surface (independent of the panel's dark theme) — a
+    // clean, professional, mobile-first single card. Admin = emerald, broker =
+    // violet: only the gradient header differs.
+    <main className="grid min-h-screen place-items-center bg-slate-100 p-4 text-slate-900">
+      <div className="w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-[0_12px_45px_rgba(2,6,23,0.14)]">
+        {/* Gradient header — centred logo + brand + role. */}
+        <div className={`relative overflow-hidden bg-gradient-to-br ${t.grad} px-6 pb-7 pt-9 text-center text-white`}>
+          <div className="pointer-events-none absolute -right-10 -top-10 size-36 rounded-full bg-white/15 blur-2xl" />
+          <div className="pointer-events-none absolute -bottom-14 -left-8 size-40 rounded-full bg-black/10 blur-2xl" />
+          <div className="relative mx-auto grid size-16 place-items-center rounded-2xl bg-white shadow-lg">
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt={heroName || "logo"} className="max-h-12 max-w-12 object-contain" />
+            ) : platform ? (
               <BrandLogo href={null} size="sm" showAdminBadge={false} />
-            </span>
-          ) : null}
-          {heroName && <span className="text-lg font-bold">{heroName}</span>}
-        </div>
-        <div className="relative hidden lg:block">
-          <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-semibold uppercase tracking-wider backdrop-blur">
-            <Icon className="size-3.5" />
-            {t.badgeText}
+            ) : (
+              <Icon className="size-8 text-slate-700" />
+            )}
           </div>
-          <h1 className="mt-4 text-4xl font-bold leading-tight">{t.title}</h1>
-          <p className="mt-3 max-w-sm text-sm text-white/85">{t.tagline}</p>
+          {heroName && <div className="relative mt-3 text-lg font-bold">{heroName}</div>}
+          <div className="relative mt-2 inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider backdrop-blur">
+            <Icon className="size-3" /> {t.badgeText}
+          </div>
+          <h1 className="relative mt-3 text-2xl font-bold">{t.title}</h1>
         </div>
-        <div className="relative hidden text-xs text-white/70 lg:block">
-          Activity is logged · IP allow-listing & rate-limiting enforced.
-        </div>
-      </div>
 
-      {/* ── Form panel ── */}
-      <div className="grid place-items-center p-6">
-        <Card className="w-full max-w-md">
-        <CardHeader className="space-y-3">
-          <div className={`inline-flex w-fit items-center gap-2 rounded-md px-2 py-1 text-xs font-semibold uppercase tracking-wider ${t.badge}`}>
-            <Icon className="size-3" />
-            {t.badgeText}
-          </div>
-          <CardTitle className="text-2xl">{t.title}</CardTitle>
-          <CardDescription>
-            {brandName ? `${brandName} — ` : ""}
-            {t.sub}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+        {/* Form body — light. */}
+        <div className="px-6 py-6">
+          <p className="mb-4 text-center text-sm text-slate-500">{t.sub}</p>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="identifier">Email or user code</Label>
-              <Input id="identifier" autoComplete="username" className={t.ring} {...form.register("identifier")} />
+            <div className="space-y-1.5">
+              <Label htmlFor="identifier" className="text-slate-700">Email or user code</Label>
+              <Input
+                id="identifier"
+                autoComplete="username"
+                className="border-slate-200 bg-slate-50 text-slate-900 placeholder:text-slate-400"
+                {...form.register("identifier")}
+              />
               {form.formState.errors.identifier && (
-                <p className="text-xs text-destructive">{form.formState.errors.identifier.message}</p>
+                <p className="text-xs text-rose-500">{form.formState.errors.identifier.message}</p>
               )}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" autoComplete="current-password" className={t.ring} {...form.register("password")} />
+            <div className="space-y-1.5">
+              <Label htmlFor="password" className="text-slate-700">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                autoComplete="current-password"
+                className="border-slate-200 bg-slate-50 text-slate-900 placeholder:text-slate-400"
+                {...form.register("password")}
+              />
               {form.formState.errors.password && (
-                <p className="text-xs text-destructive">{form.formState.errors.password.message}</p>
+                <p className="text-xs text-rose-500">{form.formState.errors.password.message}</p>
               )}
             </div>
-            <Button type="submit" className={`w-full bg-gradient-to-r ${t.grad} text-white hover:opacity-90`} loading={form.formState.isSubmitting}>
+            <Button
+              type="submit"
+              className={`w-full bg-gradient-to-r ${t.grad} text-white shadow-md hover:opacity-95`}
+              loading={form.formState.isSubmitting}
+            >
               Sign in
             </Button>
-            <p className="text-xs text-muted-foreground">
-              Activity is logged. IP allow-listing and rate-limiting are enforced server-side.
+            <p className="text-center text-[11px] text-slate-400">
+              Activity is logged · IP allow-listing &amp; rate-limiting enforced.
             </p>
           </form>
 
-          <div className="mt-5 space-y-2 border-t border-border pt-4">
-            <div className="text-xs font-semibold">Install app</div>
-            <p className="text-[11px] leading-snug text-muted-foreground">
+          <div className="mt-5 border-t border-slate-100 pt-4 text-center">
+            <div className="text-xs font-semibold text-slate-700">Install app</div>
+            <p className="mt-0.5 text-[11px] leading-snug text-slate-400">
               One-tap home-screen launcher. Stays signed in like a native app.
             </p>
-            <InstallPWAButton />
+            <div className="mt-2 flex justify-center">
+              <InstallPWAButton />
+            </div>
           </div>
-        </CardContent>
-        </Card>
+        </div>
       </div>
     </main>
   );
