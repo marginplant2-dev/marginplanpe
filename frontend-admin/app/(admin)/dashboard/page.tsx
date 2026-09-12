@@ -213,6 +213,28 @@ export default function AdminDashboardPage() {
         })}
       </section>
 
+      {/* Login links — quick copy/share of the pool's sign-in URLs. */}
+      {admin?.role !== "EMPLOYEE" && (
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center gap-2">
+              <Link2 className="size-4 text-primary" />
+              <CardTitle className="text-sm">Login links</CardTitle>
+            </div>
+            <CardDescription>Share these sign-in links for your {admin?.custom_domain ? "branded domain" : "pool"}.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <CopyLink label="User login" url={`${appUrl}/login`} />
+            {(admin?.role === "ADMIN" || admin?.role === "SUPER_ADMIN") && (
+              <CopyLink label="Broker login" url={`${appUrl}/broker`} />
+            )}
+            {(admin?.role === "ADMIN" || admin?.role === "SUPER_ADMIN") && (
+              <CopyLink label="Admin login" url={`${appUrl}/admin`} />
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Referral link — only visible to BROKER and ADMIN (sub-admin) roles */}
       {(admin?.role === "BROKER" || admin?.role === "ADMIN") && referralLink && (
         <Card className="border-emerald-500/20 bg-gradient-to-br from-emerald-50 via-card to-card ring-1 ring-emerald-500/20 dark:from-emerald-500/10">
@@ -374,6 +396,37 @@ export default function AdminDashboardPage() {
           </CardContent>
         </Card>
       </section>
+    </div>
+  );
+}
+
+function CopyLink({ label, url }: { label: string; url: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  }
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 p-2.5">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="mt-1 flex items-center gap-1.5">
+        <input
+          readOnly
+          value={url}
+          onFocus={(e) => e.currentTarget.select()}
+          className="min-w-0 flex-1 truncate bg-transparent font-mono text-xs text-foreground outline-none"
+        />
+        <button
+          type="button"
+          onClick={copy}
+          aria-label={`Copy ${label}`}
+          className="shrink-0 rounded-md border border-border p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          {copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
+        </button>
+      </div>
     </div>
   );
 }
