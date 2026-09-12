@@ -1216,6 +1216,7 @@ export type SegmentPnl = {
   label: string;
   segments: { segment: string; pnl: string; brokerage: string; trades: number }[];
   top_instruments: { symbol: string; segment: string; pnl: string; trades: number }[];
+  top_users: { name: string; user_code: string; pnl: string; trades: number }[];
 };
 
 export type BrokerTotals = {

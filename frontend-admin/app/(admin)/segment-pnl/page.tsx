@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { TrendingUp, TrendingDown, Trophy, Layers, RotateCcw } from "lucide-react";
+import { TrendingUp, TrendingDown, Trophy, Layers, RotateCcw, Users, ChevronDown } from "lucide-react";
 import { AccountsAPI } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -30,6 +30,7 @@ function segLabel(seg: string): string {
 export default function SegmentPnlPage() {
   // sel: "day" | "week" (current) | "<YYYY-MM-DD>" (a chosen past week)
   const [sel, setSel] = useState<string>("day");
+  const [showUsers, setShowUsers] = useState(true);
 
   const { data: weeks } = useQuery({
     queryKey: ["accounts", "weeks"],
@@ -143,6 +144,61 @@ export default function SegmentPnlPage() {
           <div className="mt-1.5 text-[11px] opacity-75">
             Your Total = (users’ P&L inverted) + brokerage — matches Positions “Total of Both”.
           </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Top 10 users (most money made, all segments) ── */}
+      <Card>
+        <CardContent className="p-4">
+          <button
+            type="button"
+            onClick={() => setShowUsers((v) => !v)}
+            className="flex w-full items-center justify-between gap-2 text-sm font-semibold"
+          >
+            <span className="flex items-center gap-2">
+              <Users className="size-4 text-primary" /> Top 10 users — most profit
+            </span>
+            <ChevronDown className={cn("size-4 transition-transform", showUsers && "rotate-180")} />
+          </button>
+          {showUsers &&
+            ((data?.top_users?.length ?? 0) === 0 ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">No user P&L in this period.</div>
+            ) : (
+              <div className="mt-3 divide-y divide-border">
+                {data!.top_users.map((u, i) => {
+                  const v = Number(u.pnl);
+                  return (
+                    <div key={u.user_code + i} className="flex items-center justify-between gap-2 py-2.5">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <span
+                          className={cn(
+                            "grid size-6 shrink-0 place-items-center rounded-full text-xs font-bold",
+                            i < 3 ? "bg-amber-400 text-amber-950" : "bg-muted",
+                          )}
+                        >
+                          {i + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium">{u.name}</div>
+                          <div className="text-[11px] text-muted-foreground">
+                            {u.user_code} · {u.trades} trades
+                          </div>
+                        </div>
+                      </div>
+                      <span
+                        className={cn(
+                          "shrink-0 font-tabular text-sm font-semibold tabular-nums",
+                          v >= 0 ? "text-emerald-500" : "text-rose-500",
+                        )}
+                      >
+                        {v >= 0 ? "+" : ""}
+                        {formatINR(v)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
         </CardContent>
       </Card>
 

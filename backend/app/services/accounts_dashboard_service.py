@@ -988,6 +988,7 @@ async def segment_pnl_breakdown(
     positions = await Position.find(q).to_list()
     seg_map: dict[str, dict[str, Any]] = {}
     inst_map: dict[str, dict[str, Any]] = {}
+    user_map: dict[Any, dict[str, Any]] = {}
     total = Decimal("0")
     for p in positions:
         v = _realised_inr(p, fallback_usd_inr)
@@ -1002,6 +1003,9 @@ async def segment_pnl_breakdown(
         )
         i["pnl"] += v
         i["trades"] += 1
+        u = user_map.setdefault(p.user_id, {"pnl": Decimal("0"), "trades": 0})
+        u["pnl"] += v
+        u["trades"] += 1
 
     # Brokerage per segment — Σ |brokerage| of trades executed in the window
     # (same definition as net_client_bkg on the accounts KPIs), grouped by the
@@ -1035,6 +1039,24 @@ async def segment_pnl_breakdown(
         {"symbol": i["symbol"], "segment": i["segment"], "pnl": str(quantize_money(i["pnl"])), "trades": i["trades"]}
         for i in top
     ]
+
+    # Top 10 users by realized P&L (most money MADE, across all segments).
+    top_uid_rows = sorted(user_map.items(), key=lambda kv: kv[1]["pnl"], reverse=True)[:10]
+    top_uids = [uid for uid, _ in top_uid_rows]
+    umeta: dict[Any, tuple[str, str]] = {}
+    if top_uids:
+        for u in await User.find({"_id": {"$in": top_uids}}).to_list():
+            umeta[u.id] = (u.full_name or "—", u.user_code or "")
+    top_users = [
+        {
+            "name": umeta.get(uid, ("Unknown", ""))[0],
+            "user_code": umeta.get(uid, ("", ""))[1],
+            "pnl": str(quantize_money(d["pnl"])),
+            "trades": d["trades"],
+        }
+        for uid, d in top_uid_rows
+    ]
+
     # Broker view (matches Positions "Total of Both"): users' loss becomes your
     # gain (−total) plus the brokerage you collected.
     total_of_both = -total + total_bkg
@@ -1044,5 +1066,6 @@ async def segment_pnl_breakdown(
         "total_of_both": str(quantize_money(total_of_both)),
         "segments": segments,
         "top_instruments": top_instruments,
+        "top_users": top_users,
         "position_count": len(positions),
     }
