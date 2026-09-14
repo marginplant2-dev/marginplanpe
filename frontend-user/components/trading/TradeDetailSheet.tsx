@@ -332,15 +332,23 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
     liveTick?.ask || quote?.ask || quote?.depth?.asks?.[0]?.price || seedQuote?.ask || ltp,
   );
   // Broker spread (per-user, pool-aware) — mirror OrderPanel + the matching
-  // engine so the displayed BUY/SELL equals the fill. FIXED mode is fully
-  // broker-controlled → mid ± half (half 0 ⇒ mid = zero spread when admin sets
-  // 0, so crypto/forex no longer show the feed's natural bid-ask). FLOATING
-  // only widens a too-tight live book to the configured minimum.
+  // engine so the displayed BUY/SELL equals the fill.
+  //   • spread_pips > 0        → mid ± half (broker markup), any segment.
+  //   • spread_pips == 0 on a  → collapse to mid (buy = sell = LTP), the
+  //     crypto/forex (Infoway)    admin-wanted zero-spread. Their feed's own
+  //     bid/ask can be wide/artificial, so 0 means "no spread".
+  //   • spread_pips == 0 on an → use the REAL feed bid/ask (pass-through).
+  //     INDIAN (Zerodha) seg      GOLD/MCX/NFO carry a genuine tight exchange
+  //                               book; collapsing it to mid was WRONG (card
+  //                               showed buy=sell=LTP while the watchlist +
+  //                               market showed the real 151301/151329).
   const spreadPips = Number(effSettings?.spread_pips ?? 0) || 0;
   const spreadType = String(effSettings?.spread_type ?? "fixed").toLowerCase();
   let dispBid = bid || ltp;
   let dispAsk = ask || ltp;
-  if (ltp > 0 && (spreadType !== "floating" || spreadPips > 0)) {
+  const applyBrokerSpread =
+    ltp > 0 && (spreadPips > 0 || (isInfowaySeg && spreadType !== "floating"));
+  if (applyBrokerSpread) {
     const half = spreadPips / 2;
     const liveSpread = bid > 0 && ask > 0 ? ask - bid : 0;
     if (spreadType !== "floating" || liveSpread < spreadPips) {

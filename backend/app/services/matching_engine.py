@@ -289,14 +289,24 @@ async def execute_market_order(
         except Exception:
             spread_pips = Decimal(0)
         spread_mode = str(seg_settings.get("spread_type") or "fixed").lower()
-        # FIXED mode is a full broker-controlled spread → the fill is ALWAYS
-        # mid (raw_ltp) ± half, even when pips == 0 (0 ⇒ mid, i.e. zero spread
-        # for both BUY and SELL — the admin explicitly turned the spread off).
-        # Previously this block was gated `spread_pips > 0`, so a 0 setting fell
-        # through to the raw feed bid/ask — and crypto/forex feeds carry a
-        # natural bid-ask spread, so the user still paid one. FLOATING still
-        # needs pips > 0 (it only widens a too-tight live book to that minimum).
-        if raw_ltp is not None and raw_ltp > 0 and (spread_mode != "floating" or spread_pips > 0):
+        # Spread model (mirrors the OrderPanel + TradeDetailSheet display):
+        #   • spread_pips > 0 → mid (raw_ltp) ± half, broker markup, any segment.
+        #   • spread_pips == 0 → collapse to mid (buy = sell = LTP) ONLY for
+        #     crypto/forex (Infoway), where 0 means "zero spread" and the feed's
+        #     own bid/ask can be wide/artificial. INDIAN (Zerodha) segments keep
+        #     the REAL feed bid/ask on 0 — GOLD/MCX/NFO carry a genuine tight
+        #     exchange book, so collapsing it to mid was wrong (fill != the
+        #     151301/151329 the user saw). FLOATING always needs pips > 0.
+        _seg_u = str(getattr(order.instrument, "segment", "") or "").upper()
+        _exch_u = str(getattr(getattr(order.instrument, "exchange", None), "value", "") or "").upper()
+        _is_infoway = (
+            "CRYPTO" in _seg_u or "FOREX" in _seg_u or "FX" in _seg_u or _exch_u in ("CDS", "CRYPTO")
+        )
+        if (
+            raw_ltp is not None
+            and raw_ltp > 0
+            and (spread_pips > 0 or (_is_infoway and spread_mode != "floating"))
+        ):
             half = spread_pips / Decimal(2)
             has_book = bid is not None and ask is not None and bid > 0 and ask > 0
             live_spread = (ask - bid) if has_book else Decimal(0)

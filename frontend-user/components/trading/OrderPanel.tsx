@@ -162,12 +162,11 @@ export function OrderPanel({ instrument, ltp, bid, ask, open, high, low, close, 
   const _rawAsk = ask ?? 0;
   let dispBid = _rawBid;
   let dispAsk = _rawAsk;
-  // FIXED mode is broker-controlled → always mid ± half (half 0 ⇒ mid, i.e.
-  // zero spread when admin sets 0). Only FLOATING needs pips > 0 (it just
-  // widens a too-tight live book). Previously gated `spreadPips > 0`, so a 0
-  // setting showed the raw feed bid/ask — and crypto/forex feeds carry a
-  // natural spread, so BUY/SELL still differed despite spread = 0.
-  if (ltp > 0 && (spreadType !== "floating" || spreadPips > 0)) {
+  // spread_pips > 0 → mid ± half (broker markup, any segment). spread_pips == 0
+  // → collapse to mid ONLY for crypto/forex (Infoway) where 0 means "zero
+  // spread"; INDIAN (Zerodha) segments keep the REAL feed bid/ask (GOLD/MCX/NFO
+  // carry a genuine tight exchange book — collapsing it to mid was wrong).
+  if (ltp > 0 && (spreadPips > 0 || ((isCrypto || isForex) && spreadType !== "floating"))) {
     const half = spreadPips / 2;
     const liveSpread = _rawBid > 0 && _rawAsk > 0 ? _rawAsk - _rawBid : 0;
     if (spreadType !== "floating" || liveSpread < spreadPips) {
