@@ -199,6 +199,22 @@ async def _stamp_close_reason(position_id: Any, tag: str) -> None:
         )
 
 
+def _close_mark(p: Position) -> Decimal:
+    """Price to force-close a position at on a STOP-OUT when a live fill may be
+    impossible (market shut / stale feed): the last-known mark (`p.ltp`), else
+    the entry price (`avg_price` ⇒ 0 P&L). Always returns > 0 so the squareoff
+    can't be rejected as STALE_FEED and can't retry-spam every tick — the
+    matching engine honours `is_squareoff` + `expected_price` exactly.
+    """
+    try:
+        v = to_decimal(p.ltp)
+        if v > 0:
+            return v
+    except Exception:
+        pass
+    return to_decimal(p.avg_price)
+
+
 async def _squareoff_position(
     user: User,
     p: Position,
@@ -706,22 +722,11 @@ async def _enforce_for_user(
     # percentage check further down both reuse it.
     floating_loss = (-total_unrealised) if total_unrealised < 0 else Decimal("0")
 
-    # A force-close on a position whose feed is 0/stale (e.g. Infoway crypto
-    # dropped after a restart, or a Zerodha tick gap) can NEVER fill — the
-    # matching-engine zero-price guard rejects it as STALE_FEED. Both stop-out
-    # loops below would then re-issue that squareoff every 250 ms, spamming
-    # hundreds of failed orders while never flattening (observed 2026-06-09:
-    # CL84388017 BTCUSD ~1 squareoff/sec for minutes with the feed at 0). Skip
-    # such positions — they flatten on the first tick the feed returns.
-    # `ltp_map` was fetched once at the top of this tick.
-    def _ltp_ok(tok: str) -> bool:
-        v = ltp_map.get(tok)
-        if v is None:
-            return False
-        try:
-            return float(str(v)) > 0
-        except Exception:
-            return False
+    # NOTE: the old feed-0/stale SKIP that both stop-out loops used (to avoid
+    # STALE_FEED rejects spamming a squareoff every 250 ms — CL84388017 BTCUSD,
+    # 2026-06-09) is gone. Stop-out now flattens EVERY position at `_close_mark`
+    # (last mark, else entry ⇒ always > 0), so the close always has a valid
+    # price, fills in one shot, and never retry-spams.
 
     # ── Zero / negative-capital stop-out (was: `if balance <= 0: return`) ─
     # The whole-pool denominator (available + used_margin + credit_limit)
@@ -749,17 +754,16 @@ async def _enforce_for_user(
             _zc_reason = f"stop_out_zero_capital_loss={floating_loss:.2f}"
             _zc_tasks = []
             for p in open_positions:
-                seg = getattr(p, "segment_type", None) or getattr(
-                    p.instrument, "segment", None
-                )
-                if _segment_closed(str(seg) if seg else None):
-                    continue
-                if not _ltp_ok(p.instrument.token):
-                    continue
-                # Same trigger-price pin as the main stop-out below — book
-                # at the close-side mark the breach saw, not a later tick.
+                # STOP-OUT flattens EVERYTHING — even a shut-market / stale-feed
+                # position. A zero-capital account has no equity to back ANY
+                # open bet, so it must go fully flat; we book the close at the
+                # last-known mark (else entry = 0 P&L) so a B-book close never
+                # needs a live tick. Deliberately different from the SL/TP
+                # bracket path, which still respects market hours (a conditional
+                # trigger must not fire on a stale price) — a margin stop-out is
+                # a forced liquidation, not a conditional order. (operator, 2026-09)
                 _zc_tasks.append(
-                    _squareoff_position(user, p, _zc_reason, fill_at=to_decimal(p.ltp))
+                    _squareoff_position(user, p, _zc_reason, fill_at=_close_mark(p))
                 )
             if _zc_tasks:
                 await asyncio.gather(*_zc_tasks, return_exceptions=True)
@@ -886,27 +890,22 @@ async def _enforce_for_user(
         _so_reason = f"stop_out_loss_{loss_pct:.2f}>={stop_pct}"
         _so_tasks = []
         for p in open_positions:
-            seg = getattr(p, "segment_type", None) or getattr(
-                p.instrument, "segment", None
-            )
-            if _segment_closed(str(seg) if seg else None):
-                continue
-            if not _ltp_ok(p.instrument.token):
-                continue
-            # Book the stop-out close at the SAME close-side mark the breach
-            # was computed against (`p.ltp` was just set by
-            # refresh_unrealized_pnl to the bid-for-long / ask-for-short
-            # price this tick). Without this the squareoff filled at the
-            # LIVE price a fraction of a second later — which, if the tick
-            # had bounced back, booked a PROFIT on a position that was
-            # force-closed FOR A LOSS. Operators (and users) read that as
-            # "profit trade me stop-out kyun?". Pinning the fill to the
-            # trigger mark makes the realised P&L equal the floating loss
-            # that fired the stop-out — same approach SL/TP brackets already
-            # use. The matching engine still clamps it to ±1% of live
-            # bid/ask, so a stale mark can't book an absurd price.
+            # STOP-OUT flattens EVERY open position — INCLUDING one whose market
+            # is shut or whose feed is stale. Previously these were skipped, so a
+            # blown account kept overnight/closed-market bets alive that then rode
+            # to a next-session windfall (e.g. crypto stop-out at 1:42 AM left MCX
+            # option positions open → user turned ₹0 into ₹30k). A margin stop-out
+            # is a forced liquidation: the account must go fully flat. B-book, so
+            # we book the close at the last-known mark (`p.ltp`, set this tick by
+            # refresh_unrealized_pnl to the bid-for-long / ask-for-short price;
+            # else entry = 0 P&L via _close_mark) — no live tick required. This is
+            # DELIBERATELY different from the SL/TP bracket path above, which still
+            # honours market hours (a conditional order must not fire on a stale
+            # tick); liquidation is not conditional. Pinning to the trigger mark
+            # also keeps realised P&L equal to the floating loss that fired the
+            # stop-out (no "profit trade me stop-out kyun?"). (operator, 2026-09)
             _so_tasks.append(
-                _squareoff_position(user, p, _so_reason, fill_at=to_decimal(p.ltp))
+                _squareoff_position(user, p, _so_reason, fill_at=_close_mark(p))
             )
         # Fire all stop-out closes in parallel — was sequential (N awaits),
         # now all matching-engine runs happen concurrently.
