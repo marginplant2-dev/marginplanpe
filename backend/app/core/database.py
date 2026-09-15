@@ -61,6 +61,7 @@ def _document_models() -> list[type["Document"]]:
     from app.models.notification import AdminNotification, Notification
     from app.models.support_chat import SupportMessage, SupportThread
     from app.models.demo_lead import DemoLead
+    from app.models.blocked_ip import BlockedIP
     from app.models.order import Order
     from app.models.platform_setting import PlatformSetting
     from app.models.expiry_override import ExpiryOverride
@@ -158,6 +159,7 @@ def _document_models() -> list[type["Document"]]:
         SupportThread,
         SupportMessage,
         DemoLead,
+        BlockedIP,
         PriceAlert,
         PlatformSetting,
         ExpiryOverride,

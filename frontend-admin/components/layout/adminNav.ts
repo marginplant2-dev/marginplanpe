@@ -10,6 +10,7 @@
 
 import {
   ArrowRightLeft,
+  Ban,
   Bitcoin,
   Activity,
   Banknote,
@@ -101,6 +102,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { href: "/risk-management", label: "Risk Management", icon: ShieldCheck, perm: "risk" },
       { href: "/segment-settings", label: "Segment Settings", icon: Layers, perm: "segment_settings" },
       { href: "/option-chain", label: "Expiry Settings", icon: Calendar, perm: "segment_settings" },
+      { href: "/ip-block", label: "IP Block", icon: Ban, perm: "ip_blocking" },
     ],
   },
   {

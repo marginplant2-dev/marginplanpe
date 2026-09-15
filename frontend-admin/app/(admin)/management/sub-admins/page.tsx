@@ -69,6 +69,7 @@ const PERMISSION_LABELS: Array<{ key: keyof AdminPermissions; label: string }> =
   { key: "download_app", label: "Download App" },
   { key: "bonuses", label: "Bonuses" },
   { key: "transfer_users", label: "Transfer users (to other admins)" },
+  { key: "ip_blocking", label: "IP Block (ban IPs from own pool)" },
 ];
 
 const ALL_OFF: AdminPermissions = {
@@ -97,6 +98,7 @@ const ALL_OFF: AdminPermissions = {
   download_app: false,
   bonuses: false,
   transfer_users: false,
+  ip_blocking: false,
 };
 
 export default function SubAdminsPage() {

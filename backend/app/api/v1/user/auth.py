@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.core.dependencies import CurrentUser
 from app.core.exceptions import (
+    AccountBlockedError,
     InvalidCredentialsError,
     MaintenanceModeError,
     NotFoundError,
@@ -33,7 +34,7 @@ from app.schemas.auth import (
     TwoFASetupResponse,
 )
 from app.schemas.common import APIResponse, OkResponse
-from app.services import auth_service, branding_service, user_service
+from app.services import auth_service, branding_service, ip_block_service, user_service
 from app.services.audit_service import log_event
 from app.utils.otp import issue_otp, verify_otp
 
@@ -197,6 +198,10 @@ async def login(payload: LoginRequest, request: Request):
     _full = await user_service.find_by_identifier(payload.identifier)
     if _full and await user_service.is_under_admin_maintenance(_full):
         raise MaintenanceModeError()
+    # Per-admin IP ban — block the login itself when this IP is on the owning
+    # admin's blocklist (the auth dependency also kicks live sessions).
+    if _full and await ip_block_service.is_ip_blocked_for_user(_full, _client_ip(request)):
+        raise AccountBlockedError()
     await log_event(
         action=AuditAction.LOGIN,
         entity_type="User",

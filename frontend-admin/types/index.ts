@@ -36,6 +36,8 @@ export interface AdminPermissions {
   bonuses: boolean;
   // Transfer User section — move own users to another admin (super-admin grants).
   transfer_users: boolean;
+  // IP Block page — ban IPs from own pool (super-admin grants).
+  ip_blocking: boolean;
 }
 
 // Tri-state permission level (admin → broker grant, or broker → sub-broker).

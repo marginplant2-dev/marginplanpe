@@ -112,6 +112,13 @@ async def get_current_user(
     token: Annotated[str, Depends(_user_oauth)],
 ) -> User:
     user = await _resolve_user(token)
+    # Per-admin IP ban. The user's owning admin may have blocked this request
+    # IP — kick the live session on its next request (mirrors the maintenance
+    # gate in _resolve_user, but that has no request/IP so it lives here).
+    from app.services import ip_block_service
+
+    if await ip_block_service.is_ip_blocked_for_user(user, _client_ip(request)):
+        raise AccountBlockedError()
     request.state.user = user
     return user
 

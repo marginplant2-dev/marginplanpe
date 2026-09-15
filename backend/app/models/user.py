@@ -143,6 +143,10 @@ class AdminPermissions(BaseModel):
     # Default False — only the super-admin has it until granted. Gates the
     # "Transfer User" sidebar section + the /management/transfer/* endpoints.
     transfer_users: bool = False
+    # Lets an admin ban IPs from their own pool (the "IP Block" page +
+    # /ip-block endpoints). Default False — super-admin grants it per admin.
+    # Super-admin always has it (dependency short-circuits on role).
+    ip_blocking: bool = False
 
 
 # Tri-state permissions granted by an admin to a broker (or by a broker to
