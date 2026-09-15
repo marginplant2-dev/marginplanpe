@@ -73,8 +73,11 @@ async def is_ip_blocked_for_user(user: User, ip: str) -> bool:
     scopes: list = [None]
     if admin_id is not None:
         scopes.append(admin_id)
-    # Exact IP (indexed).
-    if await BlockedIP.find_one({"admin_id": {"$in": scopes}, "ip": canon, "is_cidr": False}):
+    # Exact IP (indexed). No is_cidr filter: a CIDR is stored with a "/" so it
+    # can never equal a plain address, and legacy rows predating the is_cidr
+    # field would be missed by an {is_cidr: False} clause (Mongo doesn't match
+    # a missing field against False).
+    if await BlockedIP.find_one({"admin_id": {"$in": scopes}, "ip": canon}):
         return True
     # CIDR ranges — usually zero or a few.
     async for b in BlockedIP.find({"admin_id": {"$in": scopes}, "is_cidr": True}):
