@@ -62,7 +62,7 @@ async def add_blocked(
         ip=body.ip,
         reason=body.reason,
         created_by=admin.id,
-        created_by_name=admin.name or admin.email,
+        created_by_name=admin.full_name or admin.email,
     )
     return APIResponse(data={"id": str(row.id), "ip": row.ip})
 

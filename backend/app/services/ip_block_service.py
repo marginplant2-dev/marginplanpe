@@ -108,7 +108,7 @@ async def list_all() -> list[dict]:
     names: dict[PydanticObjectId, str] = {}
     if ids:
         async for a in User.find({"_id": {"$in": list(ids)}}):
-            names[a.id] = a.name or a.email or str(a.id)
+            names[a.id] = a.full_name or a.email or str(a.id)
     return [
         _to_dict(r, admin_label=("Platform (super-admin)" if r.admin_id is None else names.get(r.admin_id, "—")))
         for r in rows
