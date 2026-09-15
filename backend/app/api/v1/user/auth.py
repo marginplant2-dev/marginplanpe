@@ -42,10 +42,10 @@ router = APIRouter(prefix="/auth", tags=["user-auth"])
 
 
 def _client_ip(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return request.client.host if request.client else "0.0.0.0"
+    # Cloudflare-aware real-client IP (CF-Connecting-IP first). See utils.net.
+    from app.utils.net import client_ip
+
+    return client_ip(request)
 
 
 def _signup_host(request: Request) -> str:

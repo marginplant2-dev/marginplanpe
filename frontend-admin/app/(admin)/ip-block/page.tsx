@@ -25,6 +25,15 @@ function fmt(v: string | null): string {
   });
 }
 
+function RangeBadge({ show }: { show: boolean }) {
+  if (!show) return null;
+  return (
+    <span className="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+      range
+    </span>
+  );
+}
+
 export default function IpBlockPage() {
   const qc = useQueryClient();
   const admin = useAdminAuthStore((s) => s.admin);
@@ -33,6 +42,7 @@ export default function IpBlockPage() {
 
   const [ip, setIp] = useState("");
   const [reason, setReason] = useState("");
+  const [asRange, setAsRange] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const { data: mine = [], isFetching } = useQuery({
@@ -50,7 +60,7 @@ export default function IpBlockPage() {
   });
 
   const addMut = useMutation({
-    mutationFn: () => IpBlockAPI.add(ip.trim(), reason.trim() || undefined),
+    mutationFn: () => IpBlockAPI.add(ip.trim(), reason.trim() || undefined, asRange),
     onSuccess: () => {
       setIp("");
       setReason("");
@@ -96,7 +106,7 @@ export default function IpBlockPage() {
               <Input
                 value={ip}
                 onChange={(e) => setIp(e.target.value)}
-                placeholder="e.g. 103.108.4.106"
+                placeholder="IP or range — e.g. 106.78.2.68 or 106.78.2.0/24"
                 className="h-9 font-tabular"
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && ip.trim()) addMut.mutate();
@@ -122,6 +132,23 @@ export default function IpBlockPage() {
               <Ban className="size-4" /> Block IP
             </Button>
           </div>
+          <label className="mt-3 flex items-start gap-2 text-sm text-muted-foreground sm:items-center">
+            <input
+              type="checkbox"
+              checked={asRange}
+              onChange={(e) => setAsRange(e.target.checked)}
+              className="mt-0.5 size-4 accent-primary sm:mt-0"
+            />
+            <span>
+              Block the whole range (recommended for mobile) — a single IP is expanded to its
+              block (IPv4 /24, IPv6 /64), so a user who keeps changing IP stays blocked.
+            </span>
+          </label>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Tip: mobile users hop IPs and often use IPv6 (long addresses like 2402:3a80:…), so
+            one exact IP rarely stops them. To ban a specific person for good, block their
+            account in <span className="font-medium">All users</span>.
+          </p>
           {err && <p className="mt-2 text-sm text-red-500">{err}</p>}
         </CardContent>
       </Card>
@@ -168,7 +195,7 @@ export default function IpBlockPage() {
                 <tbody>
                   {all.map((r) => (
                     <tr key={r.id} className="border-b border-border/60 hover:bg-muted/30">
-                      <td className="px-3 py-2.5 font-tabular font-medium">{r.ip}</td>
+                      <td className="px-3 py-2.5 font-tabular font-medium">{r.ip}<RangeBadge show={r.is_cidr} /></td>
                       <td className="px-3 py-2.5">{r.admin_label || "—"}</td>
                       <td className="px-3 py-2.5 text-muted-foreground">{r.reason || "—"}</td>
                       <td className="px-3 py-2.5 text-muted-foreground">{r.created_by_name || "—"}</td>
@@ -182,7 +209,7 @@ export default function IpBlockPage() {
               {all.map((r) => (
                 <div key={r.id} className="rounded-xl border border-border p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-tabular font-medium">{r.ip}</span>
+                    <span className="font-tabular font-medium">{r.ip}<RangeBadge show={r.is_cidr} /></span>
                     <span className="shrink-0 rounded-full bg-violet-500/10 px-2 py-0.5 text-[11px] font-semibold text-violet-500">
                       {r.admin_label || "—"}
                     </span>
@@ -228,7 +255,7 @@ function IpTable({
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} className="border-b border-border/60 hover:bg-muted/30">
-                <td className="px-3 py-2.5 font-tabular font-medium">{r.ip}</td>
+                <td className="px-3 py-2.5 font-tabular font-medium">{r.ip}<RangeBadge show={r.is_cidr} /></td>
                 <td className="px-3 py-2.5 text-muted-foreground">{r.reason || "—"}</td>
                 <td className="px-3 py-2.5 text-muted-foreground">{r.created_by_name || "—"}</td>
                 <td className="px-3 py-2.5 text-muted-foreground">{fmt(r.created_at)}</td>
@@ -253,7 +280,7 @@ function IpTable({
         {rows.map((r) => (
           <div key={r.id} className="rounded-xl border border-border p-3">
             <div className="flex items-center justify-between gap-2">
-              <span className="font-tabular font-medium">{r.ip}</span>
+              <span className="font-tabular font-medium">{r.ip}<RangeBadge show={r.is_cidr} /></span>
               <Button
                 variant="outline"
                 size="sm"

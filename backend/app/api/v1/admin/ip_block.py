@@ -17,6 +17,7 @@ from app.core.dependencies import (
     effective_scope_actor,
     require_admin_permission,
 )
+from app.core.exceptions import ValidationFailedError
 from app.models.user import UserRole
 from app.schemas.common import APIResponse
 from app.services import ip_block_service
@@ -27,6 +28,9 @@ router = APIRouter(prefix="/ip-block", tags=["admin-ip-block"])
 class AddIpBody(BaseModel):
     ip: str
     reason: str | None = None
+    # Widen a single IP to its subscriber prefix (IPv4 /24, IPv6 /64) so a
+    # mobile user rotating IPs within the same block stays caught.
+    as_range: bool = False
 
 
 async def _scope_admin_id(admin) -> object:
@@ -56,15 +60,18 @@ async def add_blocked(
     admin: CurrentAdmin,
     _: None = Depends(require_admin_permission("ip_blocking")),
 ):
-    actor = await effective_scope_actor(admin)
-    row = await ip_block_service.add(
-        admin_id=await _scope_admin_id(admin),
-        ip=body.ip,
-        reason=body.reason,
-        created_by=admin.id,
-        created_by_name=admin.full_name or admin.email,
-    )
-    return APIResponse(data={"id": str(row.id), "ip": row.ip})
+    try:
+        row = await ip_block_service.add(
+            admin_id=await _scope_admin_id(admin),
+            ip=body.ip,
+            reason=body.reason,
+            created_by=admin.id,
+            created_by_name=admin.full_name or admin.email,
+            as_range=body.as_range,
+        )
+    except ValueError as e:
+        raise ValidationFailedError(str(e)) from e
+    return APIResponse(data={"id": str(row.id), "ip": row.ip, "is_cidr": row.is_cidr})
 
 
 @router.delete("", response_model=APIResponse[dict])

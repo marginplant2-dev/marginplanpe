@@ -22,7 +22,11 @@ class BlockedIP(TimestampMixin):
     # Owning admin whose pool this ban applies to. None = platform/super-admin
     # pool (users with assigned_admin_id is None).
     admin_id: PydanticObjectId | None = None
+    # A single IP (canonical form) OR a CIDR range like "106.78.2.0/24" /
+    # "2402:3a80::/32". `is_cidr` says which — mobile users rotate IPs and use
+    # IPv6, so a range block catches the whole subscriber prefix.
     ip: str
+    is_cidr: bool = False
     reason: str | None = None
     # Who added it — for the super-admin "kaha kaha blocked hai" master list.
     created_by: PydanticObjectId | None = None

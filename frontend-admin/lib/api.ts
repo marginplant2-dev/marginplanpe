@@ -456,6 +456,7 @@ export const DemoLeadsAPI = {
 export type BlockedIp = {
   id: string;
   ip: string;
+  is_cidr: boolean;
   reason: string | null;
   admin_id: string | null;
   admin_label: string | null;
@@ -466,8 +467,10 @@ export type BlockedIp = {
 export const IpBlockAPI = {
   list: () => unwrap<BlockedIp[]>(api.get("/admin/ip-block")),
   listAll: () => unwrap<BlockedIp[]>(api.get("/admin/ip-block/all")),
-  add: (ip: string, reason?: string) =>
-    unwrap<{ id: string; ip: string }>(api.post("/admin/ip-block", { ip, reason })),
+  add: (ip: string, reason?: string, as_range?: boolean) =>
+    unwrap<{ id: string; ip: string; is_cidr: boolean }>(
+      api.post("/admin/ip-block", { ip, reason, as_range }),
+    ),
   remove: (ip: string) =>
     unwrap<{ removed: boolean }>(api.delete("/admin/ip-block", { params: { ip } })),
 };
