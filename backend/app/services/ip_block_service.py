@@ -38,8 +38,14 @@ async def is_ip_blocked_for_user(user: User, ip: str) -> bool:
     ip_n = normalize_ip(ip)
     if not ip_n or ip_n == "0.0.0.0":
         return False
+    # A user is blocked if the IP is on their OWNING admin's list OR on the
+    # platform (admin_id=None) list — the super-admin's list is the platform-
+    # wide blocklist, so the owner's ban catches a user in ANY pool.
     admin_id = user.assigned_admin_id  # None ⇒ platform pool
-    hit = await BlockedIP.find_one(BlockedIP.admin_id == admin_id, BlockedIP.ip == ip_n)
+    scopes: list = [None]
+    if admin_id is not None:
+        scopes.append(admin_id)
+    hit = await BlockedIP.find_one({"admin_id": {"$in": scopes}, "ip": ip_n})
     return hit is not None
 
 
