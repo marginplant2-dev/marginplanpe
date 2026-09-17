@@ -9,6 +9,7 @@ from typing import Any
 
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from app.core.dependencies import (
     CurrentAdmin,
@@ -120,18 +121,20 @@ async def _enrich_admin_broker_names(rows: list[dict]) -> None:
         )
 
 
-@router.get("", response_model=APIResponse[dict])
-async def list_users(
-    admin: CurrentAdmin,
+async def _build_users_query(
+    admin: User,
+    *,
     q: str | None = None,
     role: str | None = None,
     status: str | None = None,
     parent_id: str | None = None,
-    mode: str = Query(default="live"),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=200),
-    _: None = Depends(require_perm("users", "read")),
-):
+    mode: str = "live",
+) -> dict[str, Any]:
+    """Shared Mongo filter for the admin Users list AND its .xlsx export, so
+    the two can never show different rows. Mirrors the /users list semantics:
+    hide admin-tier rows, default-hide CLOSED, live/demo split, owned-pool
+    scope, and the search $or AND-ed with the scope $or.
+    """
     query: dict[str, Any] = {}
     # /admin/users is for trading users only. Sub-admins are listed at
     # /admin/management/sub-admins (super-admin only). Reject role filters
@@ -162,24 +165,10 @@ async def list_users(
         # "Closed" from the status dropdown to audit archived users.
         query["status"] = status
     else:
-        # Default view hides CLOSED (archived / deleted) users so the
-        # list doesn't keep growing forever with soft-deleted rows.
-        # Operator-flagged 21-May: clicking Delete archived the user
-        # successfully (status = CLOSED) but the row stayed visible in
-        # the list, making it look like the action didn't fire. Now a
-        # default no-status query excludes CLOSED rows; an admin who
-        # wants to audit archived users picks "Closed" from the filter
-        # dropdown explicitly.
+        # Default view hides CLOSED (archived / deleted) users.
         query["status"] = {"$ne": UserStatus.CLOSED.value}
     if parent_id:
         query["parent_id"] = PydanticObjectId(parent_id)
-    # Comprehensive owned-pool scope (for ADMIN this unions the directly-
-    # assigned clients with the whole broker subtree) so users sitting
-    # under a transferred broker — whose assigned_admin_id was never
-    # propagated — still appear here, matching the dashboard count.
-    # The scope may itself be an $or, and the search box is also an $or,
-    # so AND them together; merging two $or keys into one dict silently
-    # drops the first.
     if mode == "demo":
         # Demo-tab: show ONLY demo users so the admin can manage them.
         query["is_demo"] = True
@@ -188,6 +177,10 @@ async def list_users(
         query["is_demo"] = {"$ne": True}
         query["email"] = {"$not": re.compile(r"@demo\.local$", re.IGNORECASE)}
 
+    # Comprehensive owned-pool scope (for ADMIN this unions the directly-
+    # assigned clients with the whole broker subtree). The scope may itself be
+    # an $or, and the search box is also an $or, so AND them together; merging
+    # two $or keys into one dict silently drops the first.
     scope = await scoped_user_filter(admin)
     and_clauses: list[dict] = []
     if q:
@@ -208,6 +201,73 @@ async def list_users(
         query.update(scope)
     if and_clauses:
         query["$and"] = and_clauses
+    return query
+
+
+async def _weekly_closed_pnl_map(
+    user_ids: list[PydanticObjectId],
+) -> dict[str, float]:
+    """NET realised P&L booked in the current ISO week (Mon 00:00 IST → now)
+    per user: PNL + CHARGES(brokerage) + REVERSAL + settlement legs, so a
+    deleted / reopened close nets its whole footprint back out. Shared by the
+    Users list column and the export so the two agree.
+    """
+    from datetime import timedelta as _td
+
+    from app.models.transaction import WalletTransaction
+    from app.utils.time_utils import now_ist, to_utc
+
+    if not user_ids:
+        return {}
+    _now_i = now_ist()
+    _wk_start = to_utc(
+        (_now_i - _td(days=_now_i.weekday())).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+    )
+    _WK_TYPES = [
+        TransactionType.PNL.value,
+        TransactionType.CHARGES.value,
+        TransactionType.REVERSAL.value,
+        TransactionType.SETTLEMENT_OUTSTANDING_BOOKED.value,
+        TransactionType.SETTLEMENT_OUTSTANDING_RECOVERY.value,
+    ]
+    out: dict[str, float] = {}
+    try:
+        _cur = WalletTransaction.get_motor_collection().aggregate(
+            [
+                {
+                    "$match": {
+                        "user_id": {"$in": user_ids},
+                        "transaction_type": {"$in": _WK_TYPES},
+                        "created_at": {"$gte": _wk_start},
+                    }
+                },
+                {"$group": {"_id": "$user_id", "pnl": {"$sum": {"$toDouble": "$amount"}}}},
+            ]
+        )
+        async for _row in _cur:
+            out[str(_row["_id"])] = float(_row.get("pnl") or 0.0)
+    except Exception:  # noqa: BLE001
+        out = {}
+    return out
+
+
+@router.get("", response_model=APIResponse[dict])
+async def list_users(
+    admin: CurrentAdmin,
+    q: str | None = None,
+    role: str | None = None,
+    status: str | None = None,
+    parent_id: str | None = None,
+    mode: str = Query(default="live"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=200),
+    _: None = Depends(require_perm("users", "read")),
+):
+    query = await _build_users_query(
+        admin, q=q, role=role, status=status, parent_id=parent_id, mode=mode
+    )
 
     total = await User.find(query).count()
     rows = (
@@ -231,53 +291,9 @@ async def list_users(
     wallets = await Wallet.find({"user_id": {"$in": user_ids}}).to_list()
     wallet_map = {str(w.user_id): w for w in wallets}
 
-    # Weekly closed P&L (#6) — net realised P&L booked in the current ISO week
-    # (Monday 00:00 IST → now). Surfaced on the all-users page in place of the
-    # old settlement column. One grouped aggregate over just this page's users.
-    from datetime import timedelta as _td
-
-    from app.models.transaction import TransactionType, WalletTransaction
-    from app.utils.time_utils import now_ist, to_utc
-
-    _now_i = now_ist()
-    _wk_start = to_utc(
-        (_now_i - _td(days=_now_i.weekday())).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-    )
-    wk_pnl_map: dict[str, float] = {}
-    # NET realized P&L for the week = booked P&L − brokerage ± any admin
-    # reversals. Summing ONLY PNL rows made the column (a) gross (brokerage
-    # never subtracted) and (b) sticky after a delete — deleting a closed
-    # trade posts a REVERSAL row (not a PNL row), so the deleted trade's P&L
-    # lingered here forever. Include CHARGES (brokerage), REVERSAL
-    # (delete/reopen/edit undo), and the stop-out settlement legs so a delete
-    # of any close nets its whole footprint back to zero. Operator: "trade
-    # delete karne par pnl and brokerage dono weekly se hat jaye."
-    _WK_TYPES = [
-        TransactionType.PNL.value,
-        TransactionType.CHARGES.value,
-        TransactionType.REVERSAL.value,
-        TransactionType.SETTLEMENT_OUTSTANDING_BOOKED.value,
-        TransactionType.SETTLEMENT_OUTSTANDING_RECOVERY.value,
-    ]
-    try:
-        _cur = WalletTransaction.get_motor_collection().aggregate(
-            [
-                {
-                    "$match": {
-                        "user_id": {"$in": user_ids},
-                        "transaction_type": {"$in": _WK_TYPES},
-                        "created_at": {"$gte": _wk_start},
-                    }
-                },
-                {"$group": {"_id": "$user_id", "pnl": {"$sum": {"$toDouble": "$amount"}}}},
-            ]
-        )
-        async for _row in _cur:
-            wk_pnl_map[str(_row["_id"])] = float(_row.get("pnl") or 0.0)
-    except Exception:  # noqa: BLE001
-        wk_pnl_map = {}
+    # Weekly closed P&L — net realised P&L booked in the current ISO week
+    # (Monday 00:00 IST → now), shared with the export via _weekly_closed_pnl_map.
+    wk_pnl_map = await _weekly_closed_pnl_map(user_ids)
 
     for item in items:
         w = wallet_map.get(item["id"])
@@ -305,6 +321,124 @@ async def list_users(
             "items": items,
             "meta": {"page": page, "page_size": page_size, "total": total, "total_pages": (total + page_size - 1) // page_size},
         }
+    )
+
+
+@router.get("/export")
+async def export_users(
+    admin: CurrentAdmin,
+    q: str | None = None,
+    status: str | None = None,
+    mode: str = Query(default="live"),
+    _: None = Depends(require_perm("users", "read")),
+):
+    """Download the WHOLE Users list as one .xlsx — every row matching the
+    current filters (search / status / Live-Demo) and the admin's scope, with
+    no pagination. Columns mirror the on-screen table. Open P&L is a snapshot
+    of each user's last-persisted unrealised (risk enforcer refreshes it ~1 s,
+    so it's near-live) — no per-row LTP fan-out, keeping a whole-book export
+    cheap."""
+    from datetime import datetime as _dt
+    from datetime import timedelta as _tzd
+    from datetime import timezone as _tz
+    from io import BytesIO
+
+    from openpyxl import Workbook
+
+    from app.models.position import Position, PositionStatus
+    from app.models.wallet import Wallet
+    from app.utils.decimal_utils import to_decimal
+
+    query = await _build_users_query(admin, q=q, status=status, mode=mode)
+    rows = await User.find(query).sort("-created_at").to_list()
+    if mode != "demo":
+        rows = [
+            r
+            for r in rows
+            if not getattr(r, "is_demo", False)
+            and "@demo.local" not in (r.email or "")
+        ]
+
+    items = [_ser(u) for u in rows]
+    await _enrich_admin_broker_names(items)
+    user_ids = [u.id for u in rows]
+
+    wallets = (
+        await Wallet.find({"user_id": {"$in": user_ids}}).to_list() if user_ids else []
+    )
+    wmap = {str(w.user_id): w for w in wallets}
+    wk = await _weekly_closed_pnl_map(user_ids)
+
+    # Open P&L snapshot — sum last-persisted unrealised across OPEN positions.
+    open_map: dict[str, float] = {}
+    if user_ids:
+        async for p in Position.find(
+            {"user_id": {"$in": user_ids}, "status": PositionStatus.OPEN.value}
+        ):
+            try:
+                open_map[str(p.user_id)] = open_map.get(str(p.user_id), 0.0) + float(
+                    to_decimal(p.unrealized_pnl)
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _f(x: Any) -> float:
+        try:
+            return round(float(to_decimal(x)), 2)
+        except Exception:  # noqa: BLE001
+            return 0.0
+
+    IST = _tz(_tzd(hours=5, minutes=30))
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Users"
+    ws.append(
+        [
+            "Code", "Name", "Email", "Mobile", "Owner", "Status",
+            "Balance", "Used Margin", "Credit Limit", "Settlement Outstanding",
+            "Open P&L", "Equity", "Weekly P&L", "Created At",
+        ]
+    )
+    for it in items:
+        w = wmap.get(it["id"])
+        avail = _f(w.available_balance) if w else 0.0
+        opnl = round(open_map.get(it["id"], 0.0), 2)
+        owner = it.get("assigned_broker_name") or it.get("assigned_admin_name") or "Self"
+        created = it.get("created_at")
+        if created is not None:
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=_tz.utc)
+            created = created.astimezone(IST).strftime("%Y-%m-%d %H:%M")
+        else:
+            created = ""
+        ws.append(
+            [
+                it["user_code"], it["full_name"], it["email"], it["mobile"], owner, it["status"],
+                avail,
+                _f(w.used_margin) if w else 0.0,
+                _f(w.credit_limit) if w else 0.0,
+                _f(w.settlement_outstanding) if w else 0.0,
+                opnl,
+                round(avail + opnl, 2),
+                round(wk.get(it["id"], 0.0), 2),
+                created,
+            ]
+        )
+    ws.freeze_panes = "A2"  # keep the header row visible while scrolling
+
+    buf = BytesIO()
+    wb.save(buf)
+    data = buf.getvalue()
+    stamp = _dt.now(IST).strftime("%Y%m%d_%H%M")
+    filename = f"users_{mode}_{stamp}.xlsx"
+    return StreamingResponse(
+        iter([data]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(data)),
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
     )
 
 

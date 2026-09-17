@@ -247,6 +247,11 @@ export const DashboardAPI = {
 
 export const UsersAPI = {
   list: (params?: any) => unwrap<{ items: any[]; meta: any }>(api.get("/admin/users", { params })),
+  // Download the WHOLE Users list (current filters + scope) as one .xlsx.
+  exportExcel: async (params?: { q?: string; status?: string; mode?: string }): Promise<Blob> => {
+    const res = await api.get("/admin/users/export", { params, responseType: "blob" });
+    return res.data;
+  },
   detail: (id: string) => unwrap<any>(api.get(`/admin/users/${id}`)),
   create: (body: any) => unwrap<any>(api.post("/admin/users", body)),
   update: (id: string, body: any) => unwrap<any>(api.put(`/admin/users/${id}`, body)),

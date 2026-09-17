@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, Search, TrendingDown, TrendingUp } from "lucide-react";
+import { Download, Plus, Search, TrendingDown, TrendingUp } from "lucide-react";
 import { UsersAPI } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,15 @@ import { useAdminAuthStore } from "@/stores/authStore";
  */
 const LIVE_STATS_REFETCH_MS = 1500;
 
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 type LiveStat = {
   user_id: string;
   available_balance: string;
@@ -48,6 +57,25 @@ export default function AdminUsersPage() {
   const [page, setPage] = useState(1);
   const [ledgerUser, setLedgerUser] = useState<any | null>(null);
   const [statsUser, setStatsUser] = useState<any | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleExport() {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const blob = await UsersAPI.exportExcel({
+        q: q || undefined,
+        status: status || undefined,
+        mode,
+      });
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "");
+      downloadBlob(blob, `users_${mode}_${stamp}.xlsx`);
+    } catch {
+      alert("Could not download the users file. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  }
   const pageSize = 20;
 
   const { data, isFetching } = useQuery({
@@ -260,11 +288,16 @@ export default function AdminUsersPage() {
         title={isDemo ? "Demo users" : "All users"}
         description={`${total} ${isDemo ? "demo" : ""} users`}
         actions={
-          <Button asChild>
-            <Link href="/users/new">
-              <Plus className="size-4" /> New user
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={handleExport} disabled={downloading}>
+              <Download className="size-4" /> {downloading ? "Preparing…" : "Download XL"}
+            </Button>
+            <Button asChild>
+              <Link href="/users/new">
+                <Plus className="size-4" /> New user
+              </Link>
+            </Button>
+          </div>
         }
       />
 
