@@ -1005,17 +1005,23 @@ _expiry_baseline_day: str | None = None
 
 
 async def expire_all_pending_orders(reason: str = "DAY_ORDER_EXPIRED") -> int:
-    """Cancel every still-live parked ENTRY order (PENDING/OPEN/PARTIAL) at day
-    end, releasing its blocked margin. Returns the count cancelled.
+    """Cancel EVERY still-live parked order (PENDING/OPEN/PARTIAL) at day end,
+    releasing any blocked margin. Returns the count cancelled.
 
-    DELIBERATELY excludes exit / protection orders so an open (carried) position
-    never loses its stop at midnight:
+    Operator policy (2026-09): ALL parked orders are DAY-scoped — nothing carries
+    to the next session. That includes protection / exit orders (previously kept
+    so a carried position held its stop):
+      • plain entry LIMIT / SL-M
       • sl_tp_source_trade_id — per-fill SL/TP exit
       • parent_order_id       — bracket child (SL/TP leg)
       • cost_basis_override   — specific-lot close
-      • is_squareoff          — risk/EOD force-close
-    Only genuine unfilled entry orders (the ones piling up in the Pending list)
-    are day-expired; the user re-places them next session.
+    The carried position itself stays OPEN; its stored SL/TP legs are wiped
+    separately by ``clear_all_position_brackets``. The user re-arms stops /
+    re-places orders next session.
+
+    STILL excluded: ``is_squareoff`` — a risk/EOD system force-close in flight
+    must not be voided at the rollover (it flattens a blown position and fills
+    synchronously, so it is essentially never left parked anyway).
     """
     rows = await Order.find(
         {
@@ -1026,9 +1032,6 @@ async def expire_all_pending_orders(reason: str = "DAY_ORDER_EXPIRED") -> int:
                     OrderStatus.PARTIAL.value,
                 ]
             },
-            "sl_tp_source_trade_id": None,
-            "parent_order_id": None,
-            "cost_basis_override": None,
             "is_squareoff": {"$ne": True},
         }
     ).to_list()
@@ -1041,6 +1044,33 @@ async def expire_all_pending_orders(reason: str = "DAY_ORDER_EXPIRED") -> int:
             logger.exception("expire_pending_order_failed order=%s", o.id)
     if n:
         logger.info("pending_orders_expired", extra={"count": n, "reason": reason})
+    return n
+
+
+async def clear_all_position_brackets(reason: str = "DAY_BRACKET_EXPIRED") -> int:
+    """Wipe the stored SL / TP legs (``stop_loss`` / ``target``) off EVERY
+    still-open position at day end. Operator policy (2026-09): protective legs
+    are DAY-scoped — a carried NRML position keeps its exposure but LOSES its
+    SL/TP at IST midnight; the user re-arms them next session. This complements
+    ``expire_all_pending_orders`` (which cancels the parked SL/TP *order* docs) —
+    the position-level fields the risk enforcer evaluates live are cleared here.
+
+    Only the LIVE legs are cleared; ``close_stop_loss`` / ``close_target``
+    snapshots on already-closed positions are untouched. One bulk update, no
+    per-position await. Returns the count of positions cleared.
+    """
+    from app.models.position import Position as _Pos, PositionStatus as _PS
+
+    res = await _Pos.get_motor_collection().update_many(
+        {
+            "status": _PS.OPEN.value,
+            "$or": [{"stop_loss": {"$ne": None}}, {"target": {"$ne": None}}],
+        },
+        {"$set": {"stop_loss": None, "target": None}},
+    )
+    n = int(getattr(res, "modified_count", 0) or 0)
+    if n:
+        logger.info("position_brackets_cleared", extra={"count": n, "reason": reason})
     return n
 
 
@@ -1066,6 +1096,7 @@ async def pending_order_expiry_loop(interval_sec: float = 60.0) -> None:
                     _expiry_baseline_day = today  # baseline — no fire on startup
                 elif today != _expiry_baseline_day:
                     await expire_all_pending_orders("DAY_ORDER_EXPIRED")
+                    await clear_all_position_brackets("DAY_BRACKET_EXPIRED")
                     _expiry_baseline_day = today
             except Exception:
                 logger.exception("pending_order_expiry_tick_failed")
