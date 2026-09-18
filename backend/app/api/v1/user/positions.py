@@ -157,6 +157,33 @@ def _parse_position_id(position_id: str) -> PydanticObjectId:
         raise HTTPException(status_code=404, detail="Position not found")
 
 
+async def _resolve_open_position_by_token(
+    user: "User", payload: dict
+) -> "Position | None":
+    """Find the caller's OPEN position for the instrument named in the payload
+    (``token`` [+ optional ``product_type``]).
+
+    Used as a fallback by the SL/TP endpoints so setting a stop/target works
+    INSTANTLY right after a market buy — before the real position id has
+    reached the client. The client still shows an OPTIMISTIC row with a temp
+    id (``optimistic_<ts>``), but the market order filled synchronously on the
+    server, so the OPEN position already exists and is found here by token.
+    Returns None when the payload carries no token or no match exists.
+    """
+    tok = payload.get("token") or payload.get("instrument_token")
+    if not tok:
+        return None
+    conds = [
+        Position.user_id == user.id,
+        Position.instrument.token == str(tok),
+        Position.status == PositionStatus.OPEN,
+    ]
+    prod = payload.get("product_type")
+    if prod:
+        conds.append(Position.product_type == prod)
+    return await Position.find_one(*conds)
+
+
 def _effective_qty(p: Position) -> tuple[float, float, int]:
     """Resolve (qty_in_contracts, lots, lot_size) from a Position row.
 
@@ -824,8 +851,18 @@ async def update_sl_tp(position_id: str, payload: dict, user: CurrentUser):
     """Edit the stop-loss and target on an open position. Pass null/0 to clear."""
     from bson import Decimal128
 
-    p = await Position.get(_parse_position_id(position_id))
-    if p is None or p.user_id != user.id:
+    p = None
+    try:
+        p = await Position.get(_parse_position_id(position_id))
+    except HTTPException:
+        p = None  # temp/optimistic id → resolve by token below
+    if p is not None and p.user_id != user.id:
+        p = None
+    if p is None:
+        # Instant SL/TP right after a market buy: the client still shows the
+        # optimistic temp-id row, but the OPEN position exists server-side.
+        p = await _resolve_open_position_by_token(user, payload)
+    if p is None:
         raise HTTPException(status_code=404, detail="Position not found")
     if p.status != PositionStatus.OPEN:
         raise HTTPException(status_code=400, detail="Position is not open")
@@ -2012,21 +2049,27 @@ async def update_active_trade_sl_tp(trade_id: str, payload: dict, user: CurrentU
         if p is None or p.user_id != user.id or p.status != PositionStatus.OPEN:
             raise HTTPException(status_code=404, detail="Position not found")
     else:
+        oid = None
         try:
             oid = PydanticObjectId(trade_id)
         except Exception:
-            raise HTTPException(status_code=404, detail="Trade not found")
-        t = await Trade.get(oid)
-        if t is None or t.user_id != user.id:
-            raise HTTPException(status_code=404, detail="Trade not found")
-        p = await Position.find_one(
-            Position.user_id == user.id,
-            Position.instrument.token == t.instrument.token,
-            Position.product_type == t.product_type,
-            Position.status == PositionStatus.OPEN,
-        )
+            oid = None
+        if oid is not None:
+            t = await Trade.get(oid)
+            if t is not None and t.user_id == user.id:
+                p = await Position.find_one(
+                    Position.user_id == user.id,
+                    Position.instrument.token == t.instrument.token,
+                    Position.product_type == t.product_type,
+                    Position.status == PositionStatus.OPEN,
+                )
         if p is None:
-            raise HTTPException(status_code=400, detail="Parent position not open")
+            # Temp/optimistic id (or the trade's parent isn't resolvable yet) —
+            # resolve the OPEN position directly by token from the payload so
+            # SL/TP applies INSTANTLY after a market buy, no refresh needed.
+            p = await _resolve_open_position_by_token(user, payload)
+        if p is None:
+            raise HTTPException(status_code=404, detail="Position not found")
 
     # NOTE: an earlier direction-validation block here referenced two helpers
     # (`_live_ref_price`, `_validate_sl_tp_direction`) that don't exist in this

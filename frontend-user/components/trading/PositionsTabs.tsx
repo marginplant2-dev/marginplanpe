@@ -610,6 +610,10 @@ export function PositionsTabs({ positions, pendingOrders, history, cancelled, to
                   target: t.target,
                   segment_type: t.segment,
                   exchange: t.exchange,
+                  // Carry the instrument so the save can resolve the OPEN
+                  // position by token when the row is still optimistic.
+                  product_type: t.product_type,
+                  instrument_token: t.instrument_token ?? t.token,
                   // Override the dialog save so it routes to per-trade endpoint
                   __activeTradeId: t.id,
                 })}
@@ -1286,6 +1290,12 @@ function EditSlTpDialog({
       const body = {
         stop_loss: sl ? Number(sl) : null,
         target: tp ? Number(tp) : null,
+        // Token + product let the server resolve the OPEN position by
+        // instrument when the id is still an OPTIMISTIC temp id (right after a
+        // market buy, before the real position id reaches the client) — so
+        // SL/TP applies instantly, no refresh needed.
+        token: position.instrument_token ?? position.token ?? null,
+        product_type: position.product_type ?? null,
       };
       // Active-trade rows tag themselves with __activeTradeId so we can route
       // through the per-trade endpoint (which still hits the parent position
