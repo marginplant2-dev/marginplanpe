@@ -381,8 +381,8 @@ async def compute_broker_totals(
     # ── Broker / sub-broker sharing ──────────────────────────────────
     # Default (no formal agreement): the broker's own create/edit-form %s,
     # shown as TWO independent figures —
-    #   Sharing PnL = Total of Both × PnL %   (headline take, settlement not
-    #                                          subtracted — matches actual_pnl)
+    #   Sharing PnL = (Total of Both − Settlement) × PnL %   (broker take on the
+    #                 actual P&L after absorbing the unrecovered settlement loss)
     #   Sharing BKG = client brokerage × Brokerage %
     # (Brokerage also sits inside actual_pnl; these are display tiles, not a
     # single summed payout.) A formal ACTIVE/PAUSED PnlSharingAgreement, when
@@ -430,12 +430,15 @@ async def compute_broker_totals(
             sharing_pnl = Decimal("0")
     else:
         # No agreement → BOTH figures shown, exactly as the operator wants:
-        #   • Sharing PnL = (Total of Both − Settlement) × PnL %   (the
-        #     headline broker take on the actual P&L)
+        #   • Sharing PnL = (Total of Both − Settlement) × PnL %   (broker take
+        #     on the actual P&L AFTER absorbing the unrecovered settlement loss;
+        #     operator 2026-09: "actual pnl se settlement minus karke sharing
+        #     nikalo" — e.g. (17,197.22 − 503.50) × 35% = 5,842.80, not
+        #     17,197.22 × 35%). actual_pnl itself still shows the full take.
         #   • Sharing BKG = client brokerage × Brokerage %
         # These are two independent DISPLAY figures (brokerage also sits
         # inside actual_pnl) — not meant to be summed into one payout.
-        sharing_pnl = quantize_money(actual_pnl * (pnl_pct / Decimal("100")))
+        sharing_pnl = quantize_money((actual_pnl - settlement) * (pnl_pct / Decimal("100")))
         sharing_bkg = quantize_money(net_client_bkg * (bkg_pct / Decimal("100")))
 
     return {
