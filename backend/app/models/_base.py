@@ -76,6 +76,10 @@ class SegmentType(StrEnum):
     CDS_OPTION_SELL = "CDS_OPTION_SELL"
     CRYPTO_SPOT = "CRYPTO_SPOT"
     CRYPTO_FUTURE = "CRYPTO_FUTURE"
+    # Crypto options (Binance-fed BTC/ETH CE/PE). Own admin row "CRYPTO_OPT",
+    # split buy/sell like the other option segments for per-side margin.
+    CRYPTO_OPTION_BUY = "CRYPTO_OPTION_BUY"
+    CRYPTO_OPTION_SELL = "CRYPTO_OPTION_SELL"
 
 
 ALL_SEGMENTS: tuple[SegmentType, ...] = tuple(SegmentType)

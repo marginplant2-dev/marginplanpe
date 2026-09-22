@@ -146,7 +146,7 @@ async def upsert_override(
         max_by_ex = None
     elif isinstance(mbe_raw, dict):
         cleaned_mbe: dict[str, int] = {}
-        for k in ("NSE", "BSE", "MCX"):
+        for k in ("NSE", "BSE", "MCX", "CRYPTO"):
             v = mbe_raw.get(k)
             if v in (None, "", 0):
                 continue
@@ -167,7 +167,7 @@ async def upsert_override(
         strikes_by_seg = None
     elif isinstance(sbs_raw, dict):
         cleaned_sbs: dict[str, int] = {}
-        for k in ("NSE_IDX_OPT", "NSE_STK_OPT", "MCX_OPT", "BSE_OPT"):
+        for k in ("NSE_IDX_OPT", "NSE_STK_OPT", "MCX_OPT", "BSE_OPT", "CRYPTO_OPT"):
             v = sbs_raw.get(k)
             if v in (None, "", 0):
                 continue

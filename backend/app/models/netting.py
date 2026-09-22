@@ -142,6 +142,8 @@ SEGMENT_CODES = [
     "FOREX", "STOCKS",
     "INDICES", "COMMODITIES",
     "CRYPTO",
+    # Crypto options (Binance BTC/ETH CE/PE) — own row, ships globally OFF.
+    "CRYPTO_OPT",
 ]
 
 

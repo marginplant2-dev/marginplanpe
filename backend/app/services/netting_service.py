@@ -80,7 +80,7 @@ async def _resolve_super_admin_id() -> PydanticObjectId | None:
 # Admin matrix rows whose instruments don't settle daily — no separate
 # overnight margin exists. The resolver always reads the *Intraday* column
 # for these rows and the admin UI greys out the overnight cells.
-INTRADAY_ONLY_ADMIN_ROWS = frozenset({"FOREX", "STOCKS", "INDICES", "COMMODITIES", "CRYPTO"})
+INTRADAY_ONLY_ADMIN_ROWS = frozenset({"FOREX", "STOCKS", "INDICES", "COMMODITIES", "CRYPTO", "CRYPTO_OPT"})
 
 # Module-local debounce for "netting_eff:*" wipes. The admin Segment Matrix
 # fires N parallel PUTs (one per dirty segment); without this each call
@@ -157,6 +157,10 @@ SEGMENT_DEFAULTS: list[dict[str, Any]] = [
     # The user side only shows one "Crypto" asset-class chip, so the admin
     # matrix mirrors that with one row rather than four sub-segments.
     {"name": "CRYPTO", "displayName": "Crypto", "lotApplies": True, "qtyApplies": False, "optionApplies": False, "expiryHoldApplies": False, "futureApplies": False},
+    # Crypto Options (Binance BTC/ETH CE/PE). Own row so the admin prices it
+    # independently of spot/future crypto. Ships GLOBALLY OFF (seed isActive=
+    # False below) — hidden for every pool until an admin opts in.
+    {"name": "CRYPTO_OPT", "displayName": "Crypto Option", "lotApplies": True, "qtyApplies": False, "optionApplies": True, "expiryHoldApplies": True, "futureApplies": False},
 ]
 
 # Segment names that were ever retired and need an idempotent cleanup on
@@ -186,6 +190,14 @@ async def seed_default_segments() -> int:
         if spec["name"].startswith("CRYPTO"):
             defaults["minLots"] = 0.001
             defaults["orderLots"] = 0.001
+        if spec["name"] == "CRYPTO_OPT":
+            # Ship crypto options GLOBALLY OFF: the base row is inactive so it's
+            # hidden for every pool. An admin opts in per pool by saving an
+            # isActive=True override on their tier (existing un-hide semantics).
+            defaults["isActive"] = False
+            # Binance option lots step at 0.01 contracts (not 0.001 like spot).
+            defaults["minLots"] = 0.01
+            defaults["orderLots"] = 0.01
         await NettingSegment(**spec, **defaults).insert()
         inserted += 1
     return inserted
@@ -1812,10 +1824,13 @@ _SEGMENT_NAME_MAP: dict[str, str] = {
     "CDS_FUTURE": "FOREX",
     "CDS_OPTION_BUY": "FOREX",
     "CDS_OPTION_SELL": "FOREX",
-    # Every crypto instrument resolves to the single CRYPTO admin row.
+    # Spot/future/perp crypto resolve to the single CRYPTO admin row; crypto
+    # OPTIONS get their own CRYPTO_OPT row so they can be priced separately.
     "CRYPTO_SPOT": "CRYPTO",
     "CRYPTO_FUTURE": "CRYPTO",
     "CRYPTO_PERPETUAL": "CRYPTO",
+    "CRYPTO_OPTION_BUY": "CRYPTO_OPT",
+    "CRYPTO_OPTION_SELL": "CRYPTO_OPT",
     # Infoway-fed international markets resolve to their own admin rows.
     # The instrument segment value already matches the admin row name —
     # we map them through explicitly so the resolver doesn't fall back
