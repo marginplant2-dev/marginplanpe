@@ -540,6 +540,9 @@ export function MobileInstrumentsBar({ activeToken, onSelect }: Props) {
                 jumping abruptly to the snap point. */}
             <div
               ref={chipsScrollerRef}
+              onWheel={(e) => {
+                if (e.deltaY !== 0) e.currentTarget.scrollLeft += e.deltaY;
+              }}
               className="scroll-smooth -mx-3 overflow-x-auto overscroll-x-contain px-3 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
               style={{
                 maskImage:

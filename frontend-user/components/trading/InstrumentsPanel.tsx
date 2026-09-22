@@ -511,14 +511,15 @@ export function InstrumentsPanel({ onClose }: Props) {
             tap-and-pick UX on every device. `visibleBuckets` already
             hides any bucket whose admin row is flagged inactive. */}
         <div
-          className="scroll-smooth -mx-1 flex gap-1 overflow-x-auto px-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-          style={{
-            WebkitOverflowScrolling: "touch",
-            maskImage:
-              "linear-gradient(to right, black 0%, black calc(100% - 16px), transparent 100%)",
-            WebkitMaskImage:
-              "linear-gradient(to right, black 0%, black calc(100% - 16px), transparent 100%)",
+          // Mouse users can't drag a touch strip and vertical wheels don't move
+          // a horizontal overflow by default — so translate wheel-Y into
+          // scroll-X and keep a thin visible scrollbar to drag. Trackpad
+          // horizontal swipe (deltaX) still works untouched.
+          className="scroll-smooth -mx-1 flex gap-1 overflow-x-auto px-1 pb-1 scrollbar-thin"
+          onWheel={(e) => {
+            if (e.deltaY !== 0) e.currentTarget.scrollLeft += e.deltaY;
           }}
+          style={{ WebkitOverflowScrolling: "touch" }}
         >
           {visibleBuckets.map((b) => (
             <button
