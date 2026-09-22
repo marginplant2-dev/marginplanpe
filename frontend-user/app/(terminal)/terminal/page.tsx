@@ -374,9 +374,15 @@ export default function TradingTerminalPage() {
   // cannot, so the "Option chain" tab is hidden for them entirely.
   const seg = (instrument?.segment ?? "").toUpperCase();
   const exch = (instrument?.exchange ?? "").toUpperCase();
+  const _rawUnd = (instrument?.symbol ?? "").toUpperCase();
+  // Crypto options are Binance-fed on BTC/ETH: a crypto spot/perp instrument
+  // (BTCUSD / ETHUSDT) IS option-chain-eligible; map it to its base asset for
+  // the chain. Other crypto (SOL…) and option rows themselves are not.
+  const _cryptoBase = exch === "CRYPTO" ? (_rawUnd.match(/^(BTC|ETH)USDT?$/)?.[1] ?? null) : null;
   const showOptionChain =
-    ["NSE", "BSE", "NFO", "BFO", "MCX"].includes(exch) && !seg.includes("OPTION");
-  const ocUnderlying = (instrument?.symbol ?? "").toUpperCase();
+    (["NSE", "BSE", "NFO", "BFO", "MCX"].includes(exch) && !seg.includes("OPTION")) ||
+    (_cryptoBase !== null && !seg.includes("OPTION"));
+  const ocUnderlying = _cryptoBase ?? _rawUnd;
 
   // Mobile top-section tabs: Charts always, Option chain only for F&O-eligible
   // underlyings, News always.

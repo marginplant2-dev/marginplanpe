@@ -75,7 +75,13 @@ export function OptionChainPicker({ open, onOpenChange, onPick, initialUnderlyin
   // admin to have pre-configured it.
   const requestedRoot = (() => {
     if (!initialUnderlying) return null;
-    const m = initialUnderlying.toUpperCase().match(/^([A-Z]+)/);
+    const up = initialUnderlying.toUpperCase();
+    // Crypto spot/perp (BTCUSD / ETHUSDT) → their option-chain base asset
+    // (BTC / ETH), so opening the picker from a crypto instrument lands on the
+    // crypto chain instead of an empty "BTCUSD" chip.
+    const cm = up.match(/^(BTC|ETH)USDT?$/);
+    if (cm) return cm[1];
+    const m = up.match(/^([A-Z]+)/);
     return m ? m[1] : null;
   })();
 
