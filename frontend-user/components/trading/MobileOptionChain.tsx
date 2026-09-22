@@ -42,9 +42,6 @@ const UNDERLYINGS: { label: string; symbol: string }[] = [
   { label: "Nifty 50", symbol: "NIFTY" },
   { label: "Nifty Bank", symbol: "BANKNIFTY" },
   { label: "Sensex", symbol: "SENSEX" },
-  { label: "Nifty Fin Service", symbol: "FINNIFTY" },
-  { label: "Nifty Mid Select", symbol: "MIDCPNIFTY" },
-  { label: "Bankex", symbol: "BANKEX" },
 ];
 
 function fmtExpiry(iso?: string | null): string {
