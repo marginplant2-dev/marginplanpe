@@ -1831,6 +1831,10 @@ _SEGMENT_NAME_MAP: dict[str, str] = {
     "CRYPTO_PERPETUAL": "CRYPTO",
     "CRYPTO_OPTION_BUY": "CRYPTO_OPT",
     "CRYPTO_OPTION_SELL": "CRYPTO_OPT",
+    # Neutral instrument-segment string carried on the seeded option docs
+    # (mirrors how NSE option instruments carry "NFO_OPTION"). Both reads
+    # "CRYPTO" (spread model) and "OPTION" (option gating) contain-checks pass.
+    "CRYPTO_OPTION": "CRYPTO_OPT",
     # Infoway-fed international markets resolve to their own admin rows.
     # The instrument segment value already matches the admin row name —
     # we map them through explicitly so the resolver doesn't fall back
