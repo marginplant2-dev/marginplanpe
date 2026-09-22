@@ -2152,9 +2152,16 @@ def _to_legacy_dict(
     fixed_margin_per_lot = 0.0
     overnight_fixed_margin_per_lot = 0.0
     if margin_mode == "times":
-        leverage = max(1.0, effective_margin_pct)
+        # Respect the admin's exact Times value — including BELOW 1×. A
+        # sub-1 multiplier (e.g. Opt-Sell 0.04) is a DELIBERATE way to charge
+        # MORE margin than notional (margin = notional ÷ leverage → 25× at
+        # 0.04), which is how a B-book covers the open-ended risk of a short
+        # option. Only floor at a positive value so div-by-zero can't happen
+        # (0 / negative → 1×). (operator 2026-09: "buy sell ka margin sahi le
+        # jaise set kiya hu".)
+        leverage = effective_margin_pct if effective_margin_pct > 0 else 1.0
         margin_pct = 100.0
-        overnight_leverage = max(1.0, effective_overnight_pct)
+        overnight_leverage = effective_overnight_pct if effective_overnight_pct > 0 else 1.0
         overnight_margin_pct = 100.0
     elif margin_mode == "fixed":
         fixed_margin_per_lot = float(effective_margin_pct or 0.0)
