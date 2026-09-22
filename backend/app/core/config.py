@@ -242,6 +242,12 @@ class Settings(BaseSettings):
     # falls back to the INFOWAY_DEFAULT_CRYPTO list (same USDT-pair names).
     BINANCE_CRYPTO_FEED: bool = False
     BINANCE_CRYPTO_SYMBOLS: str = ""
+    # Crypto OPTIONS feed (Binance EAPI mark price, REST-polled). When True the
+    # `global` feed process fetches fair mark prices for BTC/ETH option symbols
+    # (BINANCE_OPTIONS_UNDERLYINGS, comma-sep asset codes; default "BTC,ETH").
+    # Independent of BINANCE_CRYPTO_FEED (spot). No API key needed.
+    BINANCE_OPTIONS_FEED: bool = False
+    BINANCE_OPTIONS_UNDERLYINGS: str = ""
     # ── MetaAPI (MetaTrader) feed for forex / metals / indices / commodities ──
     # When True, those segments get their live price from a connected MT4/MT5
     # account via metaapi.cloud instead of Infoway (crypto stays on Binance).
@@ -381,6 +387,7 @@ class Settings(BaseSettings):
         "RUN_FEED_LOOP",
         "INFOWAY_AUTO_CONNECT",
         "BINANCE_CRYPTO_FEED",
+        "BINANCE_OPTIONS_FEED",
         "METAAPI_FEED",
         "SMTP_TLS",
         "LOG_JSON",

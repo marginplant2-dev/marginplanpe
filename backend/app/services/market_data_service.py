@@ -442,6 +442,20 @@ async def _infoway_overlay(token: str, base_quote: dict[str, Any]) -> dict[str, 
                     source = "binance"
         except Exception:
             live = None
+        # Binance crypto OPTIONS (eapi mark price). Only option symbols like
+        # `BTC-260925-145000-C` resolve here — spot/forex/metals return None and
+        # fall through. Reuses source="binance" so it's in the live allow-set.
+        if live is None:
+            try:
+                from app.services.binance_service import binance_options
+
+                if binance_options.is_enabled():
+                    bo = binance_options.get_tick(sym)
+                    if bo and float(bo.get("ltp") or 0) > 0:
+                        live = bo
+                        source = "binance"
+            except Exception:
+                live = None
         # FOREX / METALS / INDICES / COMMODITIES → MetaAPI when enabled. Only the
         # symbols the MT account actually streams resolve here; crypto / NSE
         # return None and fall through. Infoway stays the automatic fallback.

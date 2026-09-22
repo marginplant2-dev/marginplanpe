@@ -257,3 +257,127 @@ class BinanceFeed:
 
 
 binance = BinanceFeed()
+
+
+# ── Crypto OPTIONS feed (Binance EAPI) ──────────────────────────────────
+# Binance options are a SEPARATE API from spot (eapi.binance.com, symbols like
+# BTC-260925-145000-C). Options have hundreds of strikes with slow-moving,
+# often-illiquid prices, so instead of managing thousands of WS subscriptions
+# we REST-poll `/eapi/v1/mark` — one call returns the fresh fair MARK PRICE for
+# every listed contract. Mark price (not the thin last-trade) is the right B-book
+# reference: it's always available for every strike and can't be skewed by a
+# stale illiquid print. The admin's per-segment spread synthesises buy/sell from
+# it (same crypto spread model as spot). Runs in the `global` feed process.
+_OPT_MARK_URL = "https://eapi.binance.com/eapi/v1/mark"
+_OPT_POLL_SEC = 3.0             # mark prices move slowly; 3s is plenty for options
+_OPT_ERR_CAP_SEC = 30
+
+
+class BinanceOptionsFeed:
+    """Singleton crypto-options mark-price feed (REST poll of Binance EAPI).
+
+    Same in-memory contract as ``BinanceFeed``: ``get_tick(symbol)`` returns the
+    latest ``{ltp, bid, ask, mark_iv, delta, ts}`` keyed by the exact option
+    symbol (``BTC-260925-145000-C``), so ``market_data_service._infoway_overlay``
+    merges it identically. Only symbols whose underlying is in the configured
+    prefix set (BTC/ETH by default) are stored.
+    """
+
+    def __init__(self) -> None:
+        self._ticks: dict[str, dict[str, Any]] = {}
+        self._stop = False
+        self._task: asyncio.Task[Any] | None = None
+        self._connected = False
+        self._last_rx = 0.0
+
+    def is_enabled(self) -> bool:
+        return bool(getattr(settings, "BINANCE_OPTIONS_FEED", False))
+
+    @property
+    def is_connected(self) -> bool:
+        return self._connected
+
+    def get_tick(self, symbol: str | None) -> dict[str, Any] | None:
+        if not symbol:
+            return None
+        return self._ticks.get(symbol.upper())
+
+    def _prefixes(self) -> tuple[str, ...]:
+        raw = (getattr(settings, "BINANCE_OPTIONS_UNDERLYINGS", "") or "").strip()
+        assets = [a.strip().upper() for a in raw.split(",") if a.strip()] or ["BTC", "ETH"]
+        return tuple(f"{a}-" for a in assets)
+
+    def status(self) -> dict[str, Any]:
+        now = time.time()
+        return {
+            "enabled": self.is_enabled(),
+            "connected": self._connected,
+            "tick_count": len(self._ticks),
+            "last_rx_age_sec": round(now - self._last_rx, 1) if self._last_rx else None,
+        }
+
+    async def start(self) -> None:
+        if not self.is_enabled():
+            logger.info("binance_options_feed_skipped: BINANCE_OPTIONS_FEED not set")
+            return
+        self._stop = False
+        self._task = asyncio.create_task(self._run_loop(), name="binance_options_feed")
+        logger.info("binance_options_feed_started")
+
+    async def stop(self) -> None:
+        self._stop = True
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    async def _run_loop(self) -> None:
+        import httpx
+
+        prefixes = self._prefixes()
+        backoff = 1
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            while not self._stop:
+                try:
+                    r = await client.get(_OPT_MARK_URL)
+                    r.raise_for_status()
+                    self._ingest(r.json(), prefixes)
+                    self._connected = True
+                    self._last_rx = time.monotonic()
+                    backoff = 1
+                    await asyncio.sleep(_OPT_POLL_SEC)
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:  # noqa: BLE001
+                    self._connected = False
+                    logger.warning("binance_options_poll_error: %s", e)
+                    await asyncio.sleep(min(backoff, _OPT_ERR_CAP_SEC))
+                    backoff = min(backoff * 2, _OPT_ERR_CAP_SEC)
+
+    def _ingest(self, data: Any, prefixes: tuple[str, ...]) -> None:
+        if not isinstance(data, list):
+            return
+        now = time.time()
+        for row in data:
+            if not isinstance(row, dict):
+                continue
+            sym = str(row.get("symbol") or "").upper()
+            if not sym.startswith(prefixes):
+                continue
+            mp = _f(row.get("markPrice"))
+            if mp <= 0:
+                continue  # keep the last good price; never overwrite with 0
+            t = self._ticks.setdefault(sym, {})
+            t["ltp"] = mp
+            # No real order-book from the mark endpoint — leave bid/ask = mark so
+            # the admin's segment spread (mid ± half) synthesises both sides.
+            t["bid"] = mp
+            t["ask"] = mp
+            t["mark_iv"] = _f(row.get("markIV"))
+            t["delta"] = _f(row.get("delta"))
+            t["ts"] = now
+
+
+binance_options = BinanceOptionsFeed()

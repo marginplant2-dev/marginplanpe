@@ -487,6 +487,17 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             except Exception:
                 logger.exception("binance_feed_auto_start_failed")
 
+            # Binance crypto OPTIONS feed (eapi mark price, REST poll) — leader-
+            # only, global process. Independent of the spot flag. No-op when off.
+            try:
+                from app.services.binance_service import binance_options as _bopt
+
+                if _run_global and _bopt.is_enabled():
+                    await _bopt.start()
+                    logger.info("binance_options_feed_auto_started")
+            except Exception:
+                logger.exception("binance_options_feed_auto_start_failed")
+
             # MetaAPI (forex / metals / indices / commodities) feed — leader-only.
             # When METAAPI_FEED=true it supplies those segments in place of
             # Infoway (Infoway stays the automatic fallback). No-op when off.
@@ -1215,6 +1226,14 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         from app.services.binance_service import binance
 
         await binance.stop()
+    except Exception:
+        pass
+
+    # Stop Binance crypto-options feed cleanly
+    try:
+        from app.services.binance_service import binance_options
+
+        await binance_options.stop()
     except Exception:
         pass
 
