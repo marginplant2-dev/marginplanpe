@@ -420,26 +420,20 @@ async def compute_broker_totals(
         else pnl_pct
     )
     share_pct = pnl_pct
-    if agreement:
-        # A formal PnlSharingAgreement stays AUTHORITATIVE and unchanged — no
-        # regression for setups configured on the P&L-Sharing page: P&L and
-        # brokerage share on their own bases, settlement excluded.
-        sharing_pnl = quantize_money(broker_view_pnl * (pnl_pct / Decimal("100")))
-        sharing_bkg = quantize_money(net_client_bkg * (bkg_pct / Decimal("100")))
-        if agreement.agreement_type == AgreementType.BROKERAGE_ONLY:
-            sharing_pnl = Decimal("0")
+    # Sharing PnL = (Actual P&L − Settlement) × PnL %  for EVERY broker — WITH or
+    # WITHOUT a formal PnlSharingAgreement, the SAME rule (operator 2026-09: the
+    # unrecovered settlement loss the broker absorbs must come off the P&L before
+    # the share is taken — e.g. (4,382.15 − 2,179.81) × 45% = 991.05, not
+    # 4,382.15 × 45%). Earlier the agreement branch used broker_view_pnl and
+    # excluded settlement; that legacy split is gone so agreement and
+    # create-form brokers agree. `actual_pnl` itself still shows the full take.
+    #   • Sharing BKG = client brokerage × Brokerage %  (independent display tile)
+    # A BROKERAGE_ONLY agreement shares brokerage only, so its PnL share stays 0.
+    if agreement and agreement.agreement_type == AgreementType.BROKERAGE_ONLY:
+        sharing_pnl = Decimal("0")
     else:
-        # No agreement → BOTH figures shown, exactly as the operator wants:
-        #   • Sharing PnL = (Total of Both − Settlement) × PnL %   (broker take
-        #     on the actual P&L AFTER absorbing the unrecovered settlement loss;
-        #     operator 2026-09: "actual pnl se settlement minus karke sharing
-        #     nikalo" — e.g. (17,197.22 − 503.50) × 35% = 5,842.80, not
-        #     17,197.22 × 35%). actual_pnl itself still shows the full take.
-        #   • Sharing BKG = client brokerage × Brokerage %
-        # These are two independent DISPLAY figures (brokerage also sits
-        # inside actual_pnl) — not meant to be summed into one payout.
         sharing_pnl = quantize_money((actual_pnl - settlement) * (pnl_pct / Decimal("100")))
-        sharing_bkg = quantize_money(net_client_bkg * (bkg_pct / Decimal("100")))
+    sharing_bkg = quantize_money(net_client_bkg * (bkg_pct / Decimal("100")))
 
     return {
         "net_client_pnl": str(quantize_money(net_client_pnl)),
