@@ -1820,18 +1820,26 @@ class ZerodhaService:
         # Determine exchange
         sensex_like = {"SENSEX", "BANKEX"}
         mcx_like = {"CRUDEOIL", "GOLD", "GOLDM", "SILVER", "SILVERM", "NATURALGAS", "COPPER"}
+        crypto_like = {"BTC", "ETH"}
         if und_key in sensex_like:
             exchanges = ["BFO"]
         elif und_key in mcx_like:
             exchanges = ["MCX"]
+        elif und_key in crypto_like:
+            # Crypto (Binance) has no Kite catalog — build straight from the
+            # seeded Instrument docs via the DB-fallback below.
+            exchanges = ["CRYPTO"]
         else:
             exchanges = ["NFO", "BFO"]
 
+        _crypto = und_key in crypto_like
         today = date.today()
         options: list[dict[str, Any]] = []
         expiry_set: set[date] = set()
 
         for ex in exchanges:
+            if _crypto:
+                break  # skip the Kite catalog scan; DB-fallback handles crypto
             try:
                 catalog = await self.fetch_instruments(ex)
             except Exception as e:

@@ -498,6 +498,21 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             except Exception:
                 logger.exception("binance_options_feed_auto_start_failed")
 
+            # Crypto-options catalog + expiry loop (leader-only). Boot-seeds the
+            # BTC/ETH option Instrument docs from Binance, refreshes hourly, and
+            # settles positions the moment a contract's UTC expiry passes. Only
+            # runs when the options feed is enabled (else there'd be no prices).
+            try:
+                from app.services.binance_service import binance_options as _bopt3
+
+                if _run_global and _bopt3.is_enabled():
+                    from app.services import crypto_options_service as _cos
+
+                    await _cos.start_loop()
+                    logger.info("crypto_options_loop_auto_started")
+            except Exception:
+                logger.exception("crypto_options_loop_auto_start_failed")
+
             # MetaAPI (forex / metals / indices / commodities) feed — leader-only.
             # When METAAPI_FEED=true it supplies those segments in place of
             # Infoway (Infoway stays the automatic fallback). No-op when off.
@@ -1234,6 +1249,14 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         from app.services.binance_service import binance_options
 
         await binance_options.stop()
+    except Exception:
+        pass
+
+    # Stop crypto-options maintenance loop cleanly
+    try:
+        from app.services import crypto_options_service as _cos_stop
+
+        await _cos_stop.stop_loop()
     except Exception:
         pass
 

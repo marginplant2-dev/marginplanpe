@@ -400,6 +400,27 @@ def _norm_underlying(s: str) -> str:
     return _UNDERLYING_ALIASES.get(normed, normed)
 
 
+# Crypto (Binance) option underlyings — surfaced ONLY when the CRYPTO_OPT
+# segment is active for the user's pool (admin opted in; default OFF).
+_CRYPTO_UNDERLYINGS = [
+    {"label": "Bitcoin", "symbol": "BTC", "color": "amber"},
+    {"label": "Ethereum", "symbol": "ETH", "color": "indigo"},
+]
+_CRYPTO_UND_SYMBOLS = {"BTC", "ETH"}
+
+
+async def _crypto_options_active(user_id: Any) -> bool:
+    """True when crypto options are enabled for this user (CRYPTO_OPT row not
+    inactive for their pool). Fails OPEN=False (hidden) on resolver error so a
+    default-off feature never leaks on a glitch."""
+    try:
+        from app.services.netting_service import inactive_admin_rows
+
+        return "CRYPTO_OPT" not in await inactive_admin_rows(user_id=user_id)
+    except Exception:
+        return False
+
+
 @router.get("/config", response_model=APIResponse[dict])
 async def option_chain_config(user: CurrentUser):
     """Public option-chain settings consumed by the picker UI."""
@@ -407,7 +428,13 @@ async def option_chain_config(user: CurrentUser):
     # (USER → BROKER → ADMIN → GLOBAL). strikes_around_atm stays global —
     # it's not part of the per-actor override surface.
     resolved = await _resolve_expiry_settings_for_user(user.id)
-    underlyings = resolved["underlyings"]
+    underlyings = list(resolved["underlyings"])
+    # Append BTC/ETH crypto-option chips only when the pool has opted in.
+    if await _crypto_options_active(user.id):
+        have = {str(u.get("symbol", "")).upper() for u in underlyings}
+        for cu in _CRYPTO_UNDERLYINGS:
+            if cu["symbol"] not in have:
+                underlyings.append(cu)
     strikes_around_atm = int(await _read_setting("option_chain.strikes_around_atm", _DEFAULT_STRIKES_AROUND_ATM))
     max_expiries = int(resolved["max_expiries"])
     return APIResponse(
@@ -427,6 +454,13 @@ async def option_chain(
     expiry: str | None = Query(default=None, description="ISO date; if omitted, nearest expiry"),
 ):
     und_key = _norm_underlying(underlying)
+
+    # Crypto options are gated: a pool that hasn't opted in must not be able to
+    # pull a BTC/ETH chain even by hitting this endpoint directly.
+    if und_key in _CRYPTO_UND_SYMBOLS and not await _crypto_options_active(user.id):
+        return APIResponse(
+            data={"underlying": und_key, "expiry": None, "expiries": [], "rows": [], "atm": None}
+        )
 
     # ── Response cache hit? Bail out fast (matches the picker's 2 s poll). ──
     # Cache key includes user.id so each user's per-symbol block set
