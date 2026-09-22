@@ -64,6 +64,10 @@ const BUCKETS: Bucket[] = [
   { key: "indices", label: "Indices", group: "asset", mode: "filter", segments: ["INDICES"], adminRows: ["INDICES"] },
   { key: "commodities", label: "Commodities", group: "asset", mode: "filter", segments: ["COMMODITIES"], adminRows: ["COMMODITIES"] },
   { key: "crypto", label: "Crypto", group: "asset", mode: "filter", segments: ["CRYPTO_PERPETUAL", "CRYPTO_SPOT", "CRYPTO_FUTURE"], adminRows: ["CRYPTO"] },
+  // Crypto options (Binance BTC/ETH) — managed like MCX/NSE options (user
+  // searches a strike + adds it). Gated on the CRYPTO_OPT admin row, so the
+  // chip only appears when the pool has opted in.
+  { key: "crypto_opt", label: "Crypto OPT", group: "asset", mode: "filter", segments: ["CRYPTO_OPTION"], adminRows: ["CRYPTO_OPT"], managed: true },
 
   // NSE granular — managed (user adds instruments explicitly)
   { key: "nse_eq", label: "NSE EQ", group: "nse", mode: "filter", segments: ["NSE_EQUITY"], adminRows: ["NSE_EQ"], managed: true },
