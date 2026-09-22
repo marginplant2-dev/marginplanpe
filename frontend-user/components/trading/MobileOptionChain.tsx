@@ -82,6 +82,22 @@ export function MobileOptionChain({ onSelect, fixedUnderlying }: Props) {
     placeholderData: (prev) => prev,
   });
 
+  // Admin-configured underlyings (adds crypto BTC/ETH when CRYPTO_OPT is on for
+  // the pool). Merge into the fixed Indian-index list so nothing is lost and
+  // crypto appears in "Filter by" only when the backend surfaces it.
+  const { data: ocCfg } = useQuery({
+    queryKey: ["option-chain-config"],
+    queryFn: () => OptionChainAPI.config(),
+    staleTime: 60_000,
+  });
+  const underlyingsList = useMemo<{ label: string; symbol: string }[]>(() => {
+    const cfg = ((ocCfg as any)?.underlyings ?? []) as { label: string; symbol: string }[];
+    const extras = cfg.filter(
+      (c) => !UNDERLYINGS.some((h) => h.symbol.toUpperCase() === String(c.symbol).toUpperCase()),
+    );
+    return [...UNDERLYINGS, ...extras.map((c) => ({ label: c.label, symbol: c.symbol }))];
+  }, [ocCfg]);
+
   const expiries: string[] = data?.expiries ?? [];
   const activeExpiry: string | undefined =
     expiry ?? data?.expiry ?? expiries[0];
@@ -129,7 +145,7 @@ export function MobileOptionChain({ onSelect, fixedUnderlying }: Props) {
   }, [underlying]);
 
   const activeLabel =
-    UNDERLYINGS.find((u) => u.symbol === underlying)?.label ?? underlying;
+    underlyingsList.find((u) => u.symbol === underlying)?.label ?? underlying;
 
   // Auto-scroll the ATM row into the centre on load / underlying / side flip.
   const atmRef = useRef<HTMLDivElement | null>(null);
@@ -216,7 +232,7 @@ export function MobileOptionChain({ onSelect, fixedUnderlying }: Props) {
           options={
             sheet === "expiry"
               ? expiries.map((e) => ({ key: e, label: fmtExpiry(e) }))
-              : UNDERLYINGS.map((u) => ({ key: u.symbol, label: u.label }))
+              : underlyingsList.map((u) => ({ key: u.symbol, label: u.label }))
           }
           selectedKey={sheet === "expiry" ? activeExpiry ?? "" : underlying}
           onSelect={(key) => {
