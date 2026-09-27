@@ -386,7 +386,21 @@ async def search(
         except Exception:
             pass  # fall through to MongoDB
 
-    if seg_list or it_list:
+    # Zerodha-backed segments all start with NSE_ / BSE_ / MCX_ (see
+    # _segment_matches_kite_row). FOREX / COMMODITIES / INDICES / STOCKS /
+    # CRYPTO_* live ONLY as Infoway/Binance-mirrored rows in MongoDB — they
+    # have no Zerodha-cache counterpart. When Zerodha is disconnected (e.g.
+    # after a reboot, before the daily admin-panel login) `_instruments_cache`
+    # is empty, so entering the fast path below would trigger an inline
+    # download of all 5 Kite exchange catalogs — slow enough to time out the
+    # request (~20 s), making Forex/Commodities/Indices/Crypto browse chips
+    # go blank even though those segments never needed Zerodha at all. Skip
+    # the Zerodha path entirely for pure non-Zerodha segment queries.
+    _seg_needs_zerodha = (not seg_list) or any(
+        s.upper().startswith(("NSE_", "BSE_", "MCX_")) for s in seg_list
+    )
+
+    if (seg_list or it_list) and _seg_needs_zerodha:
         try:
             # Ensure cache is warm before scanning.
             if not _zerodha._instruments_cache:
