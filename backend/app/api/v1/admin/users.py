@@ -128,6 +128,8 @@ async def _build_users_query(
     role: str | None = None,
     status: str | None = None,
     parent_id: str | None = None,
+    assigned_admin_id: str | None = None,
+    broker_id: str | None = None,
     mode: str = "live",
 ) -> dict[str, Any]:
     """Shared Mongo filter for the admin Users list AND its .xlsx export, so
@@ -177,11 +179,28 @@ async def _build_users_query(
         query["is_demo"] = {"$ne": True}
         query["email"] = {"$not": re.compile(r"@demo\.local$", re.IGNORECASE)}
 
+    # Owner filter (the admin/sub-broker drill-down). Pick a broker's whole
+    # subtree (every client under it + its sub-brokers' clients) or an admin's
+    # whole pool. broker_id wins when both are sent.
+    owner_clause: dict | None = None
+    if broker_id:
+        owner_clause = {"broker_ancestry": PydanticObjectId(broker_id)}
+    elif assigned_admin_id:
+        owner_clause = {"assigned_admin_id": PydanticObjectId(assigned_admin_id)}
+
     # Comprehensive owned-pool scope (for ADMIN this unions the directly-
     # assigned clients with the whole broker subtree). The scope may itself be
     # an $or, and the search box is also an $or, so AND them together; merging
     # two $or keys into one dict silently drops the first.
     scope = await scoped_user_filter(admin)
+    # Super-admin's default scope is the platform pool only
+    # ({assigned_admin_id: None}); when they explicitly pick an owner, filter
+    # THAT owner's pool instead. A regular admin/broker keeps their own scope
+    # and the owner clause is AND-ed on top so they can never cross pools.
+    if owner_clause is not None and admin.role == UserRole.SUPER_ADMIN:
+        scope = owner_clause
+        owner_clause = None
+
     and_clauses: list[dict] = []
     if q:
         regex = re.compile(re.escape(q.strip()), re.IGNORECASE)
@@ -199,6 +218,8 @@ async def _build_users_query(
         and_clauses.append(scope)
     else:
         query.update(scope)
+    if owner_clause is not None:
+        and_clauses.append(owner_clause)
     if and_clauses:
         query["$and"] = and_clauses
     return query
@@ -260,13 +281,22 @@ async def list_users(
     role: str | None = None,
     status: str | None = None,
     parent_id: str | None = None,
+    assigned_admin_id: str | None = None,
+    broker_id: str | None = None,
     mode: str = Query(default="live"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
     _: None = Depends(require_perm("users", "read")),
 ):
     query = await _build_users_query(
-        admin, q=q, role=role, status=status, parent_id=parent_id, mode=mode
+        admin,
+        q=q,
+        role=role,
+        status=status,
+        parent_id=parent_id,
+        assigned_admin_id=assigned_admin_id,
+        broker_id=broker_id,
+        mode=mode,
     )
 
     total = await User.find(query).count()
@@ -329,6 +359,8 @@ async def export_users(
     admin: CurrentAdmin,
     q: str | None = None,
     status: str | None = None,
+    assigned_admin_id: str | None = None,
+    broker_id: str | None = None,
     mode: str = Query(default="live"),
     _: None = Depends(require_perm("users", "read")),
 ):
@@ -349,7 +381,14 @@ async def export_users(
     from app.models.wallet import Wallet
     from app.utils.decimal_utils import to_decimal
 
-    query = await _build_users_query(admin, q=q, status=status, mode=mode)
+    query = await _build_users_query(
+        admin,
+        q=q,
+        status=status,
+        assigned_admin_id=assigned_admin_id,
+        broker_id=broker_id,
+        mode=mode,
+    )
     rows = await User.find(query).sort("-created_at").to_list()
     if mode != "demo":
         rows = [

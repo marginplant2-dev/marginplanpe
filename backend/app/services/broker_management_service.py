@@ -486,6 +486,8 @@ async def list_brokers_for(
     page_size: int = 20,
     admin_id: PydanticObjectId | None = None,
     include_sub: bool = False,
+    all_pools: bool = False,
+    sub_only: bool = False,
 ) -> tuple[list[User], int]:
     """Returns brokers visible to the actor.
 
@@ -504,11 +506,18 @@ async def list_brokers_for(
     query: dict[str, Any] = {"role": UserRole.BROKER.value}
 
     if actor.role == UserRole.SUPER_ADMIN:
-        if admin_id is not None:
+        # all_pools → every broker across every admin's pool (the super-admin
+        # Sub-Brokers section); otherwise the usual platform-pool / admin_id scope.
+        if all_pools:
+            pass
+        elif admin_id is not None:
             query["assigned_admin_id"] = admin_id
         else:
             query["assigned_admin_id"] = None
-        if not include_sub:
+        if sub_only:
+            # Only brokers that sit under another broker (true sub-brokers).
+            query["assigned_broker_id"] = {"$ne": None}
+        elif not include_sub:
             query["assigned_broker_id"] = None
     elif actor.role == UserRole.ADMIN:
         query["assigned_admin_id"] = actor.id

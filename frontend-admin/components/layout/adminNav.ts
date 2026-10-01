@@ -140,6 +140,8 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         brokerLabel: "Sub-brokers",
         hideForSuperAdmin: true,
       },
+      // Super-admin roll-up of every broker/sub-broker across all admin pools.
+      { href: "/management/sub-brokers", label: "Sub-Brokers", icon: Crown, superOnly: true },
       { href: "/management/pnl-sharing", label: "P&L Sharing", icon: Handshake, empPerm: "pnl_sharing" },
       { href: "/management/transfer-users", label: "Transfer User", icon: ArrowRightLeft, perm: "transfer_users" },
     ],

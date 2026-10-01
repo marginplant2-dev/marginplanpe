@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from app.core.dependencies import (
     CurrentAdmin,
+    SuperAdmin,
     assert_broker_in_scope,
     max_grantable_perms,
     require_perm,
@@ -165,6 +166,62 @@ async def list_brokers(
         include_sub=include_sub,
     )
     items = [await _ser_broker(b) for b in rows]
+    return APIResponse(
+        data={
+            "items": items,
+            "meta": {
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": (total + page_size - 1) // page_size,
+            },
+        }
+    )
+
+
+@router.get("/brokers/all", response_model=APIResponse[dict])
+async def list_all_brokers(
+    actor: SuperAdmin,
+    q: str | None = None,
+    status: str | None = None,
+    sub_only: bool = False,
+    page: int = 1,
+    page_size: int = 50,
+):
+    """Super-admin only: every broker across EVERY admin pool (the platform
+    Sub-Brokers section). `sub_only=true` restricts to true sub-brokers (a
+    broker under another broker). Each row carries its owning admin name and,
+    for a sub-broker, its parent broker name so the UI shows the chain."""
+    rows, total = await svc.list_brokers_for(
+        actor,
+        status=status,
+        q=q,
+        page=page,
+        page_size=page_size,
+        all_pools=True,
+        sub_only=sub_only,
+        include_sub=True,
+    )
+    # Batch-resolve owning-admin + parent-broker names (no N+1).
+    ref_ids = {b.assigned_admin_id for b in rows if b.assigned_admin_id}
+    ref_ids |= {b.assigned_broker_id for b in rows if b.assigned_broker_id}
+    name_map: dict[str, str] = {}
+    if ref_ids:
+        refs = await User.find({"_id": {"$in": list(ref_ids)}}).to_list()
+        name_map = {str(u.id): (u.full_name or u.user_code or "—") for u in refs}
+
+    items: list[dict] = []
+    for b in rows:
+        d = (await _ser_broker(b)).model_dump()
+        d["is_sub"] = bool(b.assigned_broker_id)
+        d["assigned_admin_name"] = (
+            name_map.get(str(b.assigned_admin_id)) if b.assigned_admin_id else None
+        )
+        d["parent_broker_name"] = (
+            name_map.get(str(b.assigned_broker_id)) if b.assigned_broker_id else None
+        )
+        items.append(d)
+
     return APIResponse(
         data={
             "items": items,

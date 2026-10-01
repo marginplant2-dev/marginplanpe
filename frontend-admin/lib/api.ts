@@ -248,7 +248,13 @@ export const DashboardAPI = {
 export const UsersAPI = {
   list: (params?: any) => unwrap<{ items: any[]; meta: any }>(api.get("/admin/users", { params })),
   // Download the WHOLE Users list (current filters + scope) as one .xlsx.
-  exportExcel: async (params?: { q?: string; status?: string; mode?: string }): Promise<Blob> => {
+  exportExcel: async (params?: {
+    q?: string;
+    status?: string;
+    mode?: string;
+    assigned_admin_id?: string;
+    broker_id?: string;
+  }): Promise<Blob> => {
     const res = await api.get("/admin/users/export", { params, responseType: "blob" });
     return res.data;
   },
@@ -889,8 +895,12 @@ export const BrokerMgmtAPI = {
 
   // Broker CRUD (admin/super-admin creates; broker can create sub-broker
   // when broker_permissions.sub_brokers == EDIT)
-  list: (params?: { q?: string; status?: string; page?: number; page_size?: number; include_sub?: boolean }) =>
+  list: (params?: { q?: string; status?: string; page?: number; page_size?: number; include_sub?: boolean; admin_id?: string }) =>
     unwrap<{ items: any[]; meta: any }>(api.get("/admin/management/brokers", { params })),
+  // Super-admin only: EVERY broker across every admin pool (Sub-Brokers section).
+  // sub_only=true → only true sub-brokers (a broker under another broker).
+  listAll: (params?: { q?: string; status?: string; sub_only?: boolean; page?: number; page_size?: number }) =>
+    unwrap<{ items: any[]; meta: any }>(api.get("/admin/management/brokers/all", { params })),
   get: (id: string) => unwrap<any>(api.get(`/admin/management/brokers/${id}`)),
   create: (body: {
     full_name: string;

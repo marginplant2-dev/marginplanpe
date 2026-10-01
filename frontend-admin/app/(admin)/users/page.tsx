@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Plus, Search, TrendingDown, TrendingUp } from "lucide-react";
-import { UsersAPI } from "@/lib/api";
+import { UsersAPI, BrokerMgmtAPI, ManagementAPI } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -51,10 +51,35 @@ type LiveStat = {
 
 export default function AdminUsersPage() {
   const me = useAdminAuthStore((s) => s.admin);
+  const isSuperAdmin = me?.role === "SUPER_ADMIN";
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string>("");
   const [mode, setMode] = useState<"live" | "demo">("live");
+  // Owner drill-down: super-admin picks an Admin then that admin's Broker;
+  // a regular admin picks one of their own brokers. broker wins over admin.
+  const [adminId, setAdminId] = useState<string>("");
+  const [brokerId, setBrokerId] = useState<string>("");
   const [page, setPage] = useState(1);
+
+  // Dropdown sources. Admins list is super-admin only. Brokers list is scoped
+  // by the chosen admin for super-admin (so the Broker dropdown shows that
+  // admin's brokers + sub-brokers); a regular admin always sees their own.
+  const adminOptionsQuery = useQuery({
+    queryKey: ["admin", "users", "admin-options"],
+    queryFn: () => ManagementAPI.listSubAdmins({ page_size: 200 }),
+    enabled: isSuperAdmin,
+  });
+  const brokerOptionsQuery = useQuery({
+    queryKey: ["admin", "users", "broker-options", adminId],
+    queryFn: () =>
+      BrokerMgmtAPI.list({
+        include_sub: true,
+        page_size: 200,
+        ...(isSuperAdmin && adminId ? { admin_id: adminId } : {}),
+      }),
+    // Super-admin must pick an admin first; a regular admin can always list.
+    enabled: isSuperAdmin ? !!adminId : true,
+  });
   const [ledgerUser, setLedgerUser] = useState<any | null>(null);
   const [statsUser, setStatsUser] = useState<any | null>(null);
   const [downloading, setDownloading] = useState(false);
@@ -67,6 +92,8 @@ export default function AdminUsersPage() {
         q: q || undefined,
         status: status || undefined,
         mode,
+        assigned_admin_id: isSuperAdmin ? adminId || undefined : undefined,
+        broker_id: brokerId || undefined,
       });
       const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "");
       downloadBlob(blob, `users_${mode}_${stamp}.xlsx`);
@@ -79,7 +106,7 @@ export default function AdminUsersPage() {
   const pageSize = 20;
 
   const { data, isFetching } = useQuery({
-    queryKey: ["admin", "users", { q, status, mode, page, pageSize }],
+    queryKey: ["admin", "users", { q, status, mode, page, pageSize, adminId, brokerId }],
     queryFn: () =>
       UsersAPI.list({
         q: q || undefined,
@@ -87,6 +114,8 @@ export default function AdminUsersPage() {
         mode,
         page,
         page_size: pageSize,
+        assigned_admin_id: isSuperAdmin ? adminId || undefined : undefined,
+        broker_id: brokerId || undefined,
       }),
   });
 
@@ -358,6 +387,46 @@ export default function AdminUsersPage() {
           <option value="PENDING">Pending</option>
           <option value="BLOCKED">Blocked</option>
           <option value="CLOSED">Closed</option>
+        </select>
+
+        {/* Owner drill-down. Super-admin: pick an Admin → then that admin's
+            Broker/Sub-broker. Regular admin: pick one of their own brokers. */}
+        {isSuperAdmin && (
+          <select
+            value={adminId}
+            onChange={(e) => {
+              setPage(1);
+              setAdminId(e.target.value);
+              setBrokerId(""); // reset broker when the admin changes
+            }}
+            className="h-10 rounded-md border border-border bg-background px-3 text-sm"
+            title="Filter by admin"
+          >
+            <option value="">All admins</option>
+            {(adminOptionsQuery.data?.items ?? []).map((a: any) => (
+              <option key={a.id} value={a.id}>
+                {a.full_name || a.email} ({a.user_code})
+              </option>
+            ))}
+          </select>
+        )}
+        <select
+          value={brokerId}
+          onChange={(e) => {
+            setPage(1);
+            setBrokerId(e.target.value);
+          }}
+          disabled={isSuperAdmin && !adminId}
+          className="h-10 rounded-md border border-border bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+          title={isSuperAdmin && !adminId ? "Pick an admin first" : "Filter by broker / sub-broker"}
+        >
+          <option value="">All brokers</option>
+          {(brokerOptionsQuery.data?.items ?? []).map((b: any) => (
+            <option key={b.id} value={b.id}>
+              {b.full_name || b.email} ({b.user_code})
+              {b.assigned_broker_id ? " · Sub-broker" : ""}
+            </option>
+          ))}
         </select>
         {!isDemo && <LiveBadge fetching={liveStatsQuery.isFetching} />}
       </div>
