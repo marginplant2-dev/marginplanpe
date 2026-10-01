@@ -909,7 +909,10 @@ function InstrumentRow({
           // without clipping; single-button rows still sit flush on the
           // right edge. Opaque bg so the delete button stays hidden until
           // the row is swiped.
-          "relative z-[1] grid w-full cursor-pointer grid-cols-[1fr_auto_auto] items-center gap-3 px-3 py-2.5 text-xs",
+          // minmax(0,1fr) (not 1fr) so the symbol column can shrink below its
+          // content width — otherwise a long unbreakable F&O symbol
+          // (CONCOR26OCTFUT) blows the track out and overlaps the price.
+          "relative z-[1] grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2.5 text-xs",
           isActive ? "bg-primary/10" : "bg-background hover:bg-muted/30",
         )}
       >
@@ -925,7 +928,7 @@ function InstrumentRow({
         <div className="flex min-w-0 flex-col items-start leading-tight">
         <span
           className={cn(
-            "truncate text-[15px] font-bold tracking-tight",
+            "max-w-full truncate text-[13px] font-bold tracking-tight",
             isActive && "text-primary",
           )}
         >
