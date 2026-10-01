@@ -20,7 +20,7 @@ from app.core.dependencies import (
 from app.core.exceptions import ValidationFailedError
 from app.models.user import UserRole
 from app.schemas.common import APIResponse
-from app.services import ip_block_service
+from app.services import geo_block_service, ip_block_service
 
 router = APIRouter(prefix="/ip-block", tags=["admin-ip-block"])
 
@@ -81,4 +81,57 @@ async def remove_blocked(
     _: None = Depends(require_admin_permission("ip_blocking")),
 ):
     ok = await ip_block_service.remove(await _scope_admin_id(admin), ip)
+    return APIResponse(data={"removed": ok})
+
+
+# ── Location-radius ("block within N km") — super-admin / global only ───────
+# IP geolocation is city-level & approximate; enforced only on the platform
+# (global) list by the whole-site gate, so keep it super-admin only.
+class AddGeoBody(BaseModel):
+    ip: str | None = None          # geolocated to a centre, OR pass lat/lon
+    lat: float | None = None
+    lon: float | None = None
+    radius_km: float = 15.0
+    reason: str | None = None
+
+
+@router.get("/geo", response_model=APIResponse[dict])
+async def list_geo_blocks(_: SuperAdmin):
+    return APIResponse(
+        data={
+            "enabled": geo_block_service.geo_enabled(),
+            "items": await geo_block_service.list_for_admin(None),
+        }
+    )
+
+
+@router.post("/geo", response_model=APIResponse[dict])
+async def add_geo_block(body: AddGeoBody, admin: SuperAdmin):
+    try:
+        row = await geo_block_service.add(
+            admin_id=None,
+            ip=body.ip,
+            lat=body.lat,
+            lon=body.lon,
+            radius_km=body.radius_km,
+            reason=body.reason,
+            created_by=admin.id,
+            created_by_name=admin.full_name or admin.email,
+        )
+    except ValueError as e:
+        raise ValidationFailedError(str(e)) from e
+    return APIResponse(
+        data={
+            "id": str(row.id),
+            "center_lat": row.center_lat,
+            "center_lon": row.center_lon,
+            "radius_km": row.radius_km,
+            "label": row.label,
+        }
+    )
+
+
+@router.delete("/geo", response_model=APIResponse[dict])
+async def remove_geo_block(_: SuperAdmin, id: str = Query(...)):
+    ok = await geo_block_service.remove(None, id)
     return APIResponse(data={"removed": ok})

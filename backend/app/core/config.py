@@ -199,6 +199,12 @@ class Settings(BaseSettings):
     LOGO_PROXY_ENABLED: bool = True
     LOGO_CACHE_DIR: str = ""
 
+    # ── GeoIP (location-radius blocking) ─────────────────────────────
+    # Path to a MaxMind/DB-IP City .mmdb. Empty or missing file → geo
+    # blocking is silently disabled (IP blocklist still works). DB-IP City
+    # Lite is free + needs no key; refresh monthly. City-level accuracy only.
+    GEOIP_DB_PATH: str = "data/dbip-city-lite.mmdb"
+
     # ── Rate limit ───────────────────────────────────────────────────
     RATE_LIMIT_AUTH_PER_MIN: int = 5
     RATE_LIMIT_DEFAULT_PER_MIN: int = 100

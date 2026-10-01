@@ -1413,10 +1413,11 @@ async def global_ip_block_gate(request: Request, call_next):
         and not path.startswith("/api/v1/admin")
     ):
         try:
-            from app.services import ip_block_service
+            from app.services import geo_block_service, ip_block_service
             from app.utils.net import client_ip
 
-            if await ip_block_service.is_globally_blocked(client_ip(request)):
+            _ip = client_ip(request)
+            if await ip_block_service.is_globally_blocked(_ip) or await geo_block_service.is_geo_blocked(_ip):
                 from fastapi.responses import JSONResponse
 
                 return JSONResponse(

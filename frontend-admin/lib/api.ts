@@ -486,6 +486,30 @@ export const IpBlockAPI = {
     unwrap<{ removed: boolean }>(api.delete("/admin/ip-block", { params: { ip } })),
 };
 
+export type GeoBlock = {
+  id: string;
+  center_lat: number;
+  center_lon: number;
+  radius_km: number;
+  label: string | null;
+  reason: string | null;
+  created_by_name: string | null;
+  created_at: string | null;
+};
+
+// Location-radius blocking (super-admin, global). IP geolocation is city-level
+// & approximate — surfaced in the UI.
+export const GeoBlockAPI = {
+  list: () =>
+    unwrap<{ enabled: boolean; items: GeoBlock[] }>(api.get("/admin/ip-block/geo")),
+  add: (body: { ip?: string; lat?: number; lon?: number; radius_km: number; reason?: string }) =>
+    unwrap<{ id: string; center_lat: number; center_lon: number; radius_km: number; label: string | null }>(
+      api.post("/admin/ip-block/geo", body),
+    ),
+  remove: (id: string) =>
+    unwrap<{ removed: boolean }>(api.delete("/admin/ip-block/geo", { params: { id } })),
+};
+
 // Per-admin / super-admin public-registration toggle.
 export const RegistrationAPI = {
   status: () => unwrap<{ enabled: boolean }>(api.get("/admin/dashboard/registration-status")),

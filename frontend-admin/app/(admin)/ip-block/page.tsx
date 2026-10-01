@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Trash2, Globe, ShieldAlert } from "lucide-react";
-import { IpBlockAPI, type BlockedIp } from "@/lib/api";
+import { Ban, Trash2, Globe, ShieldAlert, MapPin } from "lucide-react";
+import { IpBlockAPI, GeoBlockAPI, type BlockedIp, type GeoBlock } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -73,6 +73,40 @@ export default function IpBlockPage() {
   const removeMut = useMutation({
     mutationFn: (ip: string) => IpBlockAPI.remove(ip),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["ip-block"] }),
+  });
+
+  // ── Location-radius blocking (super-admin, global) ──────────────────
+  const [geoIp, setGeoIp] = useState("");
+  const [geoRadius, setGeoRadius] = useState("15");
+  const [geoReason, setGeoReason] = useState("");
+  const [geoErr, setGeoErr] = useState<string | null>(null);
+
+  const { data: geo } = useQuery({
+    queryKey: ["ip-block", "geo"],
+    queryFn: GeoBlockAPI.list,
+    enabled: allowed && superAdmin,
+    refetchInterval: 30_000,
+  });
+
+  const geoAddMut = useMutation({
+    mutationFn: () =>
+      GeoBlockAPI.add({
+        ip: geoIp.trim(),
+        radius_km: Number(geoRadius) || 15,
+        reason: geoReason.trim() || undefined,
+      }),
+    onSuccess: () => {
+      setGeoIp("");
+      setGeoReason("");
+      setGeoErr(null);
+      qc.invalidateQueries({ queryKey: ["ip-block", "geo"] });
+    },
+    onError: (e: any) => setGeoErr(e?.message || "Could not add that location block"),
+  });
+
+  const geoRemoveMut = useMutation({
+    mutationFn: (id: string) => GeoBlockAPI.remove(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["ip-block", "geo"] }),
   });
 
   if (!allowed) {
@@ -171,6 +205,115 @@ export default function IpBlockPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Super-admin: location-radius ("block within N km") */}
+      {superAdmin && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="mb-3 flex items-center gap-2 text-sm">
+              <MapPin className="size-4 text-primary" />
+              <span className="font-semibold">Block by location (radius)</span>
+              <span className="text-muted-foreground">— platform-wide</span>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex-1">
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  IP in the area
+                </label>
+                <Input
+                  value={geoIp}
+                  onChange={(e) => setGeoIp(e.target.value)}
+                  placeholder="e.g. 106.78.2.68 — we take its location as the centre"
+                  className="h-9 font-tabular"
+                />
+              </div>
+              <div className="w-full sm:w-28">
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  Radius (km)
+                </label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={geoRadius}
+                  onChange={(e) => setGeoRadius(e.target.value)}
+                  className="h-9 font-tabular"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  Reason (optional)
+                </label>
+                <Input
+                  value={geoReason}
+                  onChange={(e) => setGeoReason(e.target.value)}
+                  placeholder="e.g. local abuse cluster"
+                  className="h-9"
+                />
+              </div>
+              <Button
+                onClick={() => geoAddMut.mutate()}
+                disabled={!geoIp.trim() || geoAddMut.isPending}
+                className="h-9 gap-1.5"
+              >
+                <MapPin className="size-4" /> Block area
+              </Button>
+            </div>
+
+            <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+              ⚠️ Approximate: this uses IP geolocation, which is city-level (~10–50&nbsp;km error,
+              worse on mobile/VPN) — NOT exact GPS. A small radius may miss real locals and catch
+              distant users. For a precise person, block their account instead.
+            </p>
+            {geo && !geo.enabled && (
+              <p className="mt-1 text-xs text-red-500">
+                GeoIP database not installed on the server — location blocks won&apos;t take effect
+                until it&apos;s set up.
+              </p>
+            )}
+            {geoErr && <p className="mt-2 text-sm text-red-500">{geoErr}</p>}
+
+            {/* List */}
+            <div className="mt-4">
+              <div className="mb-2 text-xs text-muted-foreground">
+                <span className="font-semibold tabular-nums text-foreground">
+                  {geo?.items?.length ?? 0}
+                </span>{" "}
+                location block{(geo?.items?.length ?? 0) === 1 ? "" : "s"}
+              </div>
+              {(geo?.items ?? []).map((g: GeoBlock) => (
+                <div
+                  key={g.id}
+                  className="mb-2 flex items-center justify-between gap-2 rounded-xl border border-border p-3"
+                >
+                  <div className="min-w-0">
+                    <div className="font-tabular text-sm font-medium">
+                      {g.label || `${g.center_lat.toFixed(4)}, ${g.center_lon.toFixed(4)}`}
+                      <span className="ml-2 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                        {g.radius_km} km
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {g.center_lat.toFixed(4)}, {g.center_lon.toFixed(4)}
+                      {g.reason ? ` · ${g.reason}` : ""} · {g.created_by_name || "—"} ·{" "}
+                      {fmt(g.created_at)}
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 shrink-0 gap-1 px-2 text-red-500"
+                    disabled={geoRemoveMut.isPending}
+                    onClick={() => geoRemoveMut.mutate(g.id)}
+                  >
+                    <Trash2 className="size-3.5" /> Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Super-admin: master list across all pools */}
       {superAdmin && all.length > 0 && (
