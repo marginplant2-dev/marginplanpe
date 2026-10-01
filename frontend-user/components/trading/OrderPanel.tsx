@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { cn, formatINR } from "@/lib/utils";
 import { playBuyTone, playSellTone } from "@/lib/trade-audio";
 import { isInstrumentMarketOpen, marketLabel } from "@/lib/marketHours";
+import { InstrumentIcon } from "./InstrumentIcon";
 
 interface Props {
   instrument: any;
@@ -1053,7 +1054,13 @@ export function OrderPanel({ instrument, ltp, bid, ask, open, high, low, close, 
   return (
     <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card">
       <div className="border-b border-border px-3 py-2">
-        <div className="flex items-baseline gap-2">
+        <div className="flex items-center gap-2">
+          <InstrumentIcon
+            symbol={instrument?.symbol ?? ""}
+            isCrypto={isCrypto}
+            isForex={isForex}
+            size={24}
+          />
           <div className="text-sm font-semibold">{instrument?.symbol ?? "—"} order</div>
           {instrument?.expiry && (
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">

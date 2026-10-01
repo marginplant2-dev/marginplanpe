@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import { InstrumentAPI, MarketwatchAPI, OrderAPI, PositionAPI } from "@/lib/api";
 import { useMarketStream } from "@/lib/useMarketStream";
+import { InstrumentIcon } from "@/components/trading/InstrumentIcon";
 import { OrderPanel } from "@/components/trading/OrderPanel";
 import { PositionsTabs } from "@/components/trading/PositionsTabs";
 import { TradingViewChart } from "@/components/trading/TradingViewChart";
@@ -461,6 +462,13 @@ export default function TradingTerminalPage() {
             >
               <ArrowLeft className="size-5" />
             </Link>
+            <InstrumentIcon
+              symbol={instrument?.symbol ?? ""}
+              isCrypto={/^CRYPTO/i.test(instrument?.segment || "")}
+              isForex={/^FOREX/i.test(instrument?.segment || "")}
+              changePct={quote?.change_pct ?? null}
+              size={30}
+            />
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <span className="truncate text-sm font-bold">
