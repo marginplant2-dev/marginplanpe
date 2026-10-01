@@ -22,6 +22,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from app import __version__
 from app.api.v1 import branding as branding_public
+from app.api.v1 import ip_gate as ip_gate_public
 from app.api.v1 import logo as logo_public
 from app.api.v1 import webhooks as webhooks_public
 from app.api.v1.admin import router as admin_router
@@ -1399,6 +1400,35 @@ async def request_id_middleware(request: Request, call_next):
 
 
 @app.middleware("http")
+async def global_ip_block_gate(request: Request, call_next):
+    """Platform-wide IP ban: an IP on the super-admin's GLOBAL blocklist can't
+    open the user site or hit any public/user API (not just fail login). The
+    admin surface (/api/v1/admin/*), /health and /metrics are exempt so a
+    super-admin can never lock themselves out of the panel and monitoring stays
+    up. Per-admin pool bans are still enforced at login + authed requests."""
+    path = request.url.path
+    if (
+        path != "/health"
+        and not path.startswith("/metrics")
+        and not path.startswith("/api/v1/admin")
+    ):
+        try:
+            from app.services import ip_block_service
+            from app.utils.net import client_ip
+
+            if await ip_block_service.is_globally_blocked(client_ip(request)):
+                from fastapi.responses import JSONResponse
+
+                return JSONResponse(
+                    status_code=403,
+                    content={"success": False, "data": None, "message": "Access blocked"},
+                )
+        except Exception:
+            pass  # a gate failure must never take the whole API down
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -1464,6 +1494,7 @@ app.include_router(admin_router, prefix="/api/v1")
 # at the v1 root so the path is /api/v1/branding/by-code/...
 app.include_router(branding_public.router, prefix="/api/v1")
 app.include_router(logo_public.router, prefix="/api/v1")
+app.include_router(ip_gate_public.router, prefix="/api/v1")
 app.include_router(webhooks_public.router, prefix="/api/v1")
 app.include_router(ws_router)
 

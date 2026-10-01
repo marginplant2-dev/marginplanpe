@@ -71,9 +71,65 @@ function isMarketingPath(path: string): boolean {
   return MARKETING_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
 }
 
-export function middleware(req: NextRequest) {
+// ── IP block gate ────────────────────────────────────────────────────
+// A banned IP (super-admin GLOBAL blocklist) must not even open the site —
+// login / register / landing included. We ask the backend (which resolves the
+// real client IP from the forwarded CF-Connecting-IP) on each full page load;
+// it answers from a ~20s in-memory cache so this is ~1ms. Fail OPEN if the
+// backend is unreachable so a backend hiccup never locks everyone out.
+//
+// IMPORTANT: call the backend INTERNALLY (127.0.0.1), NOT via the public URL —
+// if this server-to-server call went back through Cloudflare, CF would rewrite
+// CF-Connecting-IP to THIS server's IP and the backend would never see (or
+// block) the real visitor. Internally, the cf-connecting-ip header we forward
+// from the visitor's request is the one the backend reads.
+const IP_GATE_API = process.env.IP_GATE_API_URL || "http://127.0.0.1:8000";
+
+function blockedResponse(): NextResponse {
+  return new NextResponse(
+    '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Access blocked</title></head>' +
+      '<body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0a0a;color:#e5e5e5;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif">' +
+      '<div style="text-align:center;padding:24px;max-width:420px">' +
+      '<div style="font-size:48px;line-height:1;margin-bottom:16px">&#128683;</div>' +
+      '<h1 style="font-size:20px;margin:0 0 8px">Access blocked</h1>' +
+      '<p style="font-size:14px;color:#9ca3af;margin:0">Your network has been blocked from accessing this site. If you believe this is a mistake, please contact support.</p>' +
+      "</div></body></html>",
+    {
+      status: 403,
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+    },
+  );
+}
+
+async function isIpBlocked(req: NextRequest): Promise<boolean> {
+  if (!IP_GATE_API) return false;
+  const headers: Record<string, string> = {};
+  for (const h of ["cf-connecting-ip", "true-client-ip", "x-forwarded-for", "x-real-ip"]) {
+    const v = req.headers.get(h);
+    if (v) headers[h] = v;
+  }
+  try {
+    const res = await fetch(`${IP_GATE_API}/api/v1/ip-gate`, { headers, cache: "no-store" });
+    if (res.status === 403) return true; // global gate already rejected us
+    if (res.ok) {
+      const j = await res.json().catch(() => null);
+      return Boolean(j?.data?.blocked);
+    }
+  } catch {
+    // backend unreachable → fail open (don't lock everyone out)
+  }
+  return false;
+}
+
+export async function middleware(req: NextRequest) {
   const host = (req.headers.get("host") ?? "").toLowerCase().split(":")[0];
   const path = req.nextUrl.pathname;
+
+  // Hard IP gate first — a banned IP sees the block page for ANY page, before
+  // the login redirect or anything else.
+  if (await isIpBlocked(req)) {
+    return blockedResponse();
+  }
 
   // Branded tenant domains are login portals — the bare domain opens /login,
   // not the MarginPlant marketing site. Login / register / the app are untouched.

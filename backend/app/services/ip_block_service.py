@@ -17,6 +17,7 @@ subscriber prefix.
 from __future__ import annotations
 
 import ipaddress
+import time
 
 from beanie import PydanticObjectId
 
@@ -24,6 +25,56 @@ from app.models.blocked_ip import BlockedIP
 from app.models.user import User, UserRole
 
 _ADMIN_TIER = (UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.BROKER, UserRole.EMPLOYEE)
+
+# ── Global (platform / super-admin, admin_id=None) blocklist cache ──────────
+# Used by the whole-site request gate (FastAPI middleware + /ip-gate) so a
+# banned IP can't even open the site. This runs on EVERY request, so it must
+# not hit Mongo each time: cache the tiny platform list for a few seconds.
+_GLOBAL_TTL = 20.0
+_global_cache: tuple[float, set[str], list] | None = None  # (loaded_at, exact, nets)
+
+
+def _invalidate_global_cache() -> None:
+    global _global_cache
+    _global_cache = None
+
+
+async def _load_global() -> tuple[set[str], list]:
+    exact: set[str] = set()
+    nets: list = []
+    async for b in BlockedIP.find({"admin_id": None}):
+        if getattr(b, "is_cidr", False) or "/" in (b.ip or ""):
+            try:
+                nets.append(ipaddress.ip_network(b.ip, strict=False))
+            except ValueError:
+                continue
+        else:
+            exact.add(b.ip)
+    return exact, nets
+
+
+async def is_globally_blocked(ip: str) -> bool:
+    """True when `ip` is on the PLATFORM (super-admin, admin_id=None) blocklist —
+    exact match or inside a blocked CIDR. Cached ~20s. This is the list that
+    bans an IP from the WHOLE site (every pool), so a visitor can't even open
+    the login/register pages. Per-admin pool bans are enforced separately at
+    login + authenticated requests (is_ip_blocked_for_user)."""
+    global _global_cache
+    try:
+        addr = ipaddress.ip_address((ip or "").strip())
+    except ValueError:
+        return False
+    now = time.time()
+    if _global_cache is None or now - _global_cache[0] > _GLOBAL_TTL:
+        exact, nets = await _load_global()
+        _global_cache = (now, exact, nets)
+    _, exact, nets = _global_cache
+    if str(addr) in exact:
+        return True
+    for net in nets:
+        if addr.version == net.version and addr in net:
+            return True
+    return False
 
 
 def _canonical(raw: str) -> tuple[str, bool] | None:
@@ -123,6 +174,8 @@ async def add(
         created_by_name=created_by_name,
     )
     await row.insert()
+    if admin_id is None:
+        _invalidate_global_cache()  # platform ban takes effect immediately
     return row
 
 
@@ -134,6 +187,8 @@ async def remove(admin_id: PydanticObjectId | None, ip: str) -> bool:
     if row is None:
         return False
     await row.delete()
+    if admin_id is None:
+        _invalidate_global_cache()  # platform unban takes effect immediately
     return True
 
 
