@@ -8,6 +8,7 @@ import { InstrumentAPI } from "@/lib/api";
 import { useMarketStream } from "@/lib/useMarketStream";
 import { usePriceFlash } from "@/lib/usePriceFlash";
 import { cn } from "@/lib/utils";
+import { InstrumentIcon } from "./InstrumentIcon";
 
 // ─────────────────────────────────────────────────────────────────────
 // Dashboard "Top movers" — ranks a curated basket of NIFTY large-caps by
@@ -213,7 +214,9 @@ function MoverRow({ row }: { row: any }) {
         href={`/terminal?token=${row.token}`}
         className="flex items-center justify-between gap-2 rounded-lg px-1 py-1.5 transition-colors hover:bg-muted/40 active:bg-muted/60"
       >
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
+          <InstrumentIcon symbol={row.symbol} changePct={row.pct} size={26} />
+          <div className="min-w-0">
           <div className="truncate text-xs font-bold tracking-tight">{row.symbol}</div>
           <div
             className={cn(
@@ -227,6 +230,7 @@ function MoverRow({ row }: { row: any }) {
           >
             {"\u20B9"}
             {fmtPrice(row.ltp)}
+          </div>
           </div>
         </div>
         <span

@@ -8,6 +8,7 @@ import { InstrumentAPI, MarketwatchAPI, SegmentSettingsAPI } from "@/lib/api";
 import { useMarketStream } from "@/lib/useMarketStream";
 import { cn, formatPrice, pnlColor } from "@/lib/utils";
 import { AnimatedPrice } from "@/components/common/AnimatedPrice";
+import { InstrumentIcon } from "./InstrumentIcon";
 import { MobileOptionChain } from "@/components/trading/MobileOptionChain";
 
 interface Props {
@@ -912,8 +913,16 @@ function InstrumentRow({
           isActive ? "bg-primary/10" : "bg-background hover:bg-muted/30",
         )}
       >
-      {/* Bold symbol + change% (left, stacked) */}
-      <div className="flex min-w-0 flex-col items-start leading-tight">
+      {/* Logo + bold symbol + change% (left) */}
+      <div className="flex min-w-0 items-center gap-2">
+        <InstrumentIcon
+          symbol={symbol}
+          isCrypto={/^CRYPTO/i.test(segment || "")}
+          isForex={/^FOREX/i.test(segment || "")}
+          changePct={changePct}
+          size={28}
+        />
+        <div className="flex min-w-0 flex-col items-start leading-tight">
         <span
           className={cn(
             "truncate text-[15px] font-bold tracking-tight",
@@ -941,6 +950,7 @@ function InstrumentRow({
               {expiryLabel}
             </span>
           )}
+        </div>
         </div>
       </div>
 

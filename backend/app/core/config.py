@@ -190,6 +190,15 @@ class Settings(BaseSettings):
     # https://api.setupfx.com — Kite redirects the user's browser here.
     BACKEND_PUBLIC_URL: str = "http://localhost:8000"
 
+    # ── Instrument logo proxy ────────────────────────────────────────
+    # Serves company logos for instrument rows from our own origin
+    # (GET /api/v1/logo/{symbol}), proxying + caching two public CDNs.
+    # Kill-switch: flip off if a vendor misbehaves — rows fall back to
+    # initials, nothing breaks. Cache dir must survive deploys and be
+    # writable by the api/worker/beat processes; empty → a temp dir.
+    LOGO_PROXY_ENABLED: bool = True
+    LOGO_CACHE_DIR: str = ""
+
     # ── Rate limit ───────────────────────────────────────────────────
     RATE_LIMIT_AUTH_PER_MIN: int = 5
     RATE_LIMIT_DEFAULT_PER_MIN: int = 100

@@ -10,6 +10,7 @@ import { cn, formatPrice } from "@/lib/utils";
 import { useMarketStream } from "@/lib/useMarketStream";
 import { usePriceFlash } from "@/lib/usePriceFlash";
 import { AnimatedPrice } from "@/components/common/AnimatedPrice";
+import { InstrumentIcon } from "./InstrumentIcon";
 
 interface Props {
   onClose: () => void;
@@ -705,11 +706,19 @@ export function InstrumentsPanel({ onClose }: Props) {
               // badge) just take the natural 28-px slot.
               className="grid w-full cursor-pointer grid-cols-[1fr_auto_auto] items-center gap-3 border-b border-border/40 px-3 py-2.5 text-left text-xs transition-colors hover:bg-muted/30"
             >
-              {/* Symbol + change% + expiry (left side, stacked) */}
-              <div className="flex min-w-0 flex-col items-start leading-tight">
-                <span className="break-all font-semibold text-sm leading-snug">
-                  {q.symbol}
-                </span>
+              {/* Logo + symbol + change% + expiry (left side) */}
+              <div className="flex min-w-0 items-center gap-2">
+                <InstrumentIcon
+                  symbol={q.symbol}
+                  isCrypto={/^CRYPTO/i.test(q.segment || "")}
+                  isForex={/^FOREX/i.test(q.segment || "")}
+                  changePct={changePct != null ? Number(changePct) : null}
+                  size={28}
+                />
+                <div className="flex min-w-0 flex-col items-start leading-tight">
+                  <span className="break-all font-semibold text-sm leading-snug">
+                    {q.symbol}
+                  </span>
                 <div className="mt-0.5 flex items-baseline gap-1.5 text-[10px]">
                   {changePct != null ? (
                     <span
@@ -733,6 +742,7 @@ export function InstrumentsPanel({ onClose }: Props) {
                       Exp: {formatExpiry(q.expiry)}
                     </span>
                   )}
+                </div>
                 </div>
               </div>
 
