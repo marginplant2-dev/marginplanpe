@@ -1420,9 +1420,11 @@ async def global_ip_block_gate(request: Request, call_next):
             if await ip_block_service.is_globally_blocked(_ip) or await geo_block_service.is_geo_blocked(_ip):
                 from fastapi.responses import JSONResponse
 
+                # Neutral message — don't reveal the IP is blocked (the user
+                # app shows a fake "site can't be reached" page instead).
                 return JSONResponse(
                     status_code=403,
-                    content={"success": False, "data": None, "message": "Access blocked"},
+                    content={"success": False, "data": None, "message": "Service unavailable"},
                 )
         except Exception:
             pass  # a gate failure must never take the whole API down

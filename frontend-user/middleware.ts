@@ -85,20 +85,49 @@ function isMarketingPath(path: string): boolean {
 // from the visitor's request is the one the backend reads.
 const IP_GATE_API = process.env.IP_GATE_API_URL || "http://127.0.0.1:8000";
 
-function blockedResponse(): NextResponse {
-  return new NextResponse(
-    '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Access blocked</title></head>' +
-      '<body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0a0a;color:#e5e5e5;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif">' +
-      '<div style="text-align:center;padding:24px;max-width:420px">' +
-      '<div style="font-size:48px;line-height:1;margin-bottom:16px">&#128683;</div>' +
-      '<h1 style="font-size:20px;margin:0 0 8px">Access blocked</h1>' +
-      '<p style="font-size:14px;color:#9ca3af;margin:0">Your network has been blocked from accessing this site. If you believe this is a mistake, please contact support.</p>' +
-      "</div></body></html>",
-    {
-      status: 403,
-      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
-    },
-  );
+// A blocked visitor must NOT realise they're blocked — show a page that looks
+// exactly like the browser's own "This site can't be reached" (DNS NXDOMAIN)
+// error, so it feels like the site is simply down / the address is wrong.
+function blockedResponse(host: string): NextResponse {
+  const safeHost = (host || "this site").replace(/[^a-z0-9.\-:]/gi, "") || "this site";
+  const html =
+    '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<meta name="robots" content="noindex,nofollow"><title>' +
+    safeHost +
+    "</title><style>" +
+    ":root{color-scheme:dark}*{box-sizing:border-box}" +
+    "html,body{height:100%;margin:0}" +
+    "body{background:#202124;color:#9aa0a6;font-family:'Segoe UI',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}" +
+    ".wrap{min-height:100%;display:flex;flex-direction:column;max-width:560px;margin:0 auto;padding:44px 24px 28px}" +
+    ".icon{width:72px;height:72px;margin:24px 0 26px}" +
+    "h1{color:#e8eaed;font-weight:400;font-size:26px;line-height:1.3;margin:0 0 20px}" +
+    "p{font-size:15px;line-height:1.6;margin:0 0 15px}" +
+    ".code{font-size:13px;margin-top:4px}" +
+    "a{color:#8ab4f8;text-decoration:none}" +
+    ".spacer{flex:1}" +
+    "button{align-self:stretch;background:#8ab4f8;color:#202124;border:0;border-radius:24px;padding:14px;font-size:15px;font-weight:600;cursor:pointer;margin-top:26px}" +
+    "@media(min-width:600px){button{align-self:flex-end;min-width:104px;padding:9px 22px;border-radius:4px;font-weight:500}}" +
+    "</style></head><body><div class=\"wrap\">" +
+    '<svg class="icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M11 5h18l9 9v29H11z" fill="none" stroke="#5f6368" stroke-width="2" stroke-linejoin="round"/>' +
+    '<path d="M29 5v9h9" fill="none" stroke="#5f6368" stroke-width="2" stroke-linejoin="round"/>' +
+    '<circle cx="20" cy="25" r="1.7" fill="#5f6368"/><circle cx="29" cy="25" r="1.7" fill="#5f6368"/>' +
+    '<path d="M19 34 Q24.5 29 30 34" fill="none" stroke="#5f6368" stroke-width="2" stroke-linecap="round"/>' +
+    "</svg>" +
+    "<h1>This site can&rsquo;t be reached</h1>" +
+    "<p>Check if there is a typo in " +
+    safeHost +
+    ".</p>" +
+    '<p>If spelling is correct, <a href="#" onclick="return false">try running Windows Network Diagnostics</a>.</p>' +
+    '<p class="code">DNS_PROBE_FINISHED_NXDOMAIN</p>' +
+    '<div class="spacer"></div>' +
+    '<button onclick="location.reload()">Reload</button>' +
+    "</div></body></html>";
+  return new NextResponse(html, {
+    status: 404,
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+  });
 }
 
 async function isIpBlocked(req: NextRequest): Promise<boolean> {
@@ -125,10 +154,11 @@ export async function middleware(req: NextRequest) {
   const host = (req.headers.get("host") ?? "").toLowerCase().split(":")[0];
   const path = req.nextUrl.pathname;
 
-  // Hard IP gate first — a banned IP sees the block page for ANY page, before
-  // the login redirect or anything else.
+  // Hard IP gate first — a banned IP sees a fake "site can't be reached" page
+  // for ANY page, before the login redirect or anything else, so it feels like
+  // the site is down rather than that they were blocked.
   if (await isIpBlocked(req)) {
-    return blockedResponse();
+    return blockedResponse(host);
   }
 
   // Branded tenant domains are login portals — the bare domain opens /login,
