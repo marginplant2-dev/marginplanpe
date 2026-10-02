@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Users, CornerDownRight } from "lucide-react";
+import { Search, Users, CornerDownRight, ChevronLeft } from "lucide-react";
 import { BrokerMgmtAPI, TradingAPI } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -124,6 +124,10 @@ export default function SubBrokersPage() {
   // section for them.
   const [scope, setScope] = useState<"" | "sub">(isSuperAdmin ? "" : "sub");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Top filter: pick a broker → show only ITS sub-brokers. "" = all.
+  const [parentFilter, setParentFilter] = useState<string>("");
+  // Mobile master-detail: show the list, then the detail on tap (with a Back).
+  const [mobileDetail, setMobileDetail] = useState(false);
 
   const { data, isFetching } = useQuery({
     queryKey: ["admin", "sub-brokers", { q, scope, role: me?.role }],
@@ -164,18 +168,41 @@ export default function SubBrokersPage() {
   });
 
   const items: any[] = data?.items ?? [];
-  const total = data?.meta?.total ?? items.length;
 
-  // Auto-select the first broker when the list changes and nothing valid is picked.
-  useEffect(() => {
-    if (items.length === 0) {
-      setSelectedId(null);
-    } else if (!selectedId || !items.some((b) => b.id === selectedId)) {
-      setSelectedId(items[0].id);
+  // Parent-broker dropdown options — every broker that has at least one
+  // sub-broker in the list (id + name resolved from the subs themselves).
+  const parentOptions = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const b of items) {
+      if (b.is_sub && b.assigned_broker_id) {
+        m.set(String(b.assigned_broker_id), b.parent_broker_name || String(b.assigned_broker_id));
+      }
     }
-  }, [items, selectedId]);
+    return Array.from(m, ([id, name]) => ({ id, name })).sort((a, b) =>
+      String(a.name).localeCompare(String(b.name)),
+    );
+  }, [items]);
 
-  const selected = useMemo(() => items.find((b) => b.id === selectedId) ?? null, [items, selectedId]);
+  // Apply the top broker filter client-side.
+  const displayItems = useMemo(
+    () => (parentFilter ? items.filter((b) => String(b.assigned_broker_id) === parentFilter) : items),
+    [items, parentFilter],
+  );
+  const total = displayItems.length;
+
+  // Auto-select the first broker when the (filtered) list changes.
+  useEffect(() => {
+    if (displayItems.length === 0) {
+      setSelectedId(null);
+    } else if (!selectedId || !displayItems.some((b) => b.id === selectedId)) {
+      setSelectedId(displayItems[0].id);
+    }
+  }, [displayItems, selectedId]);
+
+  const selected = useMemo(
+    () => displayItems.find((b) => b.id === selectedId) ?? null,
+    [displayItems, selectedId],
+  );
 
   // Detail tabs — Profile / Overview / Clients, mirroring the Brokers page.
   const [tab, setTab] = useState<"profile" | "overview" | "clients">("profile");
@@ -235,8 +262,8 @@ export default function SubBrokersPage() {
       />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[340px_1fr]">
-        {/* ── Left: search + list ── */}
-        <div className="rounded-xl border border-border bg-card">
+        {/* ── Left: search + list ── (hidden on mobile once a broker is open) */}
+        <div className={cn("rounded-xl border border-border bg-card", mobileDetail && "hidden lg:block")}>
           <div className="space-y-2 border-b border-border p-3">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -247,6 +274,21 @@ export default function SubBrokersPage() {
                 className="pl-9"
               />
             </div>
+            {/* Top filter: pick a broker → only its sub-brokers. */}
+            {parentOptions.length > 0 && (
+              <select
+                value={parentFilter}
+                onChange={(e) => setParentFilter(e.target.value)}
+                className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm font-medium"
+              >
+                <option value="">All brokers' sub-brokers</option>
+                {parentOptions.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    Under {p.name}
+                  </option>
+                ))}
+              </select>
+            )}
             <select
               value={scope}
               onChange={(e) => setScope(e.target.value as "" | "sub")}
@@ -255,17 +297,20 @@ export default function SubBrokersPage() {
               <option value="">All brokers</option>
               <option value="sub">Sub-brokers only</option>
             </select>
-            <div className="text-xs text-muted-foreground">{items.length} shown</div>
+            <div className="text-xs text-muted-foreground">{displayItems.length} shown</div>
           </div>
 
           <div className="max-h-[70vh] overflow-y-auto p-2">
-            {items.map((b) => {
+            {displayItems.map((b) => {
               const active = b.id === selectedId;
               return (
                 <button
                   key={b.id}
                   type="button"
-                  onClick={() => setSelectedId(b.id)}
+                  onClick={() => {
+                    setSelectedId(b.id);
+                    setMobileDetail(true);
+                  }}
                   className={cn(
                     "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors",
                     active ? "bg-primary/10" : "hover:bg-muted/50",
@@ -302,20 +347,27 @@ export default function SubBrokersPage() {
                 </button>
               );
             })}
-            {!isFetching && items.length === 0 && (
-              <p className="py-8 text-center text-sm text-muted-foreground">No brokers found.</p>
+            {!isFetching && displayItems.length === 0 && (
+              <p className="py-8 text-center text-sm text-muted-foreground">No sub-brokers found.</p>
             )}
           </div>
         </div>
 
-        {/* ── Right: selected broker detail ── */}
-        <div className="rounded-xl border border-border bg-card">
+        {/* ── Right: selected broker detail ── (full screen on mobile) */}
+        <div className={cn("rounded-xl border border-border bg-card", !mobileDetail && "hidden lg:block")}>
           {!selected ? (
             <div className="flex h-full min-h-[300px] items-center justify-center text-sm text-muted-foreground">
               Select a broker to see details.
             </div>
           ) : (
             <div className="p-4 sm:p-6">
+              <button
+                type="button"
+                onClick={() => setMobileDetail(false)}
+                className="mb-3 inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground lg:hidden"
+              >
+                <ChevronLeft className="size-4" /> Back to list
+              </button>
               {/* Header */}
               <div className="flex flex-wrap items-center gap-3">
                 <h2 className="text-xl font-bold">{selected.full_name || selected.user_code}</h2>
