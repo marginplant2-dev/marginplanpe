@@ -118,10 +118,8 @@ export default function DashboardPage() {
       </header>
 
       {/* ── Hero portfolio card — mobile/tablet only ── */}
-      {/* Full-bleed: negative margins cancel the layout's p-4 / md:p-6 gutter
-          so the card touches both screen edges (no side gap). */}
       <section
-        className="relative -mx-4 !mt-2 overflow-hidden rounded-2xl px-[18px] pb-3 pt-[18px] text-white shadow-xl md:-mx-6 lg:hidden"
+        className="relative !mt-2 overflow-hidden rounded-2xl p-[18px] pb-3 text-white shadow-xl lg:hidden"
         style={{
           background: "linear-gradient(135deg,#2563EB,#1D4ED8,#1E40AF)",
           boxShadow: "0 10px 28px rgba(29,78,216,0.35)",
@@ -558,10 +556,10 @@ function QuickAction({
   const inner = (
     <>
       <div
-        className="grid size-11 place-items-center rounded-xl"
+        className="grid size-9 place-items-center rounded-lg"
         style={{ background: iconBg }}
       >
-        <Icon className="size-5" strokeWidth={2.25} style={{ color: iconColor }} />
+        <Icon className="size-[18px]" strokeWidth={2.25} style={{ color: iconColor }} />
       </div>
       <span>{label}</span>
     </>
