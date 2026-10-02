@@ -20,6 +20,7 @@ import {
   RefreshCw,
   IndianRupee,
   Users,
+  ChevronLeft,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -112,6 +113,29 @@ function fmtBrokerDate(v: unknown): string {
   });
 }
 
+const AVATAR_BG = [
+  "#2563EB", "#8B5CF6", "#10B981", "#F97316", "#EC4899", "#06B6D4", "#F59E0B", "#6366F1",
+];
+function BrokerAvatar({ name, id, size = 38 }: { name: string; id: string; size?: number }) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  const initials = (name || "?")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((p) => p[0])
+    .join("")
+    .toUpperCase();
+  return (
+    <span
+      className="grid shrink-0 place-items-center rounded-full font-bold text-white"
+      style={{ width: size, height: size, background: AVATAR_BG[h % AVATAR_BG.length], fontSize: size * 0.38 }}
+    >
+      {initials || "?"}
+    </span>
+  );
+}
+
 function DField({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="min-w-0">
@@ -158,6 +182,8 @@ export default function BrokersPage() {
   const [showNewPw, setShowNewPw] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tab, setTab] = useState<"profile" | "overview" | "clients">("profile");
+  // Mobile master-detail: show the list, then the detail on tap (with a Back).
+  const [mobileDetail, setMobileDetail] = useState(false);
 
   // Cap drives the form greying — only fetched once per session.
   const { data: capRes } = useQuery({
@@ -484,25 +510,29 @@ export default function BrokersPage() {
         }
       />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[340px_1fr]">
-        {/* ── Left: search + list ── */}
-        <div className="rounded-xl border border-border bg-card">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">
+        {/* ── Left: search + list ── (hidden on mobile once a broker is open) */}
+        <div
+          className={cn(
+            "overflow-hidden rounded-2xl border border-border bg-card shadow-sm",
+            mobileDetail && "hidden lg:block",
+          )}
+        >
           <div className="border-b border-border p-3">
-            <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Search {nounPlural.toLowerCase()}
-            </div>
-            <div className="relative mt-2">
+            <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Code, name, mobile, brokerage…"
-                className="pl-9"
+                placeholder="Search code, name, mobile…"
+                className="rounded-full pl-9"
               />
             </div>
-            <div className="mt-2 text-xs text-muted-foreground">{brokerItems.length} shown</div>
+            <div className="mt-2 px-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              {brokerItems.length} {nounPlural.toLowerCase()}
+            </div>
           </div>
-          <div className="max-h-[70vh] overflow-y-auto p-2">
+          <div className="max-h-[72vh] space-y-1 overflow-y-auto p-2">
             {isFetching && !data ? (
               <div className="py-8 text-center text-sm text-muted-foreground">Loading…</div>
             ) : brokerItems.length === 0 ? (
@@ -512,6 +542,7 @@ export default function BrokersPage() {
             ) : (
               brokerItems.map((b) => {
                 const isActive = b.id === selectedId;
+                const on = String(b.status).toUpperCase() === "ACTIVE";
                 return (
                   <button
                     key={b.id}
@@ -519,23 +550,27 @@ export default function BrokersPage() {
                     onClick={() => {
                       setSelectedId(b.id);
                       setTab("profile");
+                      setMobileDetail(true);
                     }}
                     className={cn(
-                      "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors",
-                      isActive ? "bg-primary/10" : "hover:bg-muted/50",
+                      "flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all",
+                      isActive
+                        ? "border-primary/30 bg-primary/10 shadow-sm"
+                        : "border-transparent hover:border-border hover:bg-muted/50",
                     )}
                   >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          className={cn(
-                            "size-1.5 shrink-0 rounded-full",
-                            String(b.status).toUpperCase() === "ACTIVE" ? "bg-emerald-500" : "bg-red-500",
-                          )}
-                        />
-                        <span className="truncate font-semibold">{b.full_name || b.user_code}</span>
-                      </div>
-                      <div className="truncate font-mono text-xs text-muted-foreground">{b.user_code}</div>
+                    <div className="relative">
+                      <BrokerAvatar name={b.full_name || b.user_code} id={b.id} />
+                      <span
+                        className={cn(
+                          "absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-card",
+                          on ? "bg-emerald-500" : "bg-red-500",
+                        )}
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-semibold">{b.full_name || b.user_code}</div>
+                      <div className="truncate font-mono text-[11px] text-muted-foreground">{b.user_code}</div>
                     </div>
                     <div className="shrink-0 text-right">
                       <div className="font-tabular text-sm font-bold tabular-nums">{b.user_count ?? 0}</div>
@@ -548,39 +583,69 @@ export default function BrokersPage() {
           </div>
         </div>
 
-        {/* ── Right: selected broker detail ── */}
-        <div className="rounded-xl border border-border bg-card">
+        {/* ── Right: selected broker detail ── (full screen on mobile) */}
+        <div
+          className={cn(
+            "overflow-hidden rounded-2xl border border-border bg-card shadow-sm",
+            !mobileDetail && "hidden lg:block",
+          )}
+        >
           {!selected ? (
-            <div className="flex h-full min-h-[300px] items-center justify-center text-sm text-muted-foreground">
+            <div className="flex h-full min-h-[320px] items-center justify-center text-sm text-muted-foreground">
               Select a {noun.toLowerCase()} to see details.
             </div>
           ) : (
-            <div className="p-4 sm:p-6">
-              {/* Header + actions */}
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-xl font-bold">{selected.full_name || selected.user_code}</h2>
+            <div>
+              {/* Banner header */}
+              <div className="border-b border-border bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-4 sm:p-6">
+                <button
+                  type="button"
+                  onClick={() => setMobileDetail(false)}
+                  className="mb-3 inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground lg:hidden"
+                >
+                  <ChevronLeft className="size-4" /> Back to list
+                </button>
+
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <BrokerAvatar name={selected.full_name || selected.user_code} id={selected.id} size={52} />
                     <span
-                      className={
-                        selected.status === "ACTIVE"
-                          ? "rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase text-emerald-600 dark:text-emerald-400"
-                          : "rounded-full bg-red-500/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase text-red-600 dark:text-red-400"
-                      }
-                    >
-                      {selected.status}
-                    </span>
+                      className={cn(
+                        "absolute -bottom-0.5 -right-0.5 size-3 rounded-full ring-2 ring-card",
+                        selected.status === "ACTIVE" ? "bg-emerald-500" : "bg-red-500",
+                      )}
+                    />
                   </div>
-                  <div className="mt-0.5 font-mono text-xs text-muted-foreground">{selected.user_code}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="truncate text-xl font-bold">{selected.full_name || selected.user_code}</h2>
+                      <span
+                        className={
+                          selected.status === "ACTIVE"
+                            ? "rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase text-emerald-600 dark:text-emerald-400"
+                            : "rounded-full bg-red-500/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase text-red-600 dark:text-red-400"
+                        }
+                      >
+                        {selected.status}
+                      </span>
+                    </div>
+                    <div className="font-mono text-xs text-muted-foreground">{selected.user_code}</div>
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button onClick={() => loginAs(selected)} disabled={loginAsId === selected.id}>
+
+                {/* Actions — a clean row under the identity, wraps on mobile */}
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <Button
+                    className="flex-1 sm:flex-none"
+                    onClick={() => loginAs(selected)}
+                    disabled={loginAsId === selected.id}
+                  >
                     <LogIn className="size-4" /> Login
                   </Button>
-                  <Button variant="outline" onClick={() => setEditing(selected)}>
-                    <IndianRupee className="size-4" /> Set brokerage
+                  <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => setEditing(selected)}>
+                    <IndianRupee className="size-4" /> Brokerage
                   </Button>
-                  <Button variant="outline" onClick={() => setEditing(selected)}>
+                  <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => setEditing(selected)}>
                     <Pencil className="size-4" /> Permissions
                   </Button>
                   <DropdownMenu>
@@ -635,6 +700,8 @@ export default function BrokersPage() {
                 </div>
               </div>
 
+              {/* Tabs + content */}
+              <div className="p-4 sm:p-6">
               {/* Tabs */}
               <div className="mt-4 flex gap-5 border-b border-border">
                 {(["profile", "overview", "clients"] as const).map((t) => (
@@ -810,6 +877,7 @@ export default function BrokersPage() {
                   </div>
                 </div>
               )}
+              </div>
             </div>
           )}
         </div>
