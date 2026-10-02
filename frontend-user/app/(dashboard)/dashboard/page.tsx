@@ -8,6 +8,7 @@ import {
   ArrowUpRight,
   Briefcase,
   ChevronRight,
+  Clock,
   Eye,
   EyeOff,
   Gift,
@@ -116,76 +117,109 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* ── Hero portfolio card (Upstox-style) — mobile/tablet only ── */}
-      <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-primary/80 p-5 text-primary-foreground shadow-lg shadow-primary/20 lg:hidden">
-        <div className="flex items-start justify-between">
-          <div className="space-y-0.5">
-            <div className="flex items-center gap-2 text-xs uppercase tracking-wider opacity-90">
-              <Wallet className="size-3.5" /> Portfolio value
-            </div>
-            <div className="flex items-baseline gap-3">
-              <h2 className="font-tabular text-3xl font-bold text-white md:text-4xl">
-                {hideBalance ? "₹ ••••••" : formatINR(portfolio)}
-              </h2>
-              <button
-                type="button"
-                onClick={() => setHideBalance((v) => !v)}
-                aria-label="Toggle balance visibility"
-                className="rounded-full p-1 opacity-80 transition hover:bg-white/15 hover:opacity-100"
-              >
-                {hideBalance ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-              </button>
-            </div>
-            <div
-              className={cn(
-                "mt-1 inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-xs font-semibold",
-                todayPnl >= 0 ? "text-buy" : "text-sell"
-              )}
-              style={{ color: todayPnl >= 0 ? "#7df0a4" : "#ffadb5" }}
+      {/* ── Hero portfolio card — mobile/tablet only ── */}
+      <section
+        className="relative overflow-hidden rounded-[18px] p-[18px] pb-28 text-white shadow-xl lg:hidden"
+        style={{
+          background: "linear-gradient(135deg,#2563EB,#1D4ED8,#1E40AF)",
+          boxShadow: "0 10px 28px rgba(29,78,216,0.35)",
+        }}
+      >
+        {/* Decorative 52-week-style trend chart */}
+        <svg
+          className="pointer-events-none absolute right-0 top-10 h-28 w-[52%] opacity-90"
+          viewBox="0 0 300 110"
+          preserveAspectRatio="none"
+          fill="none"
+        >
+          <defs>
+            <linearGradient id="pfLine" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stopColor="#38BDF8" />
+              <stop offset="1" stopColor="#67E8F9" />
+            </linearGradient>
+          </defs>
+          <path
+            d="M0 90 C25 90 30 80 50 78 C70 75 75 60 95 55 C115 50 120 65 140 62 C160 60 165 38 185 32 C205 26 215 42 232 38 C250 34 255 12 275 15 C288 17 292 28 300 20"
+            stroke="url(#pfLine)"
+            strokeWidth="3"
+            strokeLinecap="round"
+          />
+          <circle cx="275" cy="15" r="9" fill="none" stroke="#38BDF8" strokeWidth="2" opacity="0.5" />
+          <circle cx="275" cy="15" r="5" fill="#FFFFFF" />
+        </svg>
+
+        {/* Top row */}
+        <div className="relative flex items-start justify-between">
+          <div className="flex items-center gap-2">
+            <span className="grid size-6 place-items-center rounded-full bg-white/15">
+              <Clock className="size-3.5" style={{ color: "#DDEBFF" }} />
+            </span>
+            <span className="text-sm font-medium" style={{ color: "#DDEBFF" }}>
+              Total Portfolio Value
+            </span>
+            <button
+              type="button"
+              onClick={() => setHideBalance((v) => !v)}
+              aria-label="Toggle balance visibility"
+              className="opacity-85 transition hover:opacity-100"
+              style={{ color: "#DDEBFF" }}
             >
-              <TrendingUp className={cn("size-3", todayPnl < 0 && "rotate-180")} />
-              {hideBalance ? "•••" : `${todayPnl >= 0 ? "+" : ""}${formatINR(todayPnl)}`}
-              {!hideBalance && (
-                <span className="opacity-80">
-                  ({todayPct >= 0 ? "+" : ""}
-                  {todayPct.toFixed(2)}%)
-                </span>
-              )}
-              <span className="opacity-70">today</span>
-            </div>
-            {bonus > 0 && !hideBalance && (
-              <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold">
-                <Gift className="size-3" /> {formatINR(bonus)} bonus credit
-              </div>
-            )}
+              {hideBalance ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            </button>
           </div>
           <button
             onClick={() => setDepositOpen(true)}
-            className="hidden shrink-0 items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-xs font-semibold backdrop-blur transition hover:bg-white/25 sm:inline-flex"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-semibold"
           >
             <ArrowDownToLine className="size-3.5" /> Add funds
           </button>
         </div>
 
-        {/* Inline mini-stats — 2 columns (Available + Used margin).
-            Holdings P/L tile removed — every trade on this platform is
-            intraday / carry-forward, there's no separate delivery book. */}
-        <div className={cn("mt-5 grid divide-x divide-white/15 text-center text-xs", bonus > 0 ? "grid-cols-3" : "grid-cols-2")}>
-          <MiniStat
-            label="Available"
+        {/* Value */}
+        <h2
+          className="relative mt-2 font-tabular text-[34px] font-extrabold leading-tight"
+          style={{ letterSpacing: "-1px" }}
+        >
+          {hideBalance ? "₹ ••••••" : formatINR(portfolio)}
+        </h2>
+
+        {/* Profit badge */}
+        <div
+          className="relative mt-1 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold"
+          style={{ background: "rgba(16,185,129,0.82)" }}
+        >
+          <TrendingUp className={cn("size-3.5", todayPnl < 0 && "rotate-180")} style={{ color: "#5EEAD4" }} />
+          <span>
+            {hideBalance ? "•••" : `${todayPnl >= 0 ? "+" : ""}${formatINR(todayPnl)}`}
+            {!hideBalance && (
+              <span className="font-semibold opacity-90">
+                {" "}
+                ({todayPct >= 0 ? "+" : ""}
+                {todayPct.toFixed(2)}%)
+              </span>
+            )}
+          </span>
+          <span className="h-3.5 w-px bg-white/30" />
+          <span className="font-semibold">Today</span>
+        </div>
+
+        {/* Bottom stats bar */}
+        <div
+          className="absolute inset-x-3 bottom-2.5 flex items-center rounded-[15px] border py-2.5"
+          style={{ background: "rgba(30,64,175,0.45)", borderColor: "rgba(255,255,255,0.08)" }}
+        >
+          <PfStat label="Invested" value={hideBalance ? "•••" : formatINR(wallet.used_margin ?? 0)} />
+          <div className="mx-auto h-8 w-px bg-white/15" />
+          <PfStat
+            label="Total P&L"
+            value={hideBalance ? "•••" : `${todayPnl >= 0 ? "+ " : "- "}${formatINR(Math.abs(todayPnl))}`}
+            positive={todayPnl >= 0}
+          />
+          <div className="mx-auto h-8 w-px bg-white/15" />
+          <PfStat
+            label="Available Margin"
             value={hideBalance ? "•••" : formatINR(wallet.available_free ?? wallet.available_balance ?? 0)}
           />
-          <MiniStat
-            label="Used margin"
-            value={hideBalance ? "•••" : formatINR(wallet.used_margin ?? 0)}
-          />
-          {(bonus > 0 || bonusLocked > 0) && (
-            <MiniStat
-              label="Bonus credit"
-              value={hideBalance ? "•••" : formatINR(bonus)}
-              hint={bonusLocked > 0 ? `${formatINR(bonusLocked)} in use` : undefined}
-            />
-          )}
         </div>
       </section>
 
@@ -477,6 +511,23 @@ function MiniStat({ label, value, hint }: { label: string; value: string; hint?:
       <div className="text-[10px] uppercase tracking-wider opacity-75">{label}</div>
       <div className="mt-0.5 font-tabular text-sm font-semibold">{value}</div>
       {hint && <div className="text-[9px] opacity-70">{hint}</div>}
+    </div>
+  );
+}
+
+// Portfolio hero bottom-bar stat (white on the blue card).
+function PfStat({ label, value, positive }: { label: string; value: string; positive?: boolean }) {
+  return (
+    <div className="flex-1 px-1 text-center">
+      <div className="text-[10px] font-medium" style={{ color: "#BFD1FF" }}>
+        {label}
+      </div>
+      <div
+        className="mt-0.5 font-tabular text-[13px] font-extrabold"
+        style={{ color: positive ? "#22E6C3" : "#FFFFFF" }}
+      >
+        {value}
+      </div>
     </div>
   );
 }

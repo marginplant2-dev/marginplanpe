@@ -55,12 +55,13 @@ function fmtPrice(n: number): string {
   });
 }
 
-// Tiny intraday trend line per row (today's 5-min closes), colored up/down.
+// Tiny 52-week trend line per row (daily closes), colored up/down. Daily
+// history is available even when the market is shut, so every row gets a chart.
 function MiniSpark({ token, up }: { token: string; up: boolean }) {
   const { data } = useQuery<any[]>({
     queryKey: ["mkt-spark", token],
-    queryFn: () => InstrumentAPI.history(token, "5minute", 1),
-    staleTime: 5 * 60_000,
+    queryFn: () => InstrumentAPI.history(token, "day", 365),
+    staleTime: 30 * 60_000,
   });
   const closes = useMemo(
     () => (data ?? []).map((c: any) => Number(c?.close ?? 0)).filter((n) => n > 0),
