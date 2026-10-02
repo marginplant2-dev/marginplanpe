@@ -20,6 +20,7 @@ import { InstrumentAPI } from "@/lib/api";
 import { useMarketStream } from "@/lib/useMarketStream";
 import { usePriceFlash } from "@/lib/usePriceFlash";
 import { cn } from "@/lib/utils";
+import { InstrumentIcon } from "./InstrumentIcon";
 
 // ─────────────────────────────────────────────────────────────────────
 // Dashboard "Market overview" — a compact, live, color-coded snapshot of
@@ -57,10 +58,21 @@ function fmtPrice(n: number): string {
 // Curated dashboard watchlist — Indian indices + one large-cap + crypto +
 // gold. `q` is the search query, `match` the acceptable symbol(s) so we can
 // pick the cash/spot row over any F&O contract that shares the name.
-const WATCHLIST: { q: string; short: string; name: string; match: string[] }[] = [
+// `token` pins an instrument directly (skips the fuzzy search) — needed for
+// the BSE Sensex INDEX, whose name collides with "SENSEXIETF" / Sensex futures
+// in the search, so the resolver otherwise picks the ~₹80 ETF.
+const WATCHLIST: {
+  q: string;
+  short: string;
+  name: string;
+  match: string[];
+  token?: string;
+  exchange?: string;
+  segment?: string;
+}[] = [
   { q: "NIFTY 50", short: "NIFTY", name: "Nifty 50", match: ["NIFTY 50", "NIFTY"] },
   { q: "NIFTY BANK", short: "BANKNIFTY", name: "Bank Nifty", match: ["NIFTY BANK", "BANKNIFTY"] },
-  { q: "SENSEX", short: "SENSEX", name: "BSE Sensex", match: ["SENSEX"] },
+  { q: "SENSEX", short: "SENSEX", name: "BSE Sensex", match: ["SENSEX"], token: "265", exchange: "BSE", segment: "INDICES" },
   { q: "HDFCBANK", short: "HDFCBANK", name: "HDFC Bank", match: ["HDFCBANK"] },
   { q: "BTCUSD", short: "BTCUSD", name: "Bitcoin", match: ["BTCUSD", "BTCUSDT"] },
   { q: "XAUUSD", short: "GOLD", name: "Gold (XAU/USD)", match: ["XAUUSD", "GOLD"] },
@@ -97,6 +109,18 @@ export function MarketOverview({ className }: { className?: string }) {
     queryFn: async () => {
       const resolved = await Promise.all(
         WATCHLIST.map(async (w) => {
+          // Pinned token → use it directly, no fuzzy search.
+          if (w.token) {
+            return {
+              token: w.token,
+              symbol: w.short,
+              name: w.name,
+              exchange: w.exchange,
+              segment: w.segment,
+              _short: w.short,
+              _name: w.name,
+            };
+          }
           try {
             const hits = await InstrumentAPI.search(w.q, undefined, undefined, 12);
             const pick = pickBestMatch(hits ?? [], w.match);
@@ -222,19 +246,20 @@ function MarketRow({
   const up = pct >= 0;
   const hasQuote = ltp > 0;
 
-  const { bg, fg } = PALETTE[index % PALETTE.length];
-  const Icon = ICONS[index % ICONS.length];
-
   return (
     <li>
       <Link
         href={`/terminal?token=${item.token}`}
         className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/40 active:bg-muted/60"
       >
-        {/* Accent icon tile */}
-        <div className={cn("grid size-10 shrink-0 place-items-center rounded-xl", bg, fg)}>
-          <Icon className="size-5" strokeWidth={2.25} />
-        </div>
+        {/* Real instrument logo (index / company / crypto / metal), degrading
+            to initials. `_short` is the clean symbol (NIFTY / SENSEX / GOLD …). */}
+        <InstrumentIcon
+          symbol={item._short ?? item.symbol}
+          isCrypto={/^CRYPTO/i.test(item.segment || "")}
+          isForex={/^FOREX/i.test(item.segment || "")}
+          size={40}
+        />
 
         {/* Symbol + name */}
         <div className="min-w-0 flex-1">
