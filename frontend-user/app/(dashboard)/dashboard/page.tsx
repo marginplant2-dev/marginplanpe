@@ -118,8 +118,10 @@ export default function DashboardPage() {
       </header>
 
       {/* ── Hero portfolio card — mobile/tablet only ── */}
+      {/* Full-bleed: negative margins cancel the layout's p-4 / md:p-6 gutter
+          so the card touches both screen edges (no side gap). */}
       <section
-        className="relative overflow-hidden rounded-[18px] p-[18px] text-white shadow-xl lg:hidden"
+        className="relative -mx-4 overflow-hidden rounded-2xl px-[18px] pb-3 pt-[18px] text-white shadow-xl md:-mx-6 lg:hidden"
         style={{
           background: "linear-gradient(135deg,#2563EB,#1D4ED8,#1E40AF)",
           boxShadow: "0 10px 28px rgba(29,78,216,0.35)",
@@ -207,7 +209,7 @@ export default function DashboardPage() {
             as tall as its content; the old absolute bar forced a big pb-28 and
             left ~30% dead space below. */}
         <div
-          className="relative mt-3.5 flex items-center rounded-[14px] border py-2"
+          className="relative mt-2.5 flex items-center rounded-[14px] border py-1.5"
           style={{ background: "rgba(30,64,175,0.45)", borderColor: "rgba(255,255,255,0.08)" }}
         >
           <PfStat label="Invested" value={hideBalance ? "•••" : formatINR(wallet.used_margin ?? 0)} />
