@@ -142,7 +142,7 @@ export function MobileIndexStrip() {
 
   return (
     <div className="flex min-w-0 flex-1 items-center">
-      <div className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
+      <div className="flex min-w-0 flex-1 items-center justify-between gap-2 overflow-hidden pr-2">
         {items.map((it) => {
           const { ltp, pct } = resolveQuote(quoteByToken.get(String(it.token)));
           const up = pct >= 0;
@@ -150,19 +150,19 @@ export function MobileIndexStrip() {
             <Link
               key={it.token}
               href={`/terminal?token=${it.token}`}
-              className="flex min-w-0 flex-col leading-none"
+              className="flex min-w-0 flex-col leading-tight"
             >
-              <span className="truncate text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <span className="truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 {it._short}
               </span>
-              <span className="mt-0.5 flex items-baseline gap-1">
-                <span className="font-tabular text-[13px] font-bold tabular-nums">
+              <span className="flex items-baseline gap-1.5">
+                <span className="font-tabular text-[16px] font-bold tabular-nums">
                   {ltp > 0 ? fmt(ltp) : "—"}
                 </span>
                 {ltp > 0 && (
                   <span
                     className={cn(
-                      "font-tabular text-[10px] font-semibold tabular-nums",
+                      "font-tabular text-[11px] font-semibold tabular-nums",
                       up ? "text-emerald-500" : "text-red-500",
                     )}
                   >
