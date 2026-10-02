@@ -1462,6 +1462,90 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
                   <Row label="Est. Order Value" value={formatINR(orderValue)} last />
                 </div>
               </div>
+
+              {/* ── Market depth (5-level) — real Zerodha MODE_FULL book.
+                  Only rendered when the feed actually carries depth (Indian
+                  Kite-backed instruments); Infoway forex/crypto have none, so
+                  the section is hidden rather than showing a row of zeros. */}
+              {(() => {
+                const bids: any[] = Array.isArray(quote?.depth?.bids) ? quote!.depth.bids : [];
+                const asks: any[] = Array.isArray(quote?.depth?.asks) ? quote!.depth.asks : [];
+                const hasDepth =
+                  bids.some((b) => Number(b?.qty) > 0) || asks.some((a) => Number(a?.qty) > 0);
+                if (!hasDepth) return null;
+                const totBid = bids.reduce((s, b) => s + (Number(b?.qty) || 0), 0);
+                const totAsk = asks.reduce((s, a) => s + (Number(a?.qty) || 0), 0);
+                const qn = (n: number) => n.toLocaleString("en-IN");
+                return (
+                  <div className="mt-3 overflow-hidden rounded-xl border border-border">
+                    <div className="grid grid-cols-6 bg-muted/40 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      <span>Bid</span>
+                      <span className="text-right">Orders</span>
+                      <span className="text-right">Qty</span>
+                      <span>Offer</span>
+                      <span className="text-right">Orders</span>
+                      <span className="text-right">Qty</span>
+                    </div>
+                    <div className="px-3 py-1.5">
+                      {Array.from({ length: 5 }).map((_, i) => {
+                        const b = bids[i];
+                        const a = asks[i];
+                        return (
+                          <div
+                            key={i}
+                            className="grid grid-cols-6 py-0.5 font-tabular text-[12px] tabular-nums"
+                          >
+                            <span className="text-buy">{b ? Number(b.price).toFixed(2) : "0.00"}</span>
+                            <span className="text-right text-muted-foreground">{b?.orders ?? 0}</span>
+                            <span className="text-right">{b ? qn(Number(b.qty)) : 0}</span>
+                            <span className="text-sell">{a ? Number(a.price).toFixed(2) : "0.00"}</span>
+                            <span className="text-right text-muted-foreground">{a?.orders ?? 0}</span>
+                            <span className="text-right">{a ? qn(Number(a.qty)) : 0}</span>
+                          </div>
+                        );
+                      })}
+                      <div className="mt-1 grid grid-cols-6 border-t border-border pt-1 font-tabular text-[12px] font-bold tabular-nums">
+                        <span className="text-buy">Total</span>
+                        <span />
+                        <span className="text-right text-buy">{qn(totBid)}</span>
+                        <span className="text-sell">Total</span>
+                        <span />
+                        <span className="text-right text-sell">{qn(totAsk)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Day's range — Low … High with a marker at the live price. */}
+              {(() => {
+                const lo = Number(quote?.low ?? 0);
+                const hi = Number(quote?.high ?? 0);
+                if (!(lo > 0 && hi > 0 && hi >= lo)) return null;
+                const span = hi - lo || 1;
+                const pct = Math.max(0, Math.min(100, ((ltp - lo) / span) * 100));
+                return (
+                  <div className="mt-3 rounded-xl border border-border px-3.5 py-3">
+                    <div className="mb-2 text-xs font-semibold text-foreground">Day&apos;s range</div>
+                    <div className="flex items-end justify-between">
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Low</div>
+                        <div className="font-tabular text-[13px] font-bold tabular-nums text-sell">{fmtPrice(lo)}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">High</div>
+                        <div className="font-tabular text-[13px] font-bold tabular-nums text-buy">{fmtPrice(hi)}</div>
+                      </div>
+                    </div>
+                    <div className="relative mt-2.5 h-1.5 rounded-full bg-gradient-to-r from-sell/50 via-muted to-buy/50">
+                      <span
+                        className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background bg-foreground shadow"
+                        style={{ left: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           );
         })()}
