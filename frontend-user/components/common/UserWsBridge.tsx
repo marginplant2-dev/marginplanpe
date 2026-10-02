@@ -295,6 +295,12 @@ export function UserWsBridge() {
             // Admin opened our chat — refetch so our ticks turn blue.
             qc.invalidateQueries({ queryKey: ["support", "chat"] });
             break;
+          case "support_deleted":
+          case "support_blocked":
+            // A message was deleted for everyone, or the admin blocked/unblocked
+            // us — refresh silently (no toast/ping).
+            qc.invalidateQueries({ queryKey: ["support", "chat"] });
+            break;
           case "marketwatch":
             // Cross-tab / cross-device sync: when this user adds /
             // removes an instrument on web, the apk (or another web

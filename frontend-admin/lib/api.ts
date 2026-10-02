@@ -1412,6 +1412,7 @@ export type SupportChatMessage = {
   attachment_name: string | null;
   read_at: string | null;
   created_at: string | null;
+  deleted?: boolean;
 };
 
 export type SupportChatThread = {
@@ -1425,6 +1426,7 @@ export type SupportChatThread = {
   last_sender: "USER" | "ADMIN" | null;
   unread_for_user: number;
   unread_for_admin: number;
+  blocked?: boolean;
 };
 
 export type SupportChatCandidate = {
@@ -1471,6 +1473,14 @@ export const SupportChatAPI = {
     ),
   markRead: (userId: string) =>
     unwrap<{ marked: number }>(api.post(`/admin/support/chat/${userId}/read`, {})),
+  deleteMessage: (userId: string, id: string, scope: "me" | "everyone") =>
+    unwrap<{ deleted: boolean }>(
+      api.delete(`/admin/support/chat/${userId}/messages/${id}`, { params: { scope } }),
+    ),
+  blockUser: (userId: string) =>
+    unwrap<{ blocked: boolean }>(api.post(`/admin/support/chat/${userId}/block`, {})),
+  unblockUser: (userId: string) =>
+    unwrap<{ blocked: boolean }>(api.post(`/admin/support/chat/${userId}/unblock`, {})),
   upload: (file: File) => {
     const fd = new FormData();
     fd.append("file", file);

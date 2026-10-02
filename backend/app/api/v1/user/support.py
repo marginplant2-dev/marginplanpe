@@ -271,7 +271,12 @@ async def _messages_page(
     rows = (
         await SupportMessage.find(q).sort("-created_at").limit(limit).to_list()
     )
-    return [_chat.serialise_message(m) for m in reversed(rows)]
+    out: list[dict[str, Any]] = []
+    for m in reversed(rows):
+        d = _chat.serialise_message(m, SupportSender.USER)
+        if d is not None:  # None = this user deleted it just for themselves
+            out.append(d)
+    return out
 
 
 @router.get("/chat", response_model=APIResponse[dict])
@@ -313,9 +318,32 @@ async def send_my_chat(payload: ChatSendPayload, user: CurrentUser):
             attachment_url=payload.attachment_url,
             attachment_name=payload.attachment_name,
         )
+    except _chat.ChatBlockedError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return APIResponse(data=_chat.serialise_message(msg))
+
+
+@router.delete("/chat/messages/{msg_id}", response_model=APIResponse[dict])
+async def delete_my_chat_message(
+    msg_id: str,
+    user: CurrentUser,
+    scope: str = Query(default="me", pattern="^(me|everyone)$"),
+):
+    """Delete one of the user's own messages. scope=me hides it just for them;
+    scope=everyone (own messages only) blanks it for both sides."""
+    from beanie import PydanticObjectId
+
+    try:
+        ok = await _chat.delete_message(
+            user.id, PydanticObjectId(msg_id), SupportSender.USER, scope
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid message id") from e
+    return APIResponse(data={"deleted": ok})
 
 
 @router.post("/chat/read", response_model=APIResponse[dict])

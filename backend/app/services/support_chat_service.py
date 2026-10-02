@@ -103,6 +103,11 @@ async def send(
 
     thread = await get_or_create_thread(user)
 
+    # A blocked user can't send; the admin side still can (to unblock-and-reply
+    # context, and so support can leave a closing note).
+    if sender == SupportSender.USER and getattr(thread, "blocked", False):
+        raise ChatBlockedError("You have been blocked from this chat.")
+
     msg = SupportMessage(
         thread_id=thread.id,
         user_id=user.id,
@@ -267,17 +272,27 @@ async def mark_read(user_id: PydanticObjectId, reader: SupportSender) -> int:
     return flipped
 
 
-def serialise_message(m: SupportMessage) -> dict[str, Any]:
+def serialise_message(
+    m: SupportMessage, viewer: SupportSender | None = None
+) -> dict[str, Any] | None:
+    """Serialise one bubble for `viewer`. Returns None when the viewer deleted
+    it just for themselves ("delete for me") so the caller drops it. A
+    "delete for everyone" message is kept but blanked + flagged `deleted` so
+    both sides render the "This message was deleted" tombstone."""
+    if viewer is not None and viewer.value in (m.deleted_for or []):
+        return None
+    deleted = bool(m.deleted_for_everyone)
     return {
         "id": str(m.id),
         "sender": m.sender.value,
         "sender_id": str(m.sender_id) if m.sender_id else None,
         "sender_name": m.sender_name,
-        "body": m.body,
-        "attachment_url": m.attachment_url,
-        "attachment_name": m.attachment_name,
+        "body": "" if deleted else m.body,
+        "attachment_url": None if deleted else m.attachment_url,
+        "attachment_name": None if deleted else m.attachment_name,
         "read_at": m.read_at.isoformat() if m.read_at else None,
         "created_at": m.created_at.isoformat() if m.created_at else None,
+        "deleted": deleted,
     }
 
 
@@ -293,4 +308,66 @@ def serialise_thread(t: SupportThread) -> dict[str, Any]:
         "last_sender": t.last_sender.value if t.last_sender else None,
         "unread_for_user": t.unread_for_user,
         "unread_for_admin": t.unread_for_admin,
+        "blocked": bool(getattr(t, "blocked", False)),
     }
+
+
+class ChatBlockedError(Exception):
+    """Raised when a blocked user tries to send a support message."""
+
+
+async def delete_message(
+    user_id: PydanticObjectId,
+    msg_id: PydanticObjectId,
+    requester: SupportSender,
+    scope: str,
+) -> bool:
+    """Soft-delete a bubble. scope="everyone" (own message only) blanks it for
+    both sides; scope="me" hides it only for the requester. Returns False if
+    the message isn't found / not in this thread."""
+    msg = await SupportMessage.get(msg_id)
+    if msg is None or msg.user_id != user_id:
+        return False
+    if scope == "everyone":
+        if msg.sender != requester:
+            raise ValueError("You can only delete your own message for everyone.")
+        msg.deleted_for_everyone = True
+        await msg.save()
+        # Both sides must re-render the tombstone.
+        await _publish_support_event("support_deleted", user_id, {"message_id": str(msg.id)})
+    else:  # "me"
+        if requester.value not in (msg.deleted_for or []):
+            msg.deleted_for = [*(msg.deleted_for or []), requester.value]
+            await msg.save()
+        # Only the requester's side changes — no cross-side publish needed.
+    return True
+
+
+async def set_thread_blocked(user_id: PydanticObjectId, blocked: bool) -> bool:
+    """Admin blocks/unblocks a user from the support chat. Returns False when
+    no thread exists yet."""
+    thread = await SupportThread.find_one(SupportThread.user_id == user_id)
+    if thread is None:
+        return False
+    thread.blocked = bool(blocked)
+    await thread.save()
+    await _publish_support_event("support_blocked", user_id, {"blocked": thread.blocked})
+    return True
+
+
+async def _publish_support_event(
+    event_type: str, user_id: PydanticObjectId, extra: dict[str, Any]
+) -> None:
+    """Push a lightweight refresh event to both sides (query invalidation only,
+    no toast). Swallows failures — the DB write already succeeded."""
+    payload = {"type": event_type, "user_id": str(user_id), **extra}
+    try:
+        await publish(f"user:{user_id}:support", payload)
+    except Exception:  # pragma: no cover
+        logger.exception("support_event_user_publish_failed user=%s", user_id)
+    try:
+        from app.services.admin_events import publish_admin_event
+
+        await publish_admin_event(event_type, payload)
+    except Exception:  # pragma: no cover
+        logger.exception("support_event_admin_publish_failed user=%s", user_id)

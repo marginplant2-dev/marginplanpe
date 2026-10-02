@@ -319,6 +319,17 @@ export function AdminWsBridge() {
               });
             }
             break;
+          case "support_deleted":
+          case "support_blocked":
+            // A bubble was deleted for everyone, or a block state changed —
+            // refresh the open conversation + the thread list silently.
+            if (msg.user_id) {
+              qc.invalidateQueries({
+                queryKey: ["support-chat", "messages", String(msg.user_id)],
+              });
+            }
+            qc.invalidateQueries({ queryKey: ["support-chat", "threads"] });
+            break;
           // hello / heartbeat — ignore
         }
       };

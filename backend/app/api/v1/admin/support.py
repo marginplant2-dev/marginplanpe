@@ -590,10 +590,15 @@ async def get_user_chat(
         except ValueError:
             pass
     rows = await SupportMessage.find(q).sort("-created_at").limit(limit).to_list()
+    messages: list[dict[str, Any]] = []
+    for m in reversed(rows):
+        d = _chat.serialise_message(m, SupportSender.ADMIN)
+        if d is not None:  # None = admin deleted it just for their side
+            messages.append(d)
     return APIResponse(
         data={
             "thread": _chat.serialise_thread(thread),
-            "messages": [_chat.serialise_message(m) for m in reversed(rows)],
+            "messages": messages,
             "can_reply": _can_reply(admin),
         }
     )
@@ -627,6 +632,65 @@ async def send_user_chat(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return APIResponse(data=_chat.serialise_message(msg))
+
+
+@router.delete("/chat/{user_id}/messages/{msg_id}", response_model=APIResponse[dict])
+async def delete_user_chat_message(
+    user_id: str,
+    msg_id: str,
+    admin: CurrentAdmin,
+    scope: str = Query(default="me", pattern="^(me|everyone)$"),
+    _: None = Depends(require_perm("support", "write")),
+):
+    """Delete a bubble. scope=me hides it on the admin side; scope=everyone
+    (admin's own messages only) blanks it for both sides."""
+    try:
+        uid = PydanticObjectId(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid user id") from e
+    await _user_in_scope(admin, uid)
+    try:
+        ok = await _chat.delete_message(
+            uid, PydanticObjectId(msg_id), SupportSender.ADMIN, scope
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid message id") from e
+    return APIResponse(data={"deleted": ok})
+
+
+@router.post("/chat/{user_id}/block", response_model=APIResponse[dict])
+async def block_user_chat(
+    user_id: str,
+    admin: CurrentAdmin,
+    _: None = Depends(require_perm("support", "write")),
+):
+    """Block the user from the support chat (they can no longer send). Admin
+    can still view the thread and unblock."""
+    try:
+        uid = PydanticObjectId(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid user id") from e
+    await _user_in_scope(admin, uid)
+    ok = await _chat.set_thread_blocked(uid, True)
+    return APIResponse(data={"blocked": ok})
+
+
+@router.post("/chat/{user_id}/unblock", response_model=APIResponse[dict])
+async def unblock_user_chat(
+    user_id: str,
+    admin: CurrentAdmin,
+    _: None = Depends(require_perm("support", "write")),
+):
+    """Lift a support-chat block — the user can message again."""
+    try:
+        uid = PydanticObjectId(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid user id") from e
+    await _user_in_scope(admin, uid)
+    await _chat.set_thread_blocked(uid, False)
+    return APIResponse(data={"blocked": False})
 
 
 @router.post("/chat/{user_id}/read", response_model=APIResponse[dict])

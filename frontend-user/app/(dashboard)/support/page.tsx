@@ -101,6 +101,32 @@ export default function SupportChatPage() {
     },
   });
 
+  const deleteMut = useMutation({
+    mutationFn: (v: { id: string; scope: "me" | "everyone" }) =>
+      SupportChatAPI.deleteMessage(v.id, v.scope),
+    onMutate: (v) => {
+      qc.setQueryData(["support", "chat"], (old: any) => {
+        if (!old) return old;
+        if (v.scope === "me") {
+          return { ...old, messages: old.messages.filter((m: any) => m.id !== v.id) };
+        }
+        return {
+          ...old,
+          messages: old.messages.map((m: any) =>
+            m.id === v.id
+              ? { ...m, deleted: true, body: "", attachment_url: null, attachment_name: null }
+              : m,
+          ),
+        };
+      });
+    },
+    onError: (e: any) => {
+      toast.error(e?.message || "Could not delete");
+      qc.invalidateQueries({ queryKey: ["support", "chat"] });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["support", "chat"] }),
+  });
+
   async function pickFile(f: File | undefined) {
     if (!f) return;
     setUploading(true);
@@ -264,6 +290,11 @@ export default function SupportChatPage() {
                     // never the operator's personal name / role ("Super Admin",
                     // "Broker"). The user should only ever see the brand answering.
                     senderLabel={!mine && tail ? supportName : null}
+                    onDelete={
+                      m.id.startsWith("temp-")
+                        ? undefined
+                        : (id, scope) => deleteMut.mutate({ id, scope })
+                    }
                   />
                 </div>
               );

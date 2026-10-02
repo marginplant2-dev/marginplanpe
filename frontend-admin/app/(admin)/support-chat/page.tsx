@@ -5,12 +5,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   ArrowLeft,
+  Ban,
   Loader2,
   MessageSquarePlus,
   MessagesSquare,
   Paperclip,
   Search,
   SendHorizonal,
+  ShieldCheck,
   X,
 } from "lucide-react";
 import {
@@ -122,6 +124,45 @@ export default function AdminSupportChatPage() {
       if (vars.attachment) setPending((p) => p || vars.attachment);
       toast.error(e?.message || "Could not send");
     },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (v: { id: string; scope: "me" | "everyone" }) =>
+      SupportChatAPI.deleteMessage(activeUserId as string, v.id, v.scope),
+    onMutate: (v) => {
+      qc.setQueryData(["support-chat", "messages", activeUserId], (old: any) => {
+        if (!old) return old;
+        if (v.scope === "me") {
+          return { ...old, messages: old.messages.filter((m: any) => m.id !== v.id) };
+        }
+        return {
+          ...old,
+          messages: old.messages.map((m: any) =>
+            m.id === v.id
+              ? { ...m, deleted: true, body: "", attachment_url: null, attachment_name: null }
+              : m,
+          ),
+        };
+      });
+    },
+    onError: (e: any) => {
+      toast.error(e?.message || "Could not delete");
+      qc.invalidateQueries({ queryKey: ["support-chat", "messages", activeUserId] });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["support-chat", "messages", activeUserId] }),
+  });
+
+  const blockMut = useMutation({
+    mutationFn: (block: boolean) =>
+      block
+        ? SupportChatAPI.blockUser(activeUserId as string)
+        : SupportChatAPI.unblockUser(activeUserId as string),
+    onSuccess: (_d, block) => {
+      toast.success(block ? "User blocked from chat" : "User unblocked");
+      qc.invalidateQueries({ queryKey: ["support-chat", "messages", activeUserId] });
+      qc.invalidateQueries({ queryKey: ["support-chat", "threads"] });
+    },
+    onError: (e: any) => toast.error(e?.message || "Action failed"),
   });
 
   async function pickFile(f: File | undefined) {
@@ -430,12 +471,42 @@ export default function AdminSupportChatPage() {
                 <div className="min-w-0">
                   <p className={cn("truncate text-[16px] leading-[22px]", WA.text)}>
                     {activeName}
+                    {activeThread?.blocked && (
+                      <span className="ml-2 rounded bg-red-500/15 px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">
+                        Blocked
+                      </span>
+                    )}
                   </p>
                   <p className={cn("truncate text-[12.5px] leading-[16px]", WA.sub)}>
                     {activeThread?.user_code}
                     {activeThread?.user_email ? ` · ${activeThread.user_email}` : ""}
                   </p>
                 </div>
+
+                {/* Block / unblock the user from the chat (write perm only). */}
+                {canReply && (
+                  <button
+                    type="button"
+                    onClick={() => blockMut.mutate(!activeThread?.blocked)}
+                    disabled={blockMut.isPending}
+                    className={cn(
+                      "ml-auto flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12.5px] font-medium transition-colors disabled:opacity-50",
+                      activeThread?.blocked
+                        ? "border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400"
+                        : "border-red-500/40 text-red-600 hover:bg-red-500/10 dark:text-red-400",
+                    )}
+                  >
+                    {activeThread?.blocked ? (
+                      <>
+                        <ShieldCheck className="h-4 w-4" /> Unblock
+                      </>
+                    ) : (
+                      <>
+                        <Ban className="h-4 w-4" /> Block
+                      </>
+                    )}
+                  </button>
+                )}
               </header>
 
               <div className="wa-paper wa-scroll min-h-0 flex-1 overflow-y-auto py-3">
@@ -468,6 +539,11 @@ export default function AdminSupportChatPage() {
                           // Which operator replied — only worth showing on the
                           // first bubble of their run, and only on our side.
                           senderLabel={mine && tail ? m.sender_name || null : null}
+                          onDelete={
+                            !canReply || m.id.startsWith("temp-")
+                              ? undefined
+                              : (id, scope) => deleteMut.mutate({ id, scope })
+                          }
                         />
                       </div>
                     );

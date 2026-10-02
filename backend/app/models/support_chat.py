@@ -64,6 +64,10 @@ class SupportThread(TimestampMixin):
     unread_for_user: int = 0
     unread_for_admin: int = 0
 
+    # Chat-level block (WhatsApp "block"): when True the USER can't send new
+    # messages (admin can still view + unblock). Does NOT ban the account.
+    blocked: bool = False
+
     class Settings:
         name = "support_threads"
         indexes = [
@@ -108,6 +112,12 @@ class SupportMessage(TimestampMixin):
     attachment_name: str | None = None
 
     read_at: datetime | None = None
+
+    # Soft delete. `deleted_for_everyone` blanks the bubble for BOTH sides
+    # (sender-only action, like WhatsApp). `deleted_for` lists the sides that
+    # hid it just for themselves ("delete for me").
+    deleted_for_everyone: bool = False
+    deleted_for: list[str] = Field(default_factory=list)  # SupportSender values
 
     class Settings:
         name = "support_messages"

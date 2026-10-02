@@ -17,7 +17,8 @@
  * The wallpaper doodle is our own generic SVG, not WhatsApp artwork.
  */
 
-import { Check, CheckCheck, Paperclip } from "lucide-react";
+import { useState } from "react";
+import { Ban, Check, CheckCheck, ChevronDown, Paperclip, Trash2 } from "lucide-react";
 import { API_URL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
@@ -228,6 +229,8 @@ export type WaMessage = {
   read_at: string | null;
   created_at: string | null;
   sender_name?: string;
+  /** Soft-deleted "for everyone" — render the tombstone instead of content. */
+  deleted?: boolean;
 };
 
 export function WaBubble({
@@ -235,6 +238,7 @@ export function WaBubble({
   mine,
   tail,
   senderLabel,
+  onDelete,
 }: {
   m: WaMessage;
   /** Right-aligned green bubble. Which SIDE is "mine" differs between the
@@ -245,11 +249,33 @@ export function WaBubble({
   tail: boolean;
   /** Shown above the text on grouped/multi-operator threads. */
   senderLabel?: string | null;
+  /** Delete handler — enables the per-bubble menu. "everyone" is offered only
+   *  on the viewer's own messages (like WhatsApp); "me" on any message. */
+  onDelete?: (id: string, scope: "me" | "everyone") => void;
 }) {
+  const [menu, setMenu] = useState(false);
   const hasImage = isImage(m.attachment_name, m.attachment_url);
   const hasAudio = isAudio(m.attachment_name, m.attachment_url);
+
+  // Tombstone for a "deleted for everyone" message — no content, no menu.
+  if (m.deleted) {
+    return (
+      <div className={cn("flex px-[3%] py-[1px]", mine ? "justify-end" : "justify-start")}>
+        <div
+          className={cn(
+            "flex max-w-[85%] items-center gap-1.5 rounded-[7.5px] px-[9px] py-[6px] text-[13.5px] italic leading-[19px] text-[#667781] shadow-[0_1px_.5px_rgba(11,20,26,.13)] dark:text-[#8696a0] sm:max-w-[65%]",
+            mine ? "bg-[#d9fdd3] dark:bg-[#005c4b]" : "bg-white dark:bg-[#202c33]",
+          )}
+        >
+          <Ban className="h-[15px] w-[15px] shrink-0" />
+          This message was deleted
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={cn("flex px-[3%] py-[1px]", mine ? "justify-end" : "justify-start")}>
+    <div className={cn("group flex px-[3%] py-[1px]", mine ? "justify-end" : "justify-start")}>
       {/* Flex-wrap layout, NOT an absolutely-positioned stamp over a spacer.
           The spacer trick needs the reserved width to be at least as wide as
           the rendered time+ticks at every font and locale, and when it isn't
@@ -266,6 +292,50 @@ export function WaBubble({
           tail && (mine ? "rounded-tr-none" : "rounded-tl-none"),
         )}
       >
+        {/* Per-bubble delete menu trigger — subtle on mobile (tappable),
+            hover-reveal on desktop. */}
+        {onDelete && (
+          <>
+            <button
+              type="button"
+              aria-label="Message options"
+              onClick={() => setMenu((v) => !v)}
+              className="absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full text-[#667781] opacity-50 hover:bg-black/10 dark:text-[#8696a0] dark:hover:bg-white/10 sm:opacity-0 sm:group-hover:opacity-100"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+            {menu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setMenu(false)} />
+                <div className="absolute right-0 top-6 z-50 min-w-[172px] overflow-hidden rounded-lg border border-[#e9edef] bg-white py-1 text-[13.5px] text-[#111b21] shadow-lg dark:border-[#2a3942] dark:bg-[#233138] dark:text-[#e9edef]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenu(false);
+                      onDelete(m.id, "me");
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-black/5 dark:hover:bg-white/5"
+                  >
+                    <Trash2 className="h-4 w-4 shrink-0" /> Delete for me
+                  </button>
+                  {mine && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenu(false);
+                        onDelete(m.id, "everyone");
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-[#e11d48] hover:bg-black/5 dark:hover:bg-white/5"
+                    >
+                      <Trash2 className="h-4 w-4 shrink-0" /> Delete for everyone
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </>
+        )}
+
         {/* CSS-triangle tail. Colour is duplicated per side/theme because a
             border colour can't be inherited from the parent background. */}
         {tail && (
