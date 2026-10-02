@@ -16,11 +16,17 @@ import {
   KeyRound,
   CreditCard,
   Trash2,
+  Search,
+  RefreshCw,
+  IndianRupee,
+  Users,
 } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { BrokerMgmtAPI, ManagementAPI, setTokens } from "@/lib/api";
 import { useAdminAuthStore } from "@/stores/authStore";
 import { canSee } from "@/lib/permissions";
+import { cn, formatINR } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -90,6 +96,46 @@ function levelAllowed(cap: PermissionLevel, level: PermissionLevel): boolean {
   return LEVEL_ORDER[cap] >= LEVEL_ORDER[level];
 }
 
+function fmtBrokerDate(v: unknown): string {
+  if (!v) return "—";
+  const s = String(v);
+  const d = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : s + "Z");
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+function DField({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="mt-0.5 truncate font-semibold">{value ?? "—"}</div>
+    </div>
+  );
+}
+
+function PermChip({ label, level }: { label: string; level: string }) {
+  const lv = String(level || "OFF").toUpperCase();
+  const tone =
+    lv === "EDIT"
+      ? "border-emerald-500/20 bg-emerald-500/12 text-emerald-600 dark:text-emerald-400"
+      : lv === "VIEW"
+        ? "border-blue-500/20 bg-blue-500/12 text-blue-600 dark:text-blue-400"
+        : "border-border bg-muted text-muted-foreground";
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${tone}`}>
+      {label} · {lv}
+    </span>
+  );
+}
+
 export default function BrokersPage() {
   const qc = useQueryClient();
   const router = useRouter();
@@ -110,6 +156,8 @@ export default function BrokersPage() {
   const [resetPwTarget, setResetPwTarget] = useState<{ id: string; label: string } | null>(null);
   const [newPw, setNewPw] = useState("");
   const [showNewPw, setShowNewPw] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"profile" | "overview" | "clients">("profile");
 
   // Cap drives the form greying — only fetched once per session.
   const { data: capRes } = useQuery({
@@ -127,6 +175,28 @@ export default function BrokersPage() {
     // — the broker list query is cheap, no flake retries needed. If it
     // fails, fail fast and let the error surface to the toast.
     retry: false,
+  });
+
+  const brokerItems: any[] = data?.items ?? [];
+  useEffect(() => {
+    if (brokerItems.length === 0) setSelectedId(null);
+    else if (!selectedId || !brokerItems.some((b) => b.id === selectedId))
+      setSelectedId(brokerItems[0].id);
+  }, [brokerItems, selectedId]);
+  const selected = brokerItems.find((b) => b.id === selectedId) ?? null;
+  const activeCount = brokerItems.filter((b) => String(b.status).toUpperCase() === "ACTIVE").length;
+
+  // Overview tab — broker report (money + recent trades). Clients tab — the
+  // broker's subtree clients. Both lazy-load only when their tab is open.
+  const { data: report } = useQuery({
+    queryKey: ["admin", "broker-report", selectedId],
+    queryFn: () => BrokerMgmtAPI.report(selectedId as string),
+    enabled: !!selectedId && tab === "overview",
+  });
+  const { data: clients } = useQuery({
+    queryKey: ["admin", "broker-clients", selectedId],
+    queryFn: () => BrokerMgmtAPI.listSubtreeUsers(selectedId as string, { page: 1, page_size: 100 }),
+    enabled: !!selectedId && tab === "clients",
   });
 
   // Super-admin only: load sub-admins so the create-broker form can
@@ -393,77 +463,356 @@ export default function BrokersPage() {
     <div className="space-y-4">
       <PageHeader
         title={nounPlural}
+        description={`Search the list, select a ${noun.toLowerCase()} — details open on the right.`}
         actions={
-          <div className="flex items-center gap-2">
-            <Input
-              placeholder="Search…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              className="h-10 w-56"
-            />
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-muted px-3 py-1.5 text-sm font-medium text-muted-foreground">
+              {activeCount}/{brokerItems.length} active
+            </span>
             {canCreate && (
               <Button onClick={() => setCreating(true)}>
-                <Plus className="size-4" /> New {noun.toLowerCase()}
+                <Plus className="size-4" /> Add {noun.toLowerCase()}
               </Button>
             )}
+            <Button
+              variant="outline"
+              onClick={() => qc.invalidateQueries({ queryKey: ["admin", "brokers"] })}
+            >
+              <RefreshCw className="size-4" /> Refresh
+            </Button>
           </div>
         }
       />
 
-      {/* Desktop table */}
-      <div className="hidden md:block">
-        <DataTable
-          columns={cols}
-          rows={data?.items}
-          keyExtractor={(r) => r.id}
-          loading={isFetching && !data}
-          onRowClick={(r) => router.push(`/management/brokers/${r.id}`)}
-        />
-      </div>
-
-      {/* Mobile cards — same shape as the sub-admin / user cards */}
-      <div className="md:hidden">
-        {isFetching && !data ? (
-          <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
-        ) : (data?.items ?? []).length === 0 ? (
-          <div className="py-10 text-center text-sm text-muted-foreground">
-            No {nounPlural.toLowerCase()} yet.
-          </div>
-        ) : (
-          <ul className="space-y-2">
-            {(data?.items ?? []).map((r: any) => (
-              <BrokerMobileCard
-                key={r.id}
-                row={r}
-                noun={noun}
-                loginAsBusy={loginAsId === r.id}
-                onOpen={() => router.push(`/management/brokers/${r.id}`)}
-                onLoginAs={() => loginAs(r)}
-                onEdit={() => setEditing(r)}
-                onBlock={() => blockMut.mutate(r.id)}
-                onUnblock={() => unblockMut.mutate(r.id)}
-                onPaymentGateway={() =>
-                  brokerGwMut.mutate({ id: r.id, enabled: !r.payment_gateway_enabled })
-                }
-                onResetPw={() =>
-                  setResetPwTarget({
-                    id: r.id,
-                    label: r.full_name || r.user_code || "broker",
-                  })
-                }
-                onDelete={() => {
-                  if (
-                    confirm(
-                      `Permanently delete ${r.user_code}? Their users and sub-${noun.toLowerCase()}s move up to the parent.`,
-                    )
-                  ) {
-                    deleteMut.mutate(r.id);
-                  }
-                }}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[340px_1fr]">
+        {/* ── Left: search + list ── */}
+        <div className="rounded-xl border border-border bg-card">
+          <div className="border-b border-border p-3">
+            <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Search {nounPlural.toLowerCase()}
+            </div>
+            <div className="relative mt-2">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Code, name, mobile, brokerage…"
+                className="pl-9"
               />
-            ))}
-          </ul>
-        )}
+            </div>
+            <div className="mt-2 text-xs text-muted-foreground">{brokerItems.length} shown</div>
+          </div>
+          <div className="max-h-[70vh] overflow-y-auto p-2">
+            {isFetching && !data ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">Loading…</div>
+            ) : brokerItems.length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                No {nounPlural.toLowerCase()} yet.
+              </div>
+            ) : (
+              brokerItems.map((b) => {
+                const isActive = b.id === selectedId;
+                return (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedId(b.id);
+                      setTab("profile");
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors",
+                      isActive ? "bg-primary/10" : "hover:bg-muted/50",
+                    )}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={cn(
+                            "size-1.5 shrink-0 rounded-full",
+                            String(b.status).toUpperCase() === "ACTIVE" ? "bg-emerald-500" : "bg-red-500",
+                          )}
+                        />
+                        <span className="truncate font-semibold">{b.full_name || b.user_code}</span>
+                      </div>
+                      <div className="truncate font-mono text-xs text-muted-foreground">{b.user_code}</div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className="font-tabular text-sm font-bold tabular-nums">{b.user_count ?? 0}</div>
+                      <div className="text-[10px] text-muted-foreground">users</div>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* ── Right: selected broker detail ── */}
+        <div className="rounded-xl border border-border bg-card">
+          {!selected ? (
+            <div className="flex h-full min-h-[300px] items-center justify-center text-sm text-muted-foreground">
+              Select a {noun.toLowerCase()} to see details.
+            </div>
+          ) : (
+            <div className="p-4 sm:p-6">
+              {/* Header + actions */}
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-bold">{selected.full_name || selected.user_code}</h2>
+                    <span
+                      className={
+                        selected.status === "ACTIVE"
+                          ? "rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase text-emerald-600 dark:text-emerald-400"
+                          : "rounded-full bg-red-500/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase text-red-600 dark:text-red-400"
+                      }
+                    >
+                      {selected.status}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 font-mono text-xs text-muted-foreground">{selected.user_code}</div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button onClick={() => loginAs(selected)} disabled={loginAsId === selected.id}>
+                    <LogIn className="size-4" /> Login
+                  </Button>
+                  <Button variant="outline" onClick={() => setEditing(selected)}>
+                    <IndianRupee className="size-4" /> Set brokerage
+                  </Button>
+                  <Button variant="outline" onClick={() => setEditing(selected)}>
+                    <Pencil className="size-4" /> Permissions
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="icon" aria-label="More actions">
+                        <MoreVertical className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {selected.status === "ACTIVE" ? (
+                        <DropdownMenuItem onSelect={() => blockMut.mutate(selected.id)}>
+                          <ShieldOff className="size-4 text-red-500" /> Block
+                        </DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuItem onSelect={() => unblockMut.mutate(selected.id)}>
+                          <ShieldCheck className="size-4 text-emerald-500" /> Unblock
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          brokerGwMut.mutate({ id: selected.id, enabled: !selected.payment_gateway_enabled })
+                        }
+                      >
+                        <CreditCard
+                          className={`size-4 ${selected.payment_gateway_enabled ? "text-emerald-500" : "text-muted-foreground"}`}
+                        />
+                        {selected.payment_gateway_enabled ? "Online payment: ON" : "Online payment: OFF"}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          setResetPwTarget({ id: selected.id, label: selected.full_name || selected.user_code || "broker" })
+                        }
+                      >
+                        <KeyRound className="size-4" /> Reset password
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-red-500"
+                        onSelect={() => {
+                          if (
+                            confirm(
+                              `Permanently delete ${selected.user_code}? Their users and sub-${noun.toLowerCase()}s move up to the parent.`,
+                            )
+                          ) {
+                            deleteMut.mutate(selected.id);
+                          }
+                        }}
+                      >
+                        <Trash2 className="size-4 text-red-500" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </div>
+
+              {/* Tabs */}
+              <div className="mt-4 flex gap-5 border-b border-border">
+                {(["profile", "overview", "clients"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setTab(t)}
+                    className={cn(
+                      "-mb-px border-b-2 pb-2 text-sm font-medium capitalize transition-colors",
+                      tab === t
+                        ? "border-primary text-primary"
+                        : "border-transparent text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+
+              {/* ── Profile tab ── */}
+              {tab === "profile" && (
+                <div className="mt-4 space-y-4">
+                  <div className="rounded-xl border border-border p-4">
+                    <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Account Details
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
+                      <DField label="Code" value={selected.user_code} />
+                      <DField label="Name" value={selected.full_name} />
+                      <DField label="Email" value={selected.email} />
+                      <DField label="Mobile" value={selected.mobile} />
+                      <DField label="PnL share" value={`${selected.pnl_share_pct ?? "0"}%`} />
+                      <DField label="Brokerage share" value={`${selected.brokerage_share_pct ?? selected.pnl_share_pct ?? "0"}%`} />
+                      <DField label="Direct users" value={selected.user_count ?? 0} />
+                      <DField label="Subtree users" value={selected.subtree_user_count ?? selected.user_count ?? 0} />
+                      <DField label="Online payment" value={selected.payment_gateway_enabled ? "On" : "Off"} />
+                      <DField label="Created" value={fmtBrokerDate(selected.created_at)} />
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-border p-4">
+                    <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Permissions
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {PERMISSION_LABELS.map((p) => (
+                        <PermChip
+                          key={p.key}
+                          label={p.label}
+                          level={(selected.permissions && (selected.permissions as any)[p.key]) || "OFF"}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Overview tab ── */}
+              {tab === "overview" && (
+                <div className="mt-4 space-y-4">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Deposits</div>
+                      <div className="mt-1 font-tabular text-base font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
+                        {formatINR(Number(report?.money?.total_deposits ?? report?.total_deposits ?? 0))}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3">
+                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Withdrawals</div>
+                      <div className="mt-1 font-tabular text-base font-bold tabular-nums text-red-600 dark:text-red-400">
+                        {formatINR(Number(report?.money?.total_withdrawals ?? report?.total_withdrawals ?? 0))}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Brokerage</div>
+                      <div className="mt-1 font-tabular text-base font-bold tabular-nums text-primary">
+                        {formatINR(Number(report?.money?.total_brokerage ?? report?.total_brokerage ?? 0))}
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="mb-2 text-sm font-semibold">Recent trades (latest 10)</div>
+                    <div className="overflow-x-auto rounded-xl border border-border">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
+                            <th className="px-3 py-2 font-medium">When</th>
+                            <th className="px-3 py-2 font-medium">User</th>
+                            <th className="px-3 py-2 font-medium">Symbol</th>
+                            <th className="px-3 py-2 font-medium">Side</th>
+                            <th className="px-3 py-2 text-right font-medium">Qty</th>
+                            <th className="px-3 py-2 text-right font-medium">Price</th>
+                            <th className="px-3 py-2 text-right font-medium">Brokerage</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(report?.recent_trades ?? []).map((t: any, i: number) => (
+                            <tr key={i} className="border-b border-border/60">
+                              <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">{fmtBrokerDate(t.when ?? t.created_at)}</td>
+                              <td className="px-3 py-2 font-mono text-xs">{t.user_code ?? t.user ?? "—"}</td>
+                              <td className="px-3 py-2">{t.symbol}</td>
+                              <td className="px-3 py-2">
+                                <span className={t.side === "BUY" ? "font-semibold text-emerald-600 dark:text-emerald-400" : "font-semibold text-red-600 dark:text-red-400"}>
+                                  {t.side}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-right font-tabular tabular-nums">{t.quantity ?? t.qty}</td>
+                              <td className="px-3 py-2 text-right font-tabular tabular-nums">{t.price}</td>
+                              <td className="px-3 py-2 text-right font-tabular tabular-nums">{formatINR(Number(t.brokerage ?? 0))}</td>
+                            </tr>
+                          ))}
+                          {(report?.recent_trades ?? []).length === 0 && (
+                            <tr>
+                              <td colSpan={7} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                                No trades yet.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Clients tab ── */}
+              {tab === "clients" && (
+                <div className="mt-4">
+                  <div className="mb-2 text-sm text-muted-foreground">
+                    {clients?.items?.length ?? 0} clients under this {noun.toLowerCase()} (sub-brokers' clients included).
+                  </div>
+                  <div className="overflow-x-auto rounded-xl border border-border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
+                          <th className="px-3 py-2 font-medium">Code</th>
+                          <th className="px-3 py-2 font-medium">Name</th>
+                          <th className="px-3 py-2 font-medium">Mobile</th>
+                          <th className="px-3 py-2 font-medium">Role</th>
+                          <th className="px-3 py-2 font-medium">Status</th>
+                          <th className="px-3 py-2 font-medium">Joined</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(clients?.items ?? []).map((u: any) => (
+                          <tr
+                            key={u.id}
+                            className="cursor-pointer border-b border-border/60 hover:bg-muted/30"
+                            onClick={() => router.push(`/users/${u.id}`)}
+                          >
+                            <td className="px-3 py-2 font-mono text-xs">{u.user_code}</td>
+                            <td className="px-3 py-2">{u.full_name || "—"}</td>
+                            <td className="px-3 py-2">{u.mobile || "—"}</td>
+                            <td className="px-3 py-2">
+                              <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium">{u.role}</span>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className={String(u.status).toUpperCase() === "ACTIVE" ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}>
+                                {u.status}
+                              </span>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">{fmtBrokerDate(u.created_at)}</td>
+                          </tr>
+                        ))}
+                        {(clients?.items ?? []).length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                              No clients yet.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <CreateBrokerDialog
