@@ -38,6 +38,13 @@ const LOGO_SYMBOL_RE = /^[A-Z0-9&_-]{1,24}$/;
 // lands next in a virtualised/re-sorted row that React recycled.
 const failedLogos = new Set<string>();
 
+// Logos that have successfully loaded at least once this session. Persists
+// across component remounts (route changes, re-sorts), so when the user
+// navigates away and back we render the (browser-cached) <img> straight away
+// WITHOUT first flashing the letter avatar underneath it — killing the
+// "logos reload every time I switch pages" flicker.
+const loadedLogos = new Set<string>();
+
 function cryptoBase(symbol: string): string {
   const s = symbol.toUpperCase().replace(/[^A-Z]/g, "");
   for (const q of QUOTE_SUFFIXES) {
@@ -144,18 +151,22 @@ export function InstrumentIcon({
   const wantLogo = LOGO_SYMBOL_RE.test(sym) && !failedLogos.has(sym);
   if (!wantLogo) return letter(className);
 
+  // Already loaded once this session → the <img> is browser-cached, so render
+  // it alone and skip the letter avatar underneath (no flash on remount).
+  const known = loadedLogos.has(sym);
   return (
     <span
       className={cn("relative grid shrink-0 place-items-center", className)}
       style={{ width: size, height: size }}
     >
-      {letter()}
+      {!known && letter()}
       <img
         key={sym}
         src={`${API_URL}/api/v1/logo/${encodeURIComponent(sym)}`}
         alt={sym}
         loading="lazy"
         decoding="async"
+        onLoad={() => loadedLogos.add(sym)}
         onError={() => {
           failedLogos.add(sym);
           setImgFailed((v) => !v); // force this instance to drop the <img>

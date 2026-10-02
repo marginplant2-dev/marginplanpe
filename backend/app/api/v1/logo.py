@@ -22,7 +22,10 @@ router = APIRouter(prefix="/logo", tags=["logo"])
 # Even if a safety check is ever missed, opening the URL directly runs nothing.
 _CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 _HEADERS_200 = {
-    "Cache-Control": "public, max-age=86400",
+    # Logos are effectively immutable — cache for a year so the browser serves
+    # them from disk on every navigation with no re-request (no flicker). A
+    # changed logo rides in under a new symbol or clears on the yearly horizon.
+    "Cache-Control": "public, max-age=31536000, immutable",
     "Content-Security-Policy": _CSP,
     "X-Content-Type-Options": "nosniff",
 }
