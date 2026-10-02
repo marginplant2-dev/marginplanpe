@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { BrokerMgmtAPI, ManagementAPI, setTokens } from "@/lib/api";
+import { BrokerMgmtAPI, ManagementAPI, TradingAPI, setTokens } from "@/lib/api";
 import { useAdminAuthStore } from "@/stores/authStore";
 import { canSee } from "@/lib/permissions";
 import { cn, formatINR } from "@/lib/utils";
@@ -136,6 +136,45 @@ function BrokerAvatar({ name, id, size = 38 }: { name: string; id: string; size?
   );
 }
 
+// Compact Prev / Next pager shared by the Overview (closed trades) and
+// Clients tabs. Hidden when there's a single page.
+function Pager({
+  page,
+  totalPages,
+  busy,
+  onPage,
+}: {
+  page: number;
+  totalPages: number;
+  busy?: boolean;
+  onPage: (p: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+  return (
+    <div className="mt-3 flex items-center justify-between text-sm">
+      <button
+        type="button"
+        disabled={page <= 1 || busy}
+        onClick={() => onPage(page - 1)}
+        className="rounded-lg border border-border px-3 py-1.5 font-medium disabled:opacity-40"
+      >
+        Prev
+      </button>
+      <span className="text-xs text-muted-foreground">
+        Page {page} of {totalPages}
+      </span>
+      <button
+        type="button"
+        disabled={page >= totalPages || busy}
+        onClick={() => onPage(page + 1)}
+        className="rounded-lg border border-border px-3 py-1.5 font-medium disabled:opacity-40"
+      >
+        Next
+      </button>
+    </div>
+  );
+}
+
 function DField({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="min-w-0">
@@ -193,10 +232,16 @@ export default function BrokersPage() {
   });
   const cap = (capRes?.cap ?? {}) as Record<keyof BrokerPermissions, PermissionLevel>;
 
+  // Left-list pagination — 15 per page so a big pool never dumps hundreds of
+  // broker rows in one request. Reset to page 1 whenever the search changes.
+  const [brokerPage, setBrokerPage] = useState(1);
+  useEffect(() => { setBrokerPage(1); }, [q]);
+
   const { data, isFetching } = useQuery({
-    queryKey: ["admin", "brokers", q],
-    queryFn: () => BrokerMgmtAPI.list({ q: q || undefined, page: 1, page_size: 100 }),
+    queryKey: ["admin", "brokers", q, brokerPage],
+    queryFn: () => BrokerMgmtAPI.list({ q: q || undefined, page: brokerPage, page_size: 15 }),
     enabled: !!admin,
+    placeholderData: (prev) => prev,
     // Default 3-retry-with-backoff masquerades real errors as "slow loading"
     // — the broker list query is cheap, no flake retries needed. If it
     // fails, fail fast and let the error surface to the toast.
@@ -219,10 +264,33 @@ export default function BrokersPage() {
     queryFn: () => BrokerMgmtAPI.report(selectedId as string),
     enabled: !!selectedId && tab === "overview",
   });
+  // Closed trades for this broker's whole subtree — open/close price, P&L and
+  // brokerage per round-trip, paged 15 at a time so a busy broker's blotter
+  // never dumps thousands of rows at once. `broker_id` is a new filter on the
+  // shared /admin/positions blotter (reuses all its enrichment).
+  const [tradePage, setTradePage] = useState(1);
+  useEffect(() => { setTradePage(1); }, [selectedId]);
+  const { data: closed, isFetching: closedFetching } = useQuery({
+    queryKey: ["admin", "broker-closed-trades", selectedId, tradePage],
+    queryFn: () =>
+      TradingAPI.positionsPaged({
+        status: "CLOSED",
+        broker_id: selectedId,
+        page: tradePage,
+        page_size: 15,
+      }),
+    enabled: !!selectedId && tab === "overview",
+    placeholderData: (prev) => prev,
+  });
+
+  // Clients tab — server-paged so a 500-client broker doesn't load everyone.
+  const [clientPage, setClientPage] = useState(1);
+  useEffect(() => { setClientPage(1); }, [selectedId]);
   const { data: clients } = useQuery({
-    queryKey: ["admin", "broker-clients", selectedId],
-    queryFn: () => BrokerMgmtAPI.listSubtreeUsers(selectedId as string, { page: 1, page_size: 100 }),
+    queryKey: ["admin", "broker-clients", selectedId, clientPage],
+    queryFn: () => BrokerMgmtAPI.listSubtreeUsers(selectedId as string, { page: clientPage, page_size: 15 }),
     enabled: !!selectedId && tab === "clients",
+    placeholderData: (prev) => prev,
   });
 
   // Super-admin only: load sub-admins so the create-broker form can
@@ -581,6 +649,19 @@ export default function BrokersPage() {
               })
             )}
           </div>
+          {(data?.meta?.total_pages ?? 1) > 1 && (
+            <div className="border-t border-border px-3 pb-3">
+              <Pager
+                page={brokerPage}
+                totalPages={data?.meta?.total_pages ?? 1}
+                busy={isFetching}
+                onPage={(p) => {
+                  setBrokerPage(p);
+                  setSelectedId(null);
+                }}
+              />
+            </div>
+          )}
         </div>
 
         {/* ── Right: selected broker detail ── (full screen on mobile) */}
@@ -765,63 +846,88 @@ export default function BrokersPage() {
                     <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
                       <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Deposits</div>
                       <div className="mt-1 font-tabular text-base font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
-                        {formatINR(Number(report?.money?.total_deposits ?? report?.total_deposits ?? 0))}
+                        {formatINR(Number(report?.wallet?.total_deposits ?? 0))}
                       </div>
                     </div>
                     <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3">
                       <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Withdrawals</div>
                       <div className="mt-1 font-tabular text-base font-bold tabular-nums text-red-600 dark:text-red-400">
-                        {formatINR(Number(report?.money?.total_withdrawals ?? report?.total_withdrawals ?? 0))}
+                        {formatINR(Number(report?.wallet?.total_withdrawals ?? 0))}
                       </div>
                     </div>
                     <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
                       <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Brokerage</div>
                       <div className="mt-1 font-tabular text-base font-bold tabular-nums text-primary">
-                        {formatINR(Number(report?.money?.total_brokerage ?? report?.total_brokerage ?? 0))}
+                        {formatINR(Number(report?.wallet?.total_brokerage ?? 0))}
                       </div>
                     </div>
                   </div>
                   <div>
-                    <div className="mb-2 text-sm font-semibold">Recent trades (latest 10)</div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="text-sm font-semibold">Closed trades</div>
+                      <div className="text-xs text-muted-foreground">
+                        {closed?.total ?? 0} total
+                      </div>
+                    </div>
                     <div className="overflow-x-auto rounded-xl border border-border">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
-                            <th className="px-3 py-2 font-medium">When</th>
+                            <th className="px-3 py-2 font-medium">Closed</th>
                             <th className="px-3 py-2 font-medium">User</th>
                             <th className="px-3 py-2 font-medium">Symbol</th>
                             <th className="px-3 py-2 font-medium">Side</th>
                             <th className="px-3 py-2 text-right font-medium">Qty</th>
-                            <th className="px-3 py-2 text-right font-medium">Price</th>
+                            <th className="px-3 py-2 text-right font-medium">Open</th>
+                            <th className="px-3 py-2 text-right font-medium">Close</th>
+                            <th className="px-3 py-2 text-right font-medium">P&amp;L</th>
                             <th className="px-3 py-2 text-right font-medium">Brokerage</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {(report?.recent_trades ?? []).map((t: any, i: number) => (
-                            <tr key={i} className="border-b border-border/60">
-                              <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">{fmtBrokerDate(t.when ?? t.created_at)}</td>
-                              <td className="px-3 py-2 font-mono text-xs">{t.user_code ?? t.user ?? "—"}</td>
-                              <td className="px-3 py-2">{t.symbol}</td>
-                              <td className="px-3 py-2">
-                                <span className={t.side === "BUY" ? "font-semibold text-emerald-600 dark:text-emerald-400" : "font-semibold text-red-600 dark:text-red-400"}>
-                                  {t.side}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2 text-right font-tabular tabular-nums">{t.quantity ?? t.qty}</td>
-                              <td className="px-3 py-2 text-right font-tabular tabular-nums">{t.price}</td>
-                              <td className="px-3 py-2 text-right font-tabular tabular-nums">{formatINR(Number(t.brokerage ?? 0))}</td>
-                            </tr>
-                          ))}
-                          {(report?.recent_trades ?? []).length === 0 && (
+                          {(closed?.rows ?? []).map((t: any) => {
+                            const cur = t.currency_quote === "USD" ? "$" : "₹";
+                            const pnl = Number(t.realized_pnl ?? 0);
+                            const buy = String(t.opened_side).toUpperCase() === "BUY";
+                            return (
+                              <tr key={t.id} className="border-b border-border/60">
+                                <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">{fmtBrokerDate(t.closed_at)}</td>
+                                <td className="px-3 py-2">
+                                  <div className="truncate font-medium">{t.user_name || "—"}</div>
+                                  <div className="truncate font-mono text-[10px] text-muted-foreground">{t.user_code}</div>
+                                </td>
+                                <td className="px-3 py-2">{t.symbol}</td>
+                                <td className="px-3 py-2">
+                                  <span className={buy ? "font-semibold text-emerald-600 dark:text-emerald-400" : "font-semibold text-red-600 dark:text-red-400"}>
+                                    {t.opened_side ?? "—"}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-right font-tabular tabular-nums">{t.opening_quantity ?? t.quantity}</td>
+                                <td className="px-3 py-2 text-right font-tabular tabular-nums">{cur}{t.avg_price}</td>
+                                <td className="px-3 py-2 text-right font-tabular tabular-nums">{cur}{t.ltp}</td>
+                                <td className={cn("px-3 py-2 text-right font-tabular font-semibold tabular-nums", pnl >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                                  {pnl >= 0 ? "+" : ""}{formatINR(pnl)}
+                                </td>
+                                <td className="px-3 py-2 text-right font-tabular tabular-nums text-muted-foreground">{formatINR(Number(t.charges ?? 0))}</td>
+                              </tr>
+                            );
+                          })}
+                          {!closedFetching && (closed?.rows ?? []).length === 0 && (
                             <tr>
-                              <td colSpan={7} className="px-3 py-6 text-center text-sm text-muted-foreground">
-                                No trades yet.
+                              <td colSpan={9} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                                No closed trades yet.
                               </td>
                             </tr>
                           )}
                         </tbody>
                       </table>
                     </div>
+                    <Pager
+                      page={tradePage}
+                      totalPages={closed?.total_pages ?? 1}
+                      busy={closedFetching}
+                      onPage={setTradePage}
+                    />
                   </div>
                 </div>
               )}
@@ -830,7 +936,7 @@ export default function BrokersPage() {
               {tab === "clients" && (
                 <div className="mt-4">
                   <div className="mb-2 text-sm text-muted-foreground">
-                    {clients?.items?.length ?? 0} clients under this {noun.toLowerCase()} (sub-brokers' clients included).
+                    {clients?.meta?.total ?? clients?.items?.length ?? 0} clients under this {noun.toLowerCase()} (sub-brokers' clients included).
                   </div>
                   <div className="overflow-x-auto rounded-xl border border-border">
                     <table className="w-full text-sm">
@@ -875,6 +981,11 @@ export default function BrokersPage() {
                       </tbody>
                     </table>
                   </div>
+                  <Pager
+                    page={clientPage}
+                    totalPages={clients?.meta?.total_pages ?? 1}
+                    onPage={setClientPage}
+                  />
                 </div>
               )}
               </div>

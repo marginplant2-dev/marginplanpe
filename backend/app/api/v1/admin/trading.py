@@ -639,6 +639,7 @@ async def list_closed_positions_fifo(
 async def list_positions(
     admin: CurrentAdmin,
     user_id: str | None = None,
+    broker_id: str | None = Query(default=None, description="Restrict to this broker's whole subtree (its clients + sub-brokers' clients)"),
     status: str | None = None,
     q: str | None = None,
     product: str | None = None,
@@ -680,6 +681,35 @@ async def list_positions(
     if user_id:
         await assert_user_in_scope(admin, user_id)
         qfilter["user_id"] = PydanticObjectId(user_id)
+    elif broker_id:
+        # Broker detail page: open/closed trades for that broker's WHOLE
+        # subtree (its direct clients + every sub-broker's clients), matching
+        # the Clients-tab count. Intersect with the actor's own scope so an
+        # admin can't read another pool's broker through this param.
+        try:
+            boid = PydanticObjectId(broker_id)
+        except Exception:
+            return _empty()
+        subtree = await User.get_motor_collection().distinct(
+            "_id",
+            {
+                "broker_ancestry": boid,
+                "role": {
+                    "$nin": [
+                        UserRole.SUPER_ADMIN.value,
+                        UserRole.ADMIN.value,
+                        UserRole.BROKER.value,
+                    ]
+                },
+            },
+        )
+        scope = await scoped_user_ids(admin)
+        if scope is not None:
+            allowed = {str(s) for s in scope}
+            subtree = [u for u in subtree if str(u) in allowed]
+        if not subtree:
+            return _empty()
+        qfilter["user_id"] = {"$in": subtree}
     else:
         # own_scope (super-admin Positions page): the super-admin's OWN direct
         # users only — never any sub-admin's clients.

@@ -103,7 +103,7 @@ export default function AdminUsersPage() {
       setDownloading(false);
     }
   }
-  const pageSize = 20;
+  const pageSize = 15;
 
   const { data, isFetching } = useQuery({
     queryKey: ["admin", "users", { q, status, mode, page, pageSize, adminId, brokerId }],
