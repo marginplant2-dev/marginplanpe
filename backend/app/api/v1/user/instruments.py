@@ -864,9 +864,13 @@ def _yahoo_symbol_for(token: str) -> str | None:
     if len(t) == 6 and t.isalpha():
         if t in _YAHOO_FX_PAIRS or t.endswith("USD") or t.startswith("USD") or t.endswith("INR"):
             return f"{t}=X"
-    # Spot metals: XAUUSD / XAGUSD / XPTUSD / XPDUSD.
-    if t in {"XAUUSD", "XAGUSD", "XPTUSD", "XPDUSD"}:
-        return f"{t}=X"
+    # Spot metals: Yahoo has NO spot "XAUUSD=X" symbol (returns 404 "delisted")
+    # — it serves the COMEX futures contract instead (GC=F etc.). We chart off
+    # that and `_align_candles_to_live` shifts the series onto the live
+    # tradeable scale so it matches the BUY/SELL price.
+    _METAL_FUT = {"XAUUSD": "GC=F", "XAGUSD": "SI=F", "XPTUSD": "PL=F", "XPDUSD": "PA=F"}
+    if t in _METAL_FUT:
+        return _METAL_FUT[t]
     return None
 
 
