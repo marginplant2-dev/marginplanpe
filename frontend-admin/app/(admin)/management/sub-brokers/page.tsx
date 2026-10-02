@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search, Users, CornerDownRight } from "lucide-react";
-import { BrokerMgmtAPI } from "@/lib/api";
+import { BrokerMgmtAPI, TradingAPI } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { useAdminAuthStore } from "@/stores/authStore";
-import { cn } from "@/lib/utils";
+import { cn, formatINR } from "@/lib/utils";
 
 /**
  * Super-admin Sub-Brokers section: every broker across every admin pool, in a
@@ -72,6 +72,43 @@ function PermChip({ label, level }: { label: string; level: string }) {
     <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium", tone)}>
       {label} · {lv}
     </span>
+  );
+}
+
+function Pager({
+  page,
+  totalPages,
+  busy,
+  onPage,
+}: {
+  page: number;
+  totalPages: number;
+  busy?: boolean;
+  onPage: (p: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+  return (
+    <div className="mt-3 flex items-center justify-between text-sm">
+      <button
+        type="button"
+        disabled={page <= 1 || busy}
+        onClick={() => onPage(page - 1)}
+        className="rounded-lg border border-border px-3 py-1.5 font-medium disabled:opacity-40"
+      >
+        Prev
+      </button>
+      <span className="text-xs text-muted-foreground">
+        Page {page} of {totalPages}
+      </span>
+      <button
+        type="button"
+        disabled={page >= totalPages || busy}
+        onClick={() => onPage(page + 1)}
+        className="rounded-lg border border-border px-3 py-1.5 font-medium disabled:opacity-40"
+      >
+        Next
+      </button>
+    </div>
   );
 }
 
@@ -139,6 +176,38 @@ export default function SubBrokersPage() {
   }, [items, selectedId]);
 
   const selected = useMemo(() => items.find((b) => b.id === selectedId) ?? null, [items, selectedId]);
+
+  // Detail tabs — Profile / Overview / Clients, mirroring the Brokers page.
+  const [tab, setTab] = useState<"profile" | "overview" | "clients">("profile");
+  useEffect(() => { setTab("profile"); }, [selectedId]);
+
+  // Overview — money rollup (deposits/withdrawals/brokerage) via the shared
+  // broker report, and the broker's closed trades (open/close/P&L/brokerage),
+  // paged 15. Both lazy-load only when the Overview tab is open.
+  const { data: report } = useQuery({
+    queryKey: ["admin", "broker-report", selectedId],
+    queryFn: () => BrokerMgmtAPI.report(selectedId as string),
+    enabled: !!selectedId && tab === "overview",
+  });
+  const [tradePage, setTradePage] = useState(1);
+  useEffect(() => { setTradePage(1); }, [selectedId]);
+  const { data: closed, isFetching: closedFetching } = useQuery({
+    queryKey: ["admin", "broker-closed-trades", selectedId, tradePage],
+    queryFn: () =>
+      TradingAPI.positionsPaged({ status: "CLOSED", broker_id: selectedId, page: tradePage, page_size: 15 }),
+    enabled: !!selectedId && tab === "overview",
+    placeholderData: (prev) => prev,
+  });
+
+  // Clients — the broker's whole subtree (its clients + sub-brokers' clients).
+  const [clientPage, setClientPage] = useState(1);
+  useEffect(() => { setClientPage(1); }, [selectedId]);
+  const { data: clients } = useQuery({
+    queryKey: ["admin", "broker-clients", selectedId, clientPage],
+    queryFn: () => BrokerMgmtAPI.listSubtreeUsers(selectedId as string, { page: clientPage, page_size: 15 }),
+    enabled: !!selectedId && tab === "clients",
+    placeholderData: (prev) => prev,
+  });
 
   if (!canView) {
     return (
@@ -259,63 +328,220 @@ export default function SubBrokersPage() {
               </div>
               <div className="mt-0.5 font-mono text-xs text-muted-foreground">{selected.user_code}</div>
 
-              {/* Account details */}
-              <div className="mt-5 rounded-xl border border-border p-4">
-                <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Account Details
-                </div>
-                <div className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
-                  <Field label="Code" value={selected.user_code} />
-                  <Field label="Name" value={selected.full_name} />
-                  <Field label="Email" value={selected.email} />
-                  <Field label="Mobile" value={selected.mobile} />
-                  <Field label="Type" value={selected.is_sub ? "Sub-broker" : "Broker"} />
-                  {isSuperAdmin && (
-                    <Field label="Admin pool" value={selected.assigned_admin_name || "Platform"} />
-                  )}
-                  {selected.is_sub && (
-                    <Field
-                      label="Parent broker"
-                      value={
-                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-primary">
-                          <CornerDownRight className="size-3" />
-                          {selected.parent_broker_name || "—"}
-                        </span>
-                      }
-                    />
-                  )}
-                  <Field label="PnL share" value={`${selected.pnl_share_pct ?? "0"}%`} />
-                  <Field label="Brokerage share" value={`${selected.brokerage_share_pct ?? "0"}%`} />
-                  <Field
-                    label="Direct users"
-                    value={
-                      <span className="inline-flex items-center gap-1">
-                        <Users className="size-3.5 text-muted-foreground" />
-                        {selected.user_count ?? 0}
-                      </span>
-                    }
-                  />
-                  <Field label="Subtree users" value={selected.subtree_user_count ?? selected.user_count ?? 0} />
-                  <Field label="Online payment" value={selected.payment_gateway_enabled ? "On" : "Off"} />
-                  <Field label="Created" value={fmtDate(selected.created_at)} />
-                </div>
+              {/* Tabs — Profile / Overview / Clients (same as the Brokers page). */}
+              <div className="mt-5 flex gap-5 border-b border-border">
+                {(["profile", "overview", "clients"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setTab(t)}
+                    className={cn(
+                      "-mb-px border-b-2 pb-2 text-sm font-medium capitalize transition-colors",
+                      tab === t
+                        ? "border-primary text-primary"
+                        : "border-transparent text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {t}
+                  </button>
+                ))}
               </div>
 
-              {/* Permissions */}
-              <div className="mt-4 rounded-xl border border-border p-4">
-                <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Permissions
+              {/* ── Profile ── */}
+              {tab === "profile" && (
+                <div className="mt-4 space-y-4">
+                  <div className="rounded-xl border border-border p-4">
+                    <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Account Details
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
+                      <Field label="Code" value={selected.user_code} />
+                      <Field label="Name" value={selected.full_name} />
+                      <Field label="Email" value={selected.email} />
+                      <Field label="Mobile" value={selected.mobile} />
+                      <Field label="Type" value={selected.is_sub ? "Sub-broker" : "Broker"} />
+                      {isSuperAdmin && (
+                        <Field label="Admin pool" value={selected.assigned_admin_name || "Platform"} />
+                      )}
+                      {selected.is_sub && (
+                        <Field
+                          label="Parent broker"
+                          value={
+                            <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-primary">
+                              <CornerDownRight className="size-3" />
+                              {selected.parent_broker_name || "—"}
+                            </span>
+                          }
+                        />
+                      )}
+                      <Field label="PnL share" value={`${selected.pnl_share_pct ?? "0"}%`} />
+                      <Field label="Brokerage share" value={`${selected.brokerage_share_pct ?? "0"}%`} />
+                      <Field
+                        label="Direct users"
+                        value={
+                          <span className="inline-flex items-center gap-1">
+                            <Users className="size-3.5 text-muted-foreground" />
+                            {selected.user_count ?? 0}
+                          </span>
+                        }
+                      />
+                      <Field label="Subtree users" value={selected.subtree_user_count ?? selected.user_count ?? 0} />
+                      <Field label="Online payment" value={selected.payment_gateway_enabled ? "On" : "Off"} />
+                      <Field label="Created" value={fmtDate(selected.created_at)} />
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-border p-4">
+                    <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Permissions
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {PERMISSION_LABELS.map((p) => (
+                        <PermChip
+                          key={p.key}
+                          label={p.label}
+                          level={(selected.permissions && selected.permissions[p.key]) || "OFF"}
+                        />
+                      ))}
+                    </div>
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {PERMISSION_LABELS.map((p) => (
-                    <PermChip
-                      key={p.key}
-                      label={p.label}
-                      level={(selected.permissions && selected.permissions[p.key]) || "OFF"}
-                    />
-                  ))}
+              )}
+
+              {/* ── Overview ── */}
+              {tab === "overview" && (
+                <div className="mt-4 space-y-4">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Deposits</div>
+                      <div className="mt-1 font-tabular text-base font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
+                        {formatINR(Number(report?.wallet?.total_deposits ?? 0))}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3">
+                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Withdrawals</div>
+                      <div className="mt-1 font-tabular text-base font-bold tabular-nums text-red-600 dark:text-red-400">
+                        {formatINR(Number(report?.wallet?.total_withdrawals ?? 0))}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Brokerage</div>
+                      <div className="mt-1 font-tabular text-base font-bold tabular-nums text-primary">
+                        {formatINR(Number(report?.wallet?.total_brokerage ?? 0))}
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="text-sm font-semibold">Closed trades</div>
+                      <div className="text-xs text-muted-foreground">{closed?.total ?? 0} total</div>
+                    </div>
+                    <div className="overflow-x-auto rounded-xl border border-border">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
+                            <th className="px-3 py-2 font-medium">Closed</th>
+                            <th className="px-3 py-2 font-medium">User</th>
+                            <th className="px-3 py-2 font-medium">Symbol</th>
+                            <th className="px-3 py-2 font-medium">Side</th>
+                            <th className="px-3 py-2 text-right font-medium">Qty</th>
+                            <th className="px-3 py-2 text-right font-medium">Open</th>
+                            <th className="px-3 py-2 text-right font-medium">Close</th>
+                            <th className="px-3 py-2 text-right font-medium">P&amp;L</th>
+                            <th className="px-3 py-2 text-right font-medium">Brokerage</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(closed?.rows ?? []).map((t: any) => {
+                            const cur = t.currency_quote === "USD" ? "$" : "₹";
+                            const pnl = Number(t.realized_pnl ?? 0);
+                            const buy = String(t.opened_side).toUpperCase() === "BUY";
+                            return (
+                              <tr key={t.id} className="border-b border-border/60">
+                                <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">{fmtDate(t.closed_at)}</td>
+                                <td className="px-3 py-2">
+                                  <div className="truncate font-medium">{t.user_name || "—"}</div>
+                                  <div className="truncate font-mono text-[10px] text-muted-foreground">{t.user_code}</div>
+                                </td>
+                                <td className="px-3 py-2">{t.symbol}</td>
+                                <td className="px-3 py-2">
+                                  <span className={buy ? "font-semibold text-emerald-600 dark:text-emerald-400" : "font-semibold text-red-600 dark:text-red-400"}>
+                                    {t.opened_side ?? "—"}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-right font-tabular tabular-nums">{t.opening_quantity ?? t.quantity}</td>
+                                <td className="px-3 py-2 text-right font-tabular tabular-nums">{cur}{t.avg_price}</td>
+                                <td className="px-3 py-2 text-right font-tabular tabular-nums">{cur}{t.ltp}</td>
+                                <td className={cn("whitespace-nowrap px-3 py-2 text-right font-tabular font-semibold tabular-nums", pnl >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                                  {pnl >= 0 ? "+" : "-"}{formatINR(Math.abs(pnl))}
+                                </td>
+                                <td className="px-3 py-2 text-right font-tabular tabular-nums text-muted-foreground">{formatINR(Number(t.charges ?? 0))}</td>
+                              </tr>
+                            );
+                          })}
+                          {!closedFetching && (closed?.rows ?? []).length === 0 && (
+                            <tr>
+                              <td colSpan={9} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                                No closed trades yet.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    <Pager page={tradePage} totalPages={closed?.total_pages ?? 1} busy={closedFetching} onPage={setTradePage} />
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* ── Clients ── */}
+              {tab === "clients" && (
+                <div className="mt-4">
+                  <div className="mb-2 text-sm text-muted-foreground">
+                    {clients?.meta?.total ?? clients?.items?.length ?? 0} clients under this {selected.is_sub ? "sub-broker" : "broker"} (sub-brokers' clients included).
+                  </div>
+                  <div className="overflow-x-auto rounded-xl border border-border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
+                          <th className="px-3 py-2 font-medium">Code</th>
+                          <th className="px-3 py-2 font-medium">Name</th>
+                          <th className="px-3 py-2 font-medium">Mobile</th>
+                          <th className="px-3 py-2 font-medium">Role</th>
+                          <th className="px-3 py-2 font-medium">Status</th>
+                          <th className="px-3 py-2 font-medium">Joined</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(clients?.items ?? []).map((u: any) => (
+                          <tr key={u.id} className="border-b border-border/60">
+                            <td className="px-3 py-2 font-mono text-xs">{u.user_code}</td>
+                            <td className="px-3 py-2">{u.full_name || "—"}</td>
+                            <td className="px-3 py-2">{u.mobile || "—"}</td>
+                            <td className="px-3 py-2">
+                              <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium">{u.role}</span>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className={String(u.status).toUpperCase() === "ACTIVE" ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}>
+                                {u.status}
+                              </span>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">{fmtDate(u.created_at)}</td>
+                          </tr>
+                        ))}
+                        {(clients?.items ?? []).length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                              No clients yet.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <Pager page={clientPage} totalPages={clients?.meta?.total_pages ?? 1} onPage={setClientPage} />
+                </div>
+              )}
             </div>
           )}
         </div>
