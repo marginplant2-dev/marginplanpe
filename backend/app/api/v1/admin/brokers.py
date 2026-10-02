@@ -551,6 +551,77 @@ async def broker_report(broker_id: str, actor: CurrentAdmin):
     if brok_agg and brok_agg[0].get("total") is not None:
         wallet_sum["total_brokerage"] = to_decimal(brok_agg[0]["total"])
 
+    # Deposits / Withdrawals headline: Wallet.total_* excludes the admin's
+    # manual Add/Deduct (those post as signed ADJUSTMENT txns), so the boxes
+    # read ₹0 for brokers whose clients were only hand-funded. Compute from the
+    # WalletTransaction ledger with the SAME classification the money views use:
+    #   deposits    = DEPOSIT + positive operator ADJUSTMENT
+    #   withdrawals = WITHDRAWAL + |negative operator ADJUSTMENT|
+    # Operator ADJUSTMENT excludes system corrections (initial-balance credit,
+    # bogus-fill reversals) by narration.
+    _amt = {"$toDouble": "$amount"}
+    _is_system_adj = {
+        "$regexMatch": {
+            "input": {"$ifNull": ["$narration", ""]},
+            "regex": "Initial balance credit|Bogus 0-price fill reversal|Reversal trade=",
+            "options": "i",
+        }
+    }
+    _is_op_adj = {
+        "$and": [{"$eq": ["$transaction_type", "ADJUSTMENT"]}, {"$not": _is_system_adj}]
+    }
+    money_agg = (
+        await WalletTransaction.get_motor_collection()
+        .aggregate(
+            [
+                {
+                    "$match": {
+                        "user_id": {"$in": pool},
+                        "transaction_type": {"$in": ["DEPOSIT", "WITHDRAWAL", "ADJUSTMENT"]},
+                        "status": "COMPLETED",
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": None,
+                        "deposits": {
+                            "$sum": {
+                                "$cond": [
+                                    {
+                                        "$or": [
+                                            {"$eq": ["$transaction_type", "DEPOSIT"]},
+                                            {"$and": [_is_op_adj, {"$gt": [_amt, 0]}]},
+                                        ]
+                                    },
+                                    _amt,
+                                    0,
+                                ]
+                            }
+                        },
+                        "withdrawals": {
+                            "$sum": {
+                                "$cond": [
+                                    {
+                                        "$or": [
+                                            {"$eq": ["$transaction_type", "WITHDRAWAL"]},
+                                            {"$and": [_is_op_adj, {"$lt": [_amt, 0]}]},
+                                        ]
+                                    },
+                                    {"$abs": _amt},
+                                    0,
+                                ]
+                            }
+                        },
+                    }
+                },
+            ]
+        )
+        .to_list(1)
+    )
+    if money_agg:
+        wallet_sum["total_deposits"] = to_decimal(str(round(money_agg[0].get("deposits", 0) or 0, 2)))
+        wallet_sum["total_withdrawals"] = to_decimal(str(round(money_agg[0].get("withdrawals", 0) or 0, 2)))
+
     from app.services import market_data_service
     fallback_usd_inr = to_decimal(market_data_service.get_usd_inr_rate())
 
