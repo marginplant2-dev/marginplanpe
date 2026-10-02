@@ -35,6 +35,46 @@ function fmt(n: number): string {
   return n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Mini trend line (last ~6 months of daily closes) for an index box.
+function Sparkline({ token, open, up }: { token: string; open: boolean; up: boolean }) {
+  const { data } = useQuery<any[]>({
+    queryKey: ["index-spark", token],
+    queryFn: () => InstrumentAPI.history(token, "day", 200),
+    enabled: open && !!token,
+    staleTime: 30 * 60_000,
+  });
+  const closes = useMemo(
+    () => (data ?? []).map((c: any) => Number(c?.close ?? 0)).filter((n) => n > 0),
+    [data],
+  );
+  if (closes.length < 2) return <div className="mt-2 h-8" />;
+  const min = Math.min(...closes);
+  const max = Math.max(...closes);
+  const range = max - min || 1;
+  const W = 120;
+  const H = 32;
+  const pts = closes
+    .map((c, i) => {
+      const x = (i / (closes.length - 1)) * W;
+      const y = H - ((c - min) / range) * H;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 h-8 w-full" preserveAspectRatio="none">
+      <polyline
+        points={pts}
+        fill="none"
+        stroke={up ? "#10b981" : "#ef4444"}
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
+}
+
 // Resolve an index quote to { ltp, change, pct } with the last-close fallback.
 function resolveQuote(q: any): { ltp: number; change: number; pct: number } {
   const live = Number(q?.ltp ?? 0);
@@ -152,22 +192,22 @@ export function MobileIndexStrip() {
           <div className="fixed inset-0 z-30 bg-black/30" onClick={() => setOpen(false)} />
           {/* Sheet, anchored just below the header */}
           <div
-            className="fixed inset-x-0 z-40 border-b border-border bg-card shadow-xl"
+            className="fixed inset-x-0 z-40 max-h-[70vh] overflow-y-auto rounded-b-2xl border-b border-border bg-card shadow-xl"
             style={{ top: "calc(3.5rem + env(safe-area-inset-top))" }}
           >
-            <div className="flex items-center justify-between px-4 pt-3">
-              <span className="text-base font-bold">Overview</span>
+            <div className="flex items-center justify-between px-4 pb-1 pt-3">
+              <span className="text-sm font-bold">Overview</span>
               <button
                 type="button"
                 aria-label="Close"
                 onClick={() => setOpen(false)}
-                className="grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-muted/50"
+                className="grid size-7 place-items-center rounded-full text-muted-foreground hover:bg-muted/50"
               >
                 <X className="size-4" />
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 px-4 py-3">
+            <div className="grid grid-cols-2 gap-2.5 px-4 py-2">
               {items.map((it) => {
                 const { ltp, change, pct } = resolveQuote(quoteByToken.get(String(it.token)));
                 const up = pct >= 0;
@@ -176,16 +216,16 @@ export function MobileIndexStrip() {
                     key={it.token}
                     href={`/terminal?token=${it.token}`}
                     onClick={() => setOpen(false)}
-                    className="rounded-xl border border-border p-3"
+                    className="rounded-xl border border-border p-2.5"
                   >
-                    <div className="text-xs font-semibold text-muted-foreground">{it._short}</div>
-                    <div className="mt-1 font-tabular text-xl font-bold tabular-nums">
+                    <div className="text-[11px] font-semibold text-muted-foreground">{it._short}</div>
+                    <div className="mt-0.5 font-tabular text-base font-bold tabular-nums">
                       {ltp > 0 ? fmt(ltp) : "—"}
                     </div>
                     {ltp > 0 && (
                       <div
                         className={cn(
-                          "mt-0.5 font-tabular text-xs font-semibold tabular-nums",
+                          "font-tabular text-[11px] font-semibold tabular-nums",
                           up ? "text-emerald-500" : "text-red-500",
                         )}
                       >
@@ -194,6 +234,7 @@ export function MobileIndexStrip() {
                         {pct.toFixed(2)}%)
                       </div>
                     )}
+                    <Sparkline token={String(it.token)} open={open} up={up} />
                   </Link>
                 );
               })}
@@ -203,12 +244,12 @@ export function MobileIndexStrip() {
             <Link
               href="/wallet"
               onClick={() => setOpen(false)}
-              className="mx-4 mb-4 flex items-center justify-between rounded-xl border border-primary/20 bg-primary/5 px-4 py-3"
+              className="mx-4 mb-4 mt-1 flex items-center justify-between rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5"
             >
-              <span className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <Wallet className="size-4 text-primary" /> Available Balance
               </span>
-              <span className="font-tabular text-lg font-bold tabular-nums text-primary">
+              <span className="font-tabular text-sm font-bold tabular-nums text-primary">
                 {formatINR(balance)}
               </span>
             </Link>
