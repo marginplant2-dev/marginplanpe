@@ -159,7 +159,7 @@ export function OptionChainPicker({ open, onOpenChange, onPick, initialUnderlyin
     queryKey: ["option-chain-picker", focusedUnd, activeExpiry],
     queryFn: () => OptionChainAPI.fetch(focusedUnd, activeExpiry),
     enabled: open && !!focusedUnd && !search.trim(),
-    refetchInterval: 1000,
+    refetchInterval: 3000,
     staleTime: 5000,
     placeholderData: (prev) => prev,
   });

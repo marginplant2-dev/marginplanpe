@@ -314,7 +314,11 @@ export default function PositionsPage() {
     initialPageParam: 1,
     getNextPageParam: (lastPage, allPages) =>
       lastPage.items.length === 25 ? allPages.length + 1 : undefined,
-    staleTime: 0,
+    // Closed trades are historical/immutable — cache for 30 s so flipping back
+    // to the Closed tab paints instantly instead of re-fetching page 1. A
+    // freshly-closed trade still lands within the window via the close-flow
+    // cache invalidation / the next mount after staleness.
+    staleTime: 30_000,
     enabled: tab === "closed",
   });
   const closed: any[] = closedPages?.pages.flatMap((p) => p.items) ?? [];

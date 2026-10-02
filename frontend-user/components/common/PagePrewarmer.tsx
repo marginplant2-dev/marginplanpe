@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   DashboardAPI,
+  MarketwatchAPI,
   OrderAPI,
   PositionAPI,
   ProfileAPI,
+  SegmentSettingsAPI,
   WalletAPI,
 } from "@/lib/api";
 
@@ -137,6 +139,17 @@ export function PagePrewarmer() {
       void qc.prefetchQuery({
         queryKey: ["me"],
         queryFn: () => ProfileAPI.me(),
+      });
+      // Market tab (MobileWatchlist): warm the watchlist list + the segment
+      // gating so the first Market tap paints the user's scripts + tabs
+      // instantly instead of flashing "No scripts" while they load.
+      void qc.prefetchQuery({
+        queryKey: ["watchlists"],
+        queryFn: () => MarketwatchAPI.list(),
+      });
+      void qc.prefetchQuery({
+        queryKey: ["segment-settings", "inactive"],
+        queryFn: () => SegmentSettingsAPI.inactive(),
       });
     });
   }, [router, qc]);

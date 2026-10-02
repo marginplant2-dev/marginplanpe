@@ -77,7 +77,10 @@ export function MobileWatchlist({ activeToken, onSelect }: Props) {
     queryKey: ["watchlist-quotes", activeWl?.id],
     queryFn: () => MarketwatchAPI.quotes(activeWl!.id),
     enabled: !!activeWl?.id,
-    refetchInterval: 3000,
+    // 10 s (was 3 s): live prices stream over the WS overlay (useMarketStream
+    // below), so this REST pull is just a periodic snapshot / off-market
+    // last-close refresh — no need to hammer it every 3 s.
+    refetchInterval: 10_000,
     staleTime: 2000,
     refetchOnWindowFocus: false,
     placeholderData: (prev) => prev,

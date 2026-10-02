@@ -75,7 +75,7 @@ export function MobileOptionChain({ onSelect, fixedUnderlying }: Props) {
     queryFn: () => OptionChainAPI.fetch(underlying, expiry),
     // 1s poll keeps spot + ATM recentring snappy; WS overlay below pushes
     // per-strike LTP in realtime so the numbers feel live between polls.
-    refetchInterval: 1000,
+    refetchInterval: 3000,
     placeholderData: (prev) => prev,
   });
 

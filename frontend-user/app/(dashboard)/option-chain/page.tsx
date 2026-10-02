@@ -40,7 +40,10 @@ export default function OptionChainPage() {
   const { data, isFetching } = useQuery({
     queryKey: ["option-chain", underlying, expiry],
     queryFn: () => OptionChainAPI.fetch(underlying, expiry),
-    refetchInterval: 1000,
+    // 3 s (was 1 s): per-strike LTP streams live over the WS overlay between
+    // polls, so the REST pull is only needed for spot/ATM recentring — the
+    // heaviest recurring request in the app, cut 3x with no felt loss.
+    refetchInterval: 3000,
   });
 
   const expiries: string[] = data?.expiries ?? [];
