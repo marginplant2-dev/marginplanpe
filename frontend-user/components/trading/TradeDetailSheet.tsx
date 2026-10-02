@@ -1464,15 +1464,13 @@ function TradeDetailSheetInner({ token, open, onClose, onSwap, initialSide, seed
               </div>
 
               {/* ── Market depth (5-level) — real Zerodha MODE_FULL book.
-                  Only rendered when the feed actually carries depth (Indian
-                  Kite-backed instruments); Infoway forex/crypto have none, so
-                  the section is hidden rather than showing a row of zeros. */}
-              {(() => {
+                  Shown for every Indian (Kite-backed) instrument, always: live
+                  5-level book during market hours, all-zeros when the market is
+                  shut (same as the broker apps). Hidden only for Infoway
+                  forex/crypto, which have no central order book. */}
+              {!isInfowaySeg && (() => {
                 const bids: any[] = Array.isArray(quote?.depth?.bids) ? quote!.depth.bids : [];
                 const asks: any[] = Array.isArray(quote?.depth?.asks) ? quote!.depth.asks : [];
-                const hasDepth =
-                  bids.some((b) => Number(b?.qty) > 0) || asks.some((a) => Number(a?.qty) > 0);
-                if (!hasDepth) return null;
                 const totBid = bids.reduce((s, b) => s + (Number(b?.qty) || 0), 0);
                 const totAsk = asks.reduce((s, a) => s + (Number(a?.qty) || 0), 0);
                 const qn = (n: number) => n.toLocaleString("en-IN");
