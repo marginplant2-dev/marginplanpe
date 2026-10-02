@@ -108,11 +108,17 @@ export function TopMovers({ className }: { className?: string }) {
     return items
       .map((it) => {
         const q = m.get(String(it.token));
-        return {
-          ...it,
-          ltp: Number(q?.ltp ?? 0),
-          pct: Number(q?.change_pct ?? 0),
-        };
+        // Live ltp when the feed is up; else the last-known close (last_ltp,
+        // persisted for a week) so the panel still works when Zerodha is
+        // disconnected or the market is shut. % then reflects the last
+        // session's move (last_ltp vs prev_close).
+        const live = Number(q?.ltp ?? 0);
+        const last = Number(q?.last_ltp ?? 0);
+        const prev = Number(q?.prev_close ?? 0);
+        const price = live > 0 ? live : last;
+        let pct = Number(q?.change_pct ?? 0);
+        if (live <= 0 && last > 0 && prev > 0) pct = ((last - prev) / prev) * 100;
+        return { ...it, ltp: price, pct, stale: live <= 0 && last > 0 };
       })
       .filter((it) => it.ltp > 0);
   }, [items, seed, stream]);

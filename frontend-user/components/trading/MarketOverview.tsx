@@ -209,9 +209,16 @@ function MarketRow({
   quote: any;
   index: number;
 }) {
-  const ltp = Number(quote?.ltp ?? 0);
-  const pct = Number(quote?.change_pct ?? 0);
-  const flash = usePriceFlash(ltp);
+  // Live price when the feed is up; else the last-known close (last_ltp,
+  // persisted ~a week) so the panel still shows numbers when Zerodha is
+  // disconnected or the market is shut, instead of a dead "—".
+  const live = Number(quote?.ltp ?? 0);
+  const last = Number(quote?.last_ltp ?? 0);
+  const prev = Number(quote?.prev_close ?? 0);
+  const ltp = live > 0 ? live : last;
+  let pct = Number(quote?.change_pct ?? 0);
+  if (live <= 0 && last > 0 && prev > 0) pct = ((last - prev) / prev) * 100;
+  const flash = usePriceFlash(live > 0 ? live : 0);
   const up = pct >= 0;
   const hasQuote = ltp > 0;
 
