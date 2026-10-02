@@ -35,11 +35,11 @@ function fmt(n: number): string {
   return n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// Mini trend line (last ~6 months of daily closes) for an index box.
-function Sparkline({ token, open, up }: { token: string; open: boolean; up: boolean }) {
+// 52-week daily-close trend line, Zerodha-style: a single flat blue line.
+function Sparkline({ token, open }: { token: string; open: boolean }) {
   const { data } = useQuery<any[]>({
     queryKey: ["index-spark", token],
-    queryFn: () => InstrumentAPI.history(token, "day", 200),
+    queryFn: () => InstrumentAPI.history(token, "day", 365),
     enabled: open && !!token,
     staleTime: 30 * 60_000,
   });
@@ -47,12 +47,12 @@ function Sparkline({ token, open, up }: { token: string; open: boolean; up: bool
     () => (data ?? []).map((c: any) => Number(c?.close ?? 0)).filter((n) => n > 0),
     [data],
   );
-  if (closes.length < 2) return <div className="mt-2 h-8" />;
+  if (closes.length < 2) return <div className="mt-2 h-9" />;
   const min = Math.min(...closes);
   const max = Math.max(...closes);
   const range = max - min || 1;
-  const W = 120;
-  const H = 32;
+  const W = 140;
+  const H = 36;
   const pts = closes
     .map((c, i) => {
       const x = (i / (closes.length - 1)) * W;
@@ -61,12 +61,12 @@ function Sparkline({ token, open, up }: { token: string; open: boolean; up: bool
     })
     .join(" ");
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 h-8 w-full" preserveAspectRatio="none">
+    <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 h-9 w-full" preserveAspectRatio="none">
       <polyline
         points={pts}
         fill="none"
-        stroke={up ? "#10b981" : "#ef4444"}
-        strokeWidth="1.5"
+        stroke="#4184f3"
+        strokeWidth="1.3"
         strokeLinejoin="round"
         strokeLinecap="round"
         vectorEffect="non-scaling-stroke"
@@ -188,11 +188,16 @@ export function MobileIndexStrip() {
 
       {open && (
         <>
-          {/* Backdrop */}
-          <div className="fixed inset-0 z-30 bg-black/30" onClick={() => setOpen(false)} />
-          {/* Sheet, anchored just below the header */}
+          {/* Backdrop — starts BELOW the header so the index strip stays clear
+              (not dimmed) and the sheet connects flush to it, no dark gap. */}
           <div
-            className="fixed inset-x-0 z-40 max-h-[70vh] overflow-y-auto rounded-b-2xl border-b border-border bg-card shadow-xl"
+            className="fixed inset-x-0 bottom-0 z-30 bg-black/30"
+            style={{ top: "calc(3.5rem + env(safe-area-inset-top))" }}
+            onClick={() => setOpen(false)}
+          />
+          {/* Sheet, flush under the header strip */}
+          <div
+            className="fixed inset-x-0 z-40 max-h-[70vh] overflow-y-auto rounded-b-2xl bg-card shadow-xl"
             style={{ top: "calc(3.5rem + env(safe-area-inset-top))" }}
           >
             <div className="flex items-center justify-between px-4 pb-1 pt-3">
@@ -207,7 +212,8 @@ export function MobileIndexStrip() {
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5 px-4 py-2">
+            {/* Indices — plain two-column layout, Zerodha-style (no boxes) */}
+            <div className="grid grid-cols-2 gap-x-5 px-4 py-2">
               {items.map((it) => {
                 const { ltp, change, pct } = resolveQuote(quoteByToken.get(String(it.token)));
                 const up = pct >= 0;
@@ -216,42 +222,54 @@ export function MobileIndexStrip() {
                     key={it.token}
                     href={`/terminal?token=${it.token}`}
                     onClick={() => setOpen(false)}
-                    className="rounded-xl border border-border p-2.5"
+                    className="block"
                   >
-                    <div className="text-[11px] font-semibold text-muted-foreground">{it._short}</div>
-                    <div className="mt-0.5 font-tabular text-base font-bold tabular-nums">
+                    <div className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      {it._short}
+                    </div>
+                    <div className="mt-1 font-tabular text-xl font-bold tabular-nums text-foreground">
                       {ltp > 0 ? fmt(ltp) : "—"}
                     </div>
                     {ltp > 0 && (
                       <div
                         className={cn(
-                          "font-tabular text-[11px] font-semibold tabular-nums",
+                          "mt-0.5 flex items-baseline gap-2 font-tabular text-[12px] font-medium tabular-nums",
                           up ? "text-emerald-500" : "text-red-500",
                         )}
                       >
-                        {up ? "+" : ""}
-                        {change.toFixed(2)} ({up ? "+" : ""}
-                        {pct.toFixed(2)}%)
+                        <span>
+                          {up ? "+" : ""}
+                          {change.toFixed(2)}
+                        </span>
+                        <span>
+                          {up ? "+" : ""}
+                          {pct.toFixed(2)}%
+                        </span>
                       </div>
                     )}
-                    <Sparkline token={String(it.token)} open={open} up={up} />
+                    <Sparkline token={String(it.token)} open={open} />
                   </Link>
                 );
               })}
             </div>
+            <p className="px-4 pb-1 text-[11px] italic text-muted-foreground">
+              * Charts indicate 52 weeks trend
+            </p>
 
-            {/* Wallet balance */}
+            <div className="mx-4 my-2 border-t border-border" />
+
+            {/* Funds / wallet balance — plain block like Zerodha's "Funds" */}
             <Link
               href="/wallet"
               onClick={() => setOpen(false)}
-              className="mx-4 mb-4 mt-1 flex items-center justify-between rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5"
+              className="mx-4 mb-4 mt-1 block"
             >
-              <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <div className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
                 <Wallet className="size-4 text-primary" /> Available Balance
-              </span>
-              <span className="font-tabular text-sm font-bold tabular-nums text-primary">
+              </div>
+              <div className="mt-1 font-tabular text-lg font-bold tabular-nums text-primary">
                 {formatINR(balance)}
-              </span>
+              </div>
             </Link>
           </div>
         </>
