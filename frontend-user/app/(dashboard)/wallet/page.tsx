@@ -982,6 +982,9 @@ function TransactionsFeed({
   withdrawals: any[];
 }) {
   const [filter, setFilter] = useState<"all" | "in" | "out">("all");
+  // Show 15 at a time; "Load more" reveals the next 15. Reset when the
+  // filter chip changes so each tab starts at its first page.
+  const [visible, setVisible] = useState(15);
 
   const rows: FeedRow[] = (() => {
     const out: FeedRow[] = [];
@@ -1007,19 +1010,12 @@ function TransactionsFeed({
       } else if (tt === "ADJUSTMENT") {
         kind = amt >= 0 ? "admin_add" : "admin_deduct";
         if (!narration) narration = amt >= 0 ? "Admin credited funds" : "Admin debited funds";
-      } else if (tt === "PNL") {
-        kind = amt >= 0 ? "pnl_in" : "pnl_out";
-        if (!narration) narration = amt >= 0 ? "Trade profit" : "Trade loss";
-      } else if (tt === "CHARGES") {
-        kind = "charge";
-        if (!narration) narration = "Brokerage & charges";
-      } else if (tt === "SETTLEMENT_OUTSTANDING_BOOKED") {
-        kind = "shortfall";
-        if (!narration) narration = "Loss exceeded your balance — recorded as outstanding (owed)";
-      } else if (tt === "SETTLEMENT_OUTSTANDING_RECOVERY") {
-        kind = "charge";
-        if (!narration) narration = "Outstanding recovered from deposit";
       }
+      // Trade P&L, brokerage/charges and stop-out shortfall are deliberately
+      // NOT shown here — this page reads as "money in / money out" only
+      // (deposits, withdrawals, admin add/deduct). The full trade ledger with
+      // P&L + brokerage lives on /ledger and /reports. (Operator: wallet me
+      // sirf deposit/withdrawal dikhe, broker/pnl band.)
       if (!kind) continue;
       out.push({
         id: `txn-${t.id}`,
@@ -1106,7 +1102,7 @@ function TransactionsFeed({
         <div>
           <h2 className="text-base font-semibold">Transactions</h2>
           <p className="mt-0.5 text-[11px] text-muted-foreground">
-            Every deposit, trade P&amp;L, brokerage, withdrawal and adjustment — in order, with time.
+            Your deposits, withdrawals and admin adjustments — in order, with time.
           </p>
         </div>
         <div className="flex gap-1.5">
@@ -1114,7 +1110,10 @@ function TransactionsFeed({
             <button
               key={k}
               type="button"
-              onClick={() => setFilter(k)}
+              onClick={() => {
+                setFilter(k);
+                setVisible(15);
+              }}
               className={cn(
                 "h-8 rounded-full border px-3 text-[11px] font-semibold uppercase tracking-wider transition-colors",
                 filter === k
@@ -1144,11 +1143,24 @@ function TransactionsFeed({
           </div>
         </div>
       ) : (
-        <ul className="divide-y divide-border">
-          {filtered.map((r) => (
-            <FeedRowItem key={r.id} row={r} />
-          ))}
-        </ul>
+        <>
+          <ul className="divide-y divide-border">
+            {filtered.slice(0, visible).map((r) => (
+              <FeedRowItem key={r.id} row={r} />
+            ))}
+          </ul>
+          {filtered.length > visible && (
+            <div className="border-t border-border p-3">
+              <button
+                type="button"
+                onClick={() => setVisible((v) => v + 15)}
+                className="w-full rounded-xl border border-border py-2.5 text-sm font-semibold text-primary hover:bg-muted/40"
+              >
+                Load next 15 ({filtered.length - visible} more)
+              </button>
+            </div>
+          )}
+        </>
       )}
     </section>
   );

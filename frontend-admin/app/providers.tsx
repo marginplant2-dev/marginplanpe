@@ -48,7 +48,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
             // every visit. Combined with the prefetcher in the admin
             // layout, the second visit to any page is instant.
             gcTime: 30 * 60_000,
-            refetchOnWindowFocus: true,
+            // APK-like: do NOT refetch every query when the tab/PWA regains
+            // focus (alt-tab back, reopen on laptop) — that fired a refetch
+            // storm → visible "loading" flash on every return. Cached data
+            // paints instantly; live lists stay fresh via their own
+            // refetchInterval, and anything stale (>60 s) refetches on the
+            // next mount/navigation. Matches the user app.
+            refetchOnWindowFocus: false,
             refetchOnReconnect: true,
             refetchOnMount: true,
             // Paint the previous page's data while the new key fetches —
