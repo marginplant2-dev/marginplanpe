@@ -119,7 +119,7 @@ export default function DashboardPage() {
 
       {/* ── Hero portfolio card — mobile/tablet only ── */}
       <section
-        className="relative overflow-hidden rounded-[18px] p-[18px] pb-28 text-white shadow-xl lg:hidden"
+        className="relative overflow-hidden rounded-[18px] p-[18px] text-white shadow-xl lg:hidden"
         style={{
           background: "linear-gradient(135deg,#2563EB,#1D4ED8,#1E40AF)",
           boxShadow: "0 10px 28px rgba(29,78,216,0.35)",
@@ -203,19 +203,21 @@ export default function DashboardPage() {
           <span className="font-semibold">Today</span>
         </div>
 
-        {/* Bottom stats bar */}
+        {/* Bottom stats bar — normal flow (not absolute) so the card is only
+            as tall as its content; the old absolute bar forced a big pb-28 and
+            left ~30% dead space below. */}
         <div
-          className="absolute inset-x-3 bottom-2.5 flex items-center rounded-[15px] border py-2.5"
+          className="relative mt-3.5 flex items-center rounded-[14px] border py-2"
           style={{ background: "rgba(30,64,175,0.45)", borderColor: "rgba(255,255,255,0.08)" }}
         >
           <PfStat label="Invested" value={hideBalance ? "•••" : formatINR(wallet.used_margin ?? 0)} />
-          <div className="mx-auto h-8 w-px bg-white/15" />
+          <div className="h-7 w-px shrink-0 bg-white/15" />
           <PfStat
             label="Total P&L"
-            value={hideBalance ? "•••" : `${todayPnl >= 0 ? "+ " : "- "}${formatINR(Math.abs(todayPnl))}`}
+            value={hideBalance ? "•••" : `${todayPnl >= 0 ? "+" : "-"}${formatINR(Math.abs(todayPnl))}`}
             positive={todayPnl >= 0}
           />
-          <div className="mx-auto h-8 w-px bg-white/15" />
+          <div className="h-7 w-px shrink-0 bg-white/15" />
           <PfStat
             label="Available Margin"
             value={hideBalance ? "•••" : formatINR(wallet.available_free ?? wallet.available_balance ?? 0)}
@@ -518,12 +520,12 @@ function MiniStat({ label, value, hint }: { label: string; value: string; hint?:
 // Portfolio hero bottom-bar stat (white on the blue card).
 function PfStat({ label, value, positive }: { label: string; value: string; positive?: boolean }) {
   return (
-    <div className="flex-1 px-1 text-center">
-      <div className="text-[10px] font-medium" style={{ color: "#BFD1FF" }}>
+    <div className="min-w-0 flex-1 px-1 text-center">
+      <div className="truncate text-[9px] font-medium uppercase tracking-wide" style={{ color: "#BFD1FF" }}>
         {label}
       </div>
       <div
-        className="mt-0.5 font-tabular text-[13px] font-extrabold"
+        className="mt-0.5 whitespace-nowrap font-tabular text-[12px] font-bold leading-tight"
         style={{ color: positive ? "#22E6C3" : "#FFFFFF" }}
       >
         {value}
