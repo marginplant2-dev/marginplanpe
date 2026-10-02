@@ -26,15 +26,19 @@ interface Props {
 }
 
 // Segment tabs for the "Add scripts" screen. `admin` is the backend
-// segment-settings row used to hide a segment the pool disabled.
-type AddSeg = { key: string; label: string; segments: string; admin: string };
+// segment-settings row used to hide a segment the pool disabled. `managed`
+// marks the big Kite-backed Indian segments (thousands of contracts) which are
+// SEARCH-ONLY — nothing loads until the user types. The small Infoway feeds
+// (Forex / Crypto / Indices / Commodities / Stocks) are NOT managed: the whole
+// feed browses without searching, exactly like before.
+type AddSeg = { key: string; label: string; segments: string; admin: string; managed?: boolean };
 const ADD_SEGMENTS: AddSeg[] = [
-  { key: "nse_fut", label: "Futures", admin: "NSE_FUT", segments: "NSE_FUTURE,NSE_INDEX_FUTURE" },
-  { key: "nse_opt", label: "Options", admin: "NSE_OPT", segments: "NSE_INDEX_OPTION_BUY,NSE_INDEX_OPTION_SELL,NSE_STOCK_OPTION_BUY,NSE_STOCK_OPTION_SELL" },
-  { key: "nse_eq", label: "NSE EQ", admin: "NSE_EQ", segments: "NSE_EQUITY" },
-  { key: "bse_eq", label: "BSE EQ", admin: "BSE_EQ", segments: "BSE_EQUITY" },
-  { key: "mcx_fut", label: "MCX", admin: "MCX_FUT", segments: "MCX_FUTURE" },
-  { key: "mcx_opt", label: "MCX OPT", admin: "MCX_OPT", segments: "MCX_OPTION_BUY,MCX_OPTION_SELL" },
+  { key: "nse_fut", label: "Futures", admin: "NSE_FUT", segments: "NSE_FUTURE,NSE_INDEX_FUTURE", managed: true },
+  { key: "nse_opt", label: "Options", admin: "NSE_OPT", segments: "NSE_INDEX_OPTION_BUY,NSE_INDEX_OPTION_SELL,NSE_STOCK_OPTION_BUY,NSE_STOCK_OPTION_SELL", managed: true },
+  { key: "nse_eq", label: "NSE EQ", admin: "NSE_EQ", segments: "NSE_EQUITY", managed: true },
+  { key: "bse_eq", label: "BSE EQ", admin: "BSE_EQ", segments: "BSE_EQUITY", managed: true },
+  { key: "mcx_fut", label: "MCX", admin: "MCX_FUT", segments: "MCX_FUTURE", managed: true },
+  { key: "mcx_opt", label: "MCX OPT", admin: "MCX_OPT", segments: "MCX_OPTION_BUY,MCX_OPTION_SELL", managed: true },
   { key: "indices", label: "Indices", admin: "INDICES", segments: "INDICES" },
   { key: "forex", label: "Forex", admin: "FOREX", segments: "FOREX" },
   { key: "crypto", label: "Crypto", admin: "CRYPTO", segments: "CRYPTO_PERPETUAL,CRYPTO_SPOT,CRYPTO_FUTURE" },
@@ -46,6 +50,8 @@ export function MobileWatchlist({ activeToken, onSelect }: Props) {
   const qc = useQueryClient();
   const [selectedWlId, setSelectedWlId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [newName, setNewName] = useState("");
 
   const { data: watchlists } = useQuery({
     queryKey: ["watchlists"],
@@ -111,14 +117,16 @@ export function MobileWatchlist({ activeToken, onSelect }: Props) {
     }
   }
 
-  async function createWatchlist() {
-    const name = window.prompt("New watchlist name");
-    if (!name || !name.trim()) return;
+  async function createWatchlist(name: string) {
+    const n = name.trim();
+    if (!n) return;
     try {
-      const res = await MarketwatchAPI.create(name.trim());
+      const res = await MarketwatchAPI.create(n);
       await qc.invalidateQueries({ queryKey: ["watchlists"] });
       if (res?.id) setSelectedWlId(res.id);
-      toast.success(`Created "${name.trim()}"`, { duration: 1500 });
+      setNewName("");
+      setManageOpen(false);
+      toast.success(`Created "${n}"`, { duration: 1500 });
     } catch (e: any) {
       toast.error(e?.message || "Could not create watchlist");
     }
@@ -140,16 +148,14 @@ export function MobileWatchlist({ activeToken, onSelect }: Props) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {/* Watchlist selector — tabs per watchlist + create. */}
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-2 py-2">
+      {/* Watchlist selector — tabs (left) · small manage button · Add scripts. */}
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-2 py-2">
         <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {(watchlists ?? []).map((w: any) => (
             <button
               key={w.id}
               type="button"
               onClick={() => setSelectedWlId(w.id)}
-              onDoubleClick={() => deleteWatchlist(w.id, w.name)}
-              title="Double-tap to delete"
               className={cn(
                 "shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-[12px] font-bold transition-colors",
                 activeWl?.id === w.id
@@ -161,13 +167,23 @@ export function MobileWatchlist({ activeToken, onSelect }: Props) {
             </button>
           ))}
         </div>
+        {/* Small "manage / new watchlist" button. */}
         <button
           type="button"
-          onClick={createWatchlist}
-          aria-label="New watchlist"
-          className="grid size-8 shrink-0 place-items-center rounded-full border border-border text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+          onClick={() => setManageOpen(true)}
+          aria-label="Manage watchlists"
+          title="New / manage watchlists"
+          className="grid size-7 shrink-0 place-items-center rounded-full border border-border text-muted-foreground hover:bg-muted/40 hover:text-foreground"
         >
-          <Plus className="size-4" />
+          <Plus className="size-3.5" />
+        </button>
+        {/* Add scripts — primary action, top-right. */}
+        <button
+          type="button"
+          onClick={() => setAddOpen(true)}
+          className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground active:scale-95"
+        >
+          <Plus className="size-4" /> Add
         </button>
       </div>
 
@@ -245,16 +261,82 @@ export function MobileWatchlist({ activeToken, onSelect }: Props) {
         )}
       </div>
 
-      {/* Sticky Add-scripts button (Zerodha-style). */}
-      {rows.length > 0 && (
-        <div className="shrink-0 border-t border-border p-2.5">
-          <button
-            type="button"
-            onClick={() => setAddOpen(true)}
-            className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-sm font-bold text-primary-foreground active:scale-[0.99]"
+      {/* Manage / create watchlists modal. */}
+      {manageOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
+          onClick={() => setManageOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-t-2xl bg-card p-4 shadow-xl sm:rounded-2xl"
           >
-            <Plus className="size-4" /> Add scripts
-          </button>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-base font-bold">Watchlists</h3>
+              <button
+                type="button"
+                onClick={() => setManageOpen(false)}
+                aria-label="Close"
+                className="grid size-7 place-items-center rounded-full text-muted-foreground hover:bg-muted/40"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                createWatchlist(newName);
+              }}
+              className="mb-3 flex gap-2"
+            >
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="New watchlist name"
+                maxLength={30}
+                className="h-9 flex-1 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+              />
+              <button
+                type="submit"
+                disabled={!newName.trim()}
+                className="shrink-0 rounded-lg bg-primary px-3 text-sm font-bold text-primary-foreground disabled:opacity-40"
+              >
+                Create
+              </button>
+            </form>
+            <div className="max-h-60 space-y-0.5 overflow-y-auto">
+              {(watchlists ?? []).map((w: any) => (
+                <div
+                  key={w.id}
+                  className="flex items-center justify-between rounded-lg px-2 py-2 hover:bg-muted/40"
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedWlId(w.id);
+                      setManageOpen(false);
+                    }}
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                  >
+                    <span className="truncate text-sm font-medium">{w.name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {w.items?.length ?? 0}
+                    </span>
+                  </button>
+                  {(watchlists?.length ?? 0) > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => deleteWatchlist(w.id, w.name)}
+                      aria-label={`Delete ${w.name}`}
+                      className="grid size-7 shrink-0 place-items-center rounded text-muted-foreground hover:text-red-500"
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -310,12 +392,14 @@ function AddScriptsSheet({
   const seg = segments.find((s) => s.key === segKey) ?? segments[0];
 
   const hasSearch = debounced.trim().length > 0;
-  // Instruments appear only AFTER the user searches (on-demand) — the segment
-  // tab just scopes that search. Nothing is browse-loaded on open.
+  // Managed (big Indian) segments: load only after a search. Non-managed
+  // (small Infoway feeds): browse the whole feed with no search, like before.
+  const browse = !seg?.managed;
+  const showList = browse || hasSearch;
   const { data: hits, isFetching } = useQuery<any[]>({
     queryKey: ["add-scripts", seg?.segments, debounced],
-    queryFn: () => InstrumentAPI.search(debounced, undefined, seg?.segments, 50),
-    enabled: !!seg && hasSearch,
+    queryFn: () => InstrumentAPI.search(debounced || undefined, undefined, seg?.segments, 50),
+    enabled: !!seg && showList,
     staleTime: 60_000,
     placeholderData: (prev) => prev,
   });
@@ -411,7 +495,7 @@ function AddScriptsSheet({
 
       {/* Results — name-only picker with +/✓ */}
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin" style={{ WebkitOverflowScrolling: "touch" }}>
-        {!hasSearch ? (
+        {!showList ? (
           <div className="grid h-40 place-items-center px-6 text-center text-xs text-muted-foreground">
             Search a script in {seg?.label} to add it.
           </div>
