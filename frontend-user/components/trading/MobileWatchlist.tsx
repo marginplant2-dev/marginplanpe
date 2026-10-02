@@ -148,9 +148,9 @@ export function MobileWatchlist({ activeToken, onSelect }: Props) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {/* Watchlist selector — tabs (left) · small manage button · Add scripts. */}
+      {/* Watchlist selector — tabs + create (left) · Add scripts (right). */}
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-2 py-2">
-        <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {(watchlists ?? []).map((w: any) => (
             <button
               key={w.id}
@@ -166,24 +166,24 @@ export function MobileWatchlist({ activeToken, onSelect }: Props) {
               {w.name}
             </button>
           ))}
+          {/* Create / manage watchlists — sits right after the tabs. */}
+          <button
+            type="button"
+            onClick={() => setManageOpen(true)}
+            aria-label="New watchlist"
+            title="New / manage watchlists"
+            className="grid size-7 shrink-0 place-items-center rounded-full border border-dashed border-border text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+          >
+            <Plus className="size-3.5" />
+          </button>
         </div>
-        {/* Small "manage / new watchlist" button. */}
-        <button
-          type="button"
-          onClick={() => setManageOpen(true)}
-          aria-label="Manage watchlists"
-          title="New / manage watchlists"
-          className="grid size-7 shrink-0 place-items-center rounded-full border border-border text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-        >
-          <Plus className="size-3.5" />
-        </button>
         {/* Add scripts — primary action, top-right. */}
         <button
           type="button"
           onClick={() => setAddOpen(true)}
-          className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground active:scale-95"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3.5 py-2 text-[13px] font-bold text-primary-foreground shadow-sm active:scale-95"
         >
-          <Plus className="size-4" /> Add
+          <Plus className="size-4" /> Add scripts
         </button>
       </div>
 
@@ -269,72 +269,89 @@ export function MobileWatchlist({ activeToken, onSelect }: Props) {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm rounded-t-2xl bg-card p-4 shadow-xl sm:rounded-2xl"
+            className="max-h-[80vh] w-full max-w-md overflow-hidden rounded-t-3xl bg-card shadow-2xl sm:rounded-3xl"
           >
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-base font-bold">Watchlists</h3>
+            {/* Grabber + header */}
+            <div className="flex flex-col items-center pt-2.5 sm:hidden">
+              <span className="h-1 w-10 rounded-full bg-muted-foreground/30" />
+            </div>
+            <div className="flex items-center justify-between px-5 pb-1 pt-3">
+              <h3 className="text-lg font-bold">My Watchlists</h3>
               <button
                 type="button"
                 onClick={() => setManageOpen(false)}
                 aria-label="Close"
-                className="grid size-7 place-items-center rounded-full text-muted-foreground hover:bg-muted/40"
+                className="grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-muted/40"
               >
-                <X className="size-4" />
+                <X className="size-5" />
               </button>
             </div>
+            <p className="px-5 pb-3 text-xs text-muted-foreground">
+              Create a new list or switch between them.
+            </p>
+
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 createWatchlist(newName);
               }}
-              className="mb-3 flex gap-2"
+              className="flex gap-2 px-5 pb-4"
             >
               <input
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="New watchlist name"
                 maxLength={30}
-                className="h-9 flex-1 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+                className="h-11 flex-1 rounded-xl border border-border bg-background px-3.5 text-sm outline-none focus:border-primary"
               />
               <button
                 type="submit"
                 disabled={!newName.trim()}
-                className="shrink-0 rounded-lg bg-primary px-3 text-sm font-bold text-primary-foreground disabled:opacity-40"
+                className="shrink-0 rounded-xl bg-primary px-5 text-sm font-bold text-primary-foreground disabled:opacity-40"
               >
                 Create
               </button>
             </form>
-            <div className="max-h-60 space-y-0.5 overflow-y-auto">
-              {(watchlists ?? []).map((w: any) => (
-                <div
-                  key={w.id}
-                  className="flex items-center justify-between rounded-lg px-2 py-2 hover:bg-muted/40"
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedWlId(w.id);
-                      setManageOpen(false);
-                    }}
-                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+
+            <div className="max-h-[42vh] space-y-1 overflow-y-auto px-3 pb-6">
+              {(watchlists ?? []).map((w: any) => {
+                const active = activeWl?.id === w.id;
+                return (
+                  <div
+                    key={w.id}
+                    className={cn(
+                      "flex items-center justify-between rounded-xl px-3 py-3 transition-colors",
+                      active ? "bg-primary/10" : "hover:bg-muted/40",
+                    )}
                   >
-                    <span className="truncate text-sm font-medium">{w.name}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {w.items?.length ?? 0}
-                    </span>
-                  </button>
-                  {(watchlists?.length ?? 0) > 1 && (
                     <button
                       type="button"
-                      onClick={() => deleteWatchlist(w.id, w.name)}
-                      aria-label={`Delete ${w.name}`}
-                      className="grid size-7 shrink-0 place-items-center rounded text-muted-foreground hover:text-red-500"
+                      onClick={() => {
+                        setSelectedWlId(w.id);
+                        setManageOpen(false);
+                      }}
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
                     >
-                      <Trash2 className="size-4" />
+                      <span className={cn("truncate text-sm font-semibold", active && "text-primary")}>
+                        {w.name}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                        {w.items?.length ?? 0}
+                      </span>
                     </button>
-                  )}
-                </div>
-              ))}
+                    {(watchlists?.length ?? 0) > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => deleteWatchlist(w.id, w.name)}
+                        aria-label={`Delete ${w.name}`}
+                        className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-red-500/10 hover:text-red-500"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
