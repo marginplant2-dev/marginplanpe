@@ -905,8 +905,8 @@ export default function BrokersPage() {
                                 <td className="px-3 py-2 text-right font-tabular tabular-nums">{t.opening_quantity ?? t.quantity}</td>
                                 <td className="px-3 py-2 text-right font-tabular tabular-nums">{cur}{t.avg_price}</td>
                                 <td className="px-3 py-2 text-right font-tabular tabular-nums">{cur}{t.ltp}</td>
-                                <td className={cn("px-3 py-2 text-right font-tabular font-semibold tabular-nums", pnl >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
-                                  {pnl >= 0 ? "+" : ""}{formatINR(pnl)}
+                                <td className={cn("whitespace-nowrap px-3 py-2 text-right font-tabular font-semibold tabular-nums", pnl >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                                  {pnl >= 0 ? "+" : "-"}{formatINR(Math.abs(pnl))}
                                 </td>
                                 <td className="px-3 py-2 text-right font-tabular tabular-nums text-muted-foreground">{formatINR(Number(t.charges ?? 0))}</td>
                               </tr>

@@ -534,6 +534,23 @@ async def broker_report(broker_id: str, actor: CurrentAdmin):
         wallet_sum["total_withdrawals"] += to_decimal(w.total_withdrawals)
         wallet_sum["total_brokerage"] += to_decimal(w.total_brokerage)
 
+    # Wallet.total_brokerage isn't reliably incremented per fill, so the
+    # headline box always read ₹0 even when every trade row showed brokerage.
+    # Sum it straight off the Trade ledger instead — matches the per-row
+    # Brokerage column (Trade.brokerage == total_charges).
+    brok_agg = (
+        await Trade.get_motor_collection()
+        .aggregate(
+            [
+                {"$match": {"user_id": {"$in": pool}}},
+                {"$group": {"_id": None, "total": {"$sum": {"$toDecimal": "$brokerage"}}}},
+            ]
+        )
+        .to_list(1)
+    )
+    if brok_agg and brok_agg[0].get("total") is not None:
+        wallet_sum["total_brokerage"] = to_decimal(brok_agg[0]["total"])
+
     from app.services import market_data_service
     fallback_usd_inr = to_decimal(market_data_service.get_usd_inr_rate())
 
