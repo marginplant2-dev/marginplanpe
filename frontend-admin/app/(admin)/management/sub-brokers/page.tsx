@@ -1,92 +1,107 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { Search, Users } from "lucide-react";
 import { BrokerMgmtAPI } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/common/PageHeader";
-import { DataTable, type Column } from "@/components/common/DataTable";
 import { StatusPill } from "@/components/common/StatusPill";
 import { useAdminAuthStore } from "@/stores/authStore";
+import { cn } from "@/lib/utils";
 
 /**
- * Super-admin Sub-Brokers section: every broker across every admin pool, so the
- * super-admin can see how many brokers/sub-brokers exist, under which admin, and
- * how many users each carries. Read-only roll-up — broker CRUD stays on the
- * per-admin Brokers page. Drill into a broker's users via the All Users page's
- * Admin → Broker filter.
+ * Super-admin Sub-Brokers section: every broker across every admin pool, in a
+ * master-detail layout (mirrors the per-admin Brokers page). Read-only roll-up
+ * — click a broker on the left, its profile + permissions open on the right.
  */
+
+const PERMISSION_LABELS: Array<{ key: string; label: string }> = [
+  { key: "users", label: "Users" },
+  { key: "kyc", label: "KYC review" },
+  { key: "deposits", label: "Deposits" },
+  { key: "withdrawals", label: "Withdrawals" },
+  { key: "banks", label: "Bank accounts" },
+  { key: "segment_settings", label: "Segment settings" },
+  { key: "risk", label: "Risk management" },
+  { key: "netting", label: "Netting overrides" },
+  { key: "trading_view", label: "Positions & Orders" },
+  { key: "ledger", label: "Ledger" },
+  { key: "reports", label: "Reports" },
+  { key: "brokerage", label: "Brokerage" },
+  { key: "sub_brokers", label: "Sub-brokers" },
+  { key: "bonuses", label: "Bonuses" },
+  { key: "user_password", label: "Change password" },
+  { key: "support", label: "Support" },
+];
+
+function fmtDate(v: unknown): string {
+  if (!v) return "—";
+  const s = String(v);
+  const d = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : s + "Z");
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+function Field({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="mt-0.5 truncate font-semibold">{value ?? "—"}</div>
+    </div>
+  );
+}
+
+function PermChip({ label, level }: { label: string; level: string }) {
+  const lv = String(level || "OFF").toUpperCase();
+  const tone =
+    lv === "EDIT"
+      ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+      : lv === "VIEW"
+        ? "bg-blue-500/12 text-blue-600 dark:text-blue-400 border-blue-500/20"
+        : "bg-muted text-muted-foreground border-border";
+  return (
+    <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium", tone)}>
+      {label} · {lv}
+    </span>
+  );
+}
+
 export default function SubBrokersPage() {
   const me = useAdminAuthStore((s) => s.admin);
   const isSuperAdmin = me?.role === "SUPER_ADMIN";
   const [q, setQ] = useState("");
-  // "" = all brokers, "sub" = only true sub-brokers (a broker under a broker).
   const [scope, setScope] = useState<"" | "sub">("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { data, isFetching } = useQuery({
     queryKey: ["admin", "sub-brokers", { q, scope }],
     queryFn: () =>
-      BrokerMgmtAPI.listAll({
-        q: q || undefined,
-        sub_only: scope === "sub",
-        page: 1,
-        page_size: 200,
-      }),
+      BrokerMgmtAPI.listAll({ q: q || undefined, sub_only: scope === "sub", page: 1, page_size: 200 }),
     enabled: isSuperAdmin,
   });
 
-  const total = data?.meta?.total ?? 0;
+  const items: any[] = data?.items ?? [];
+  const total = data?.meta?.total ?? items.length;
 
-  const columns: Column<any>[] = [
-    { key: "code", header: "Code", render: (r) => <span className="font-mono text-xs">{r.user_code}</span> },
-    {
-      key: "name",
-      header: "Name",
-      render: (r) => (
-        <div className="min-w-0">
-          <div className="truncate font-medium">{r.full_name || "—"}</div>
-          <div className="truncate text-xs text-muted-foreground">{r.email}</div>
-        </div>
-      ),
-    },
-    { key: "mobile", header: "Mobile", render: (r) => <span className="text-xs">{r.mobile || "—"}</span> },
-    {
-      key: "type",
-      header: "Type",
-      render: (r) =>
-        r.is_sub ? (
-          <span className="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-400">
-            Sub-broker{r.parent_broker_name ? ` · ${r.parent_broker_name}` : ""}
-          </span>
-        ) : (
-          <span className="inline-flex items-center rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-medium text-blue-400">
-            Broker
-          </span>
-        ),
-    },
-    { key: "admin", header: "Admin", render: (r) => <span className="text-xs">{r.assigned_admin_name || "Platform"}</span> },
-    {
-      key: "users",
-      header: "Users",
-      align: "right",
-      render: (r) => (
-        <span className="font-tabular tabular-nums text-xs">
-          {r.user_count}
-          {r.subtree_user_count != null && r.subtree_user_count !== r.user_count
-            ? ` (${r.subtree_user_count} total)`
-            : ""}
-        </span>
-      ),
-    },
-    {
-      key: "pnl",
-      header: "P&L share",
-      align: "right",
-      render: (r) => <span className="font-tabular tabular-nums text-xs">{r.pnl_share_pct ?? "0"}%</span>,
-    },
-    { key: "status", header: "Status", render: (r) => <StatusPill status={r.status} /> },
-  ];
+  // Auto-select the first broker when the list changes and nothing valid is picked.
+  useEffect(() => {
+    if (items.length === 0) {
+      setSelectedId(null);
+    } else if (!selectedId || !items.some((b) => b.id === selectedId)) {
+      setSelectedId(items[0].id);
+    }
+  }, [items, selectedId]);
+
+  const selected = useMemo(() => items.find((b) => b.id === selectedId) ?? null, [items, selectedId]);
 
   if (!isSuperAdmin) {
     return (
@@ -101,69 +116,151 @@ export default function SubBrokersPage() {
     <div className="space-y-4">
       <PageHeader
         title="Sub-Brokers"
-        description={`${total} broker${total === 1 ? "" : "s"} across all admin pools${
-          scope === "sub" ? " (sub-brokers only)" : ""
-        }`}
+        description="Every broker across all admin pools — select one to see its details."
+        actions={
+          <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1.5 text-sm font-semibold text-primary">
+            {total} total
+          </span>
+        }
       />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[220px]">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search code / email / mobile / name"
-            className="pl-9"
-          />
-        </div>
-        <select
-          value={scope}
-          onChange={(e) => setScope(e.target.value as "" | "sub")}
-          className="h-10 rounded-md border border-border bg-background px-3 text-sm"
-        >
-          <option value="">All brokers</option>
-          <option value="sub">Sub-brokers only</option>
-        </select>
-      </div>
-
-      {/* Desktop table */}
-      <div className="hidden md:block">
-        <DataTable
-          columns={columns}
-          rows={data?.items}
-          keyExtractor={(r) => r.id}
-          loading={isFetching && !data}
-          empty="No brokers found."
-        />
-      </div>
-
-      {/* Mobile cards */}
-      <div className="space-y-2 md:hidden">
-        {(data?.items ?? []).map((r: any) => (
-          <div key={r.id} className="rounded-lg border border-border bg-card p-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="truncate font-medium">{r.full_name || "—"}</div>
-                <div className="truncate font-mono text-xs text-muted-foreground">{r.user_code}</div>
-              </div>
-              <StatusPill status={r.status} />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[340px_1fr]">
+        {/* ── Left: search + list ── */}
+        <div className="rounded-xl border border-border bg-card">
+          <div className="space-y-2 border-b border-border p-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Code, name, email, mobile…"
+                className="pl-9"
+              />
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-              <span>{r.is_sub ? `Sub-broker${r.parent_broker_name ? ` · ${r.parent_broker_name}` : ""}` : "Broker"}</span>
-              <span>Admin: {r.assigned_admin_name || "Platform"}</span>
-              <span>
-                Users: {r.user_count}
-                {r.subtree_user_count != null && r.subtree_user_count !== r.user_count
-                  ? ` (${r.subtree_user_count} total)`
-                  : ""}
-              </span>
-              <span>P&L {r.pnl_share_pct ?? "0"}%</span>
-            </div>
+            <select
+              value={scope}
+              onChange={(e) => setScope(e.target.value as "" | "sub")}
+              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+            >
+              <option value="">All brokers</option>
+              <option value="sub">Sub-brokers only</option>
+            </select>
+            <div className="text-xs text-muted-foreground">{items.length} shown</div>
           </div>
-        ))}
-        {!isFetching && (data?.items ?? []).length === 0 && (
-          <p className="text-sm text-muted-foreground">No brokers found.</p>
-        )}
+
+          <div className="max-h-[70vh] overflow-y-auto p-2">
+            {items.map((b) => {
+              const active = b.id === selectedId;
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => setSelectedId(b.id)}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors",
+                    active ? "bg-primary/10" : "hover:bg-muted/50",
+                  )}
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={cn(
+                          "size-1.5 shrink-0 rounded-full",
+                          String(b.status).toUpperCase() === "ACTIVE" ? "bg-emerald-500" : "bg-muted-foreground",
+                        )}
+                      />
+                      <span className="truncate font-semibold">{b.full_name || b.user_code}</span>
+                      {b.is_sub && (
+                        <span className="shrink-0 rounded bg-amber-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase text-amber-500">
+                          Sub
+                        </span>
+                      )}
+                    </div>
+                    <div className="truncate font-mono text-xs text-muted-foreground">{b.user_code}</div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="font-tabular text-sm font-bold tabular-nums">{b.user_count ?? 0}</div>
+                    <div className="text-[10px] text-muted-foreground">users</div>
+                  </div>
+                </button>
+              );
+            })}
+            {!isFetching && items.length === 0 && (
+              <p className="py-8 text-center text-sm text-muted-foreground">No brokers found.</p>
+            )}
+          </div>
+        </div>
+
+        {/* ── Right: selected broker detail ── */}
+        <div className="rounded-xl border border-border bg-card">
+          {!selected ? (
+            <div className="flex h-full min-h-[300px] items-center justify-center text-sm text-muted-foreground">
+              Select a broker to see details.
+            </div>
+          ) : (
+            <div className="p-4 sm:p-6">
+              {/* Header */}
+              <div className="flex flex-wrap items-center gap-3">
+                <h2 className="text-xl font-bold">{selected.full_name || selected.user_code}</h2>
+                <StatusPill status={selected.status} />
+                {selected.is_sub && (
+                  <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-500">
+                    Sub-broker
+                  </span>
+                )}
+              </div>
+              <div className="mt-0.5 font-mono text-xs text-muted-foreground">{selected.user_code}</div>
+
+              {/* Account details */}
+              <div className="mt-5 rounded-xl border border-border p-4">
+                <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Account Details
+                </div>
+                <div className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
+                  <Field label="Code" value={selected.user_code} />
+                  <Field label="Name" value={selected.full_name} />
+                  <Field label="Email" value={selected.email} />
+                  <Field label="Mobile" value={selected.mobile} />
+                  <Field label="Type" value={selected.is_sub ? "Sub-broker" : "Broker"} />
+                  <Field label="Admin pool" value={selected.assigned_admin_name || "Platform"} />
+                  {selected.is_sub && (
+                    <Field label="Parent broker" value={selected.parent_broker_name || "—"} />
+                  )}
+                  <Field label="PnL share" value={`${selected.pnl_share_pct ?? "0"}%`} />
+                  <Field label="Brokerage share" value={`${selected.brokerage_share_pct ?? "0"}%`} />
+                  <Field
+                    label="Direct users"
+                    value={
+                      <span className="inline-flex items-center gap-1">
+                        <Users className="size-3.5 text-muted-foreground" />
+                        {selected.user_count ?? 0}
+                      </span>
+                    }
+                  />
+                  <Field label="Subtree users" value={selected.subtree_user_count ?? selected.user_count ?? 0} />
+                  <Field label="Online payment" value={selected.payment_gateway_enabled ? "On" : "Off"} />
+                  <Field label="Created" value={fmtDate(selected.created_at)} />
+                </div>
+              </div>
+
+              {/* Permissions */}
+              <div className="mt-4 rounded-xl border border-border p-4">
+                <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Permissions
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {PERMISSION_LABELS.map((p) => (
+                    <PermChip
+                      key={p.key}
+                      label={p.label}
+                      level={(selected.permissions && selected.permissions[p.key]) || "OFF"}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
