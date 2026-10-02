@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ThemeToggle } from "@/components/common/ThemeToggle";
 import { BrandLogo } from "@/components/layout/BrandLogo";
+import { MobileIndexStrip } from "@/components/layout/MobileIndexStrip";
 import { NAV_ITEMS } from "@/components/layout/Sidebar";
 import { cn, formatINR } from "@/lib/utils";
 import { readWalletSnapshot, writeWalletSnapshot } from "@/lib/walletSnapshot";
@@ -79,9 +80,10 @@ export function TopBar() {
         height: "calc(3.5rem + env(safe-area-inset-top))",
       }}
     >
-      {/* Mobile-only brand (sidebar is hidden ≤ md) */}
-      <div className="md:hidden">
-        <BrandLogo size="sm" />
+      {/* Mobile: Zerodha-style live index strip (NIFTY 50 / NIFTY BANK) in
+          place of the brand/wallet/bell. Desktop keeps the brand below. */}
+      <div className="flex min-w-0 flex-1 md:hidden">
+        <MobileIndexStrip />
       </div>
 
       {/* Desktop (lg+) brand — sidebar is hidden at lg, so the logo lives
@@ -136,7 +138,7 @@ export function TopBar() {
           the user doesn't briefly think their wallet is empty. */}
       <Link
         href="/wallet"
-        className="ml-auto inline-flex max-w-[55vw] items-center gap-1.5 truncate rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/10 sm:max-w-none sm:gap-2 sm:px-3"
+        className="ml-auto hidden max-w-[55vw] items-center gap-1.5 truncate rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/10 md:inline-flex sm:max-w-none sm:gap-2 sm:px-3"
       >
         <Wallet className="size-3.5 shrink-0" />
         <span className="hidden text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:inline">
@@ -156,8 +158,9 @@ export function TopBar() {
           unless the super-admin turned it ON with a URL in Platform Settings. */}
       <PromoButton />
 
-      {/* Notification bell — visible on mobile + desktop. */}
-      <Button variant="ghost" size="icon" aria-label="Notifications" asChild>
+      {/* Notification bell — desktop only (mobile header is the index strip
+          + support; notifications live in the Profile tab on phones). */}
+      <Button variant="ghost" size="icon" aria-label="Notifications" asChild className="hidden md:inline-flex">
         <Link href="/notifications">
           <Bell className="size-4" />
         </Link>
