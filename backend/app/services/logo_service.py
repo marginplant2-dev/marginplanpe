@@ -198,17 +198,27 @@ async def _fetch_svg(client: httpx.AsyncClient, url: str) -> bytes | None:
 
 
 async def _tv_logoid(client: httpx.AsyncClient, symbol: str) -> str | None:
-    try:
-        r = await client.get(
-            _TV_SEARCH,
-            params={"text": symbol, "exchange": "NSE", "search_type": "stocks"},
-            headers={"Origin": "https://www.tradingview.com", "User-Agent": _UA},
-        )
-        if r.status_code != 200:
-            return None
-        return parse_tv_logoid(r.json(), symbol)
-    except Exception:
-        return None
+    # 1) NSE stocks first (disambiguates Indian equities), then 2) a general
+    #    search (no exchange/type) so forex, metals (XAUUSD→metal/gold),
+    #    commodities (USOIL→crude-oil), crypto (BTCUSD→crypto/XTVCBTC) and global
+    #    indices (NAS100→indices/nasdaq-100) resolve too — all exact-match only.
+    for params in (
+        {"text": symbol, "exchange": "NSE", "search_type": "stocks"},
+        {"text": symbol},
+    ):
+        try:
+            r = await client.get(
+                _TV_SEARCH,
+                params=params,
+                headers={"Origin": "https://www.tradingview.com", "User-Agent": _UA},
+            )
+            if r.status_code == 200:
+                logoid = parse_tv_logoid(r.json(), symbol)
+                if logoid:
+                    return logoid
+        except Exception:
+            continue
+    return None
 
 
 async def get_logo_svg(symbol: str) -> bytes | None:

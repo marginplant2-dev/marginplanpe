@@ -112,7 +112,10 @@ export function InstrumentIcon({
   if (isForex && sym.length >= 6) {
     const base = CCY_FLAG[sym.slice(0, 3)];
     const quote = CCY_FLAG[sym.slice(3, 6)];
-    if (base || quote) {
+    // BOTH sides must be real currencies for the two-flag pair icon. A metal
+    // (XAUUSD) or odd symbol falls through to the logo proxy, which returns
+    // TradingView's real icon (metal/gold, crude-oil, …).
+    if (base && quote) {
       const flag = (cc: string, z: number, shift: number) => (
         <img
           src={`https://flagcdn.com/w40/${cc}.png`}
