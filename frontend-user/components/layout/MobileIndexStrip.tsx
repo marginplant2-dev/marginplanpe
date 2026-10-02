@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, Wallet, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Wallet } from "lucide-react";
 import { InstrumentAPI, WalletAPI } from "@/lib/api";
 import { useMarketStream } from "@/lib/useMarketStream";
 import { cn, formatINR } from "@/lib/utils";
@@ -188,27 +188,23 @@ export function MobileIndexStrip() {
 
       {open && (
         <>
-          {/* Backdrop — starts BELOW the header so the index strip stays clear
-              (not dimmed) and the sheet connects flush to it, no dark gap. */}
+          {/* Backdrop behind the sheet. */}
+          <div className="fixed inset-0 z-30 bg-black/30" onClick={() => setOpen(false)} />
+          {/* Sheet covers the header strip from the top so the indices aren't
+              shown twice; the ^ in its header closes it back to the strip. */}
           <div
-            className="fixed inset-x-0 bottom-0 z-30 bg-black/30"
-            style={{ top: "calc(3.5rem + env(safe-area-inset-top))" }}
-            onClick={() => setOpen(false)}
-          />
-          {/* Sheet, flush under the header strip */}
-          <div
-            className="fixed inset-x-0 z-40 max-h-[70vh] overflow-y-auto rounded-b-2xl bg-card shadow-xl"
-            style={{ top: "calc(3.5rem + env(safe-area-inset-top))" }}
+            className="fixed inset-x-0 z-40 max-h-[80vh] overflow-y-auto rounded-b-2xl bg-card shadow-xl"
+            style={{ top: "env(safe-area-inset-top)" }}
           >
             <div className="flex items-center justify-between px-4 pb-1 pt-3">
               <span className="text-sm font-bold">Overview</span>
               <button
                 type="button"
-                aria-label="Close"
+                aria-label="Close overview"
                 onClick={() => setOpen(false)}
                 className="grid size-7 place-items-center rounded-full text-muted-foreground hover:bg-muted/50"
               >
-                <X className="size-4" />
+                <ChevronUp className="size-5" />
               </button>
             </div>
 
