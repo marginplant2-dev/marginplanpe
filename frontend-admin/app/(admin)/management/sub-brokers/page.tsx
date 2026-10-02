@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Users } from "lucide-react";
+import { Search, Users, CornerDownRight } from "lucide-react";
 import { BrokerMgmtAPI } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -78,15 +78,52 @@ function PermChip({ label, level }: { label: string; level: string }) {
 export default function SubBrokersPage() {
   const me = useAdminAuthStore((s) => s.admin);
   const isSuperAdmin = me?.role === "SUPER_ADMIN";
+  const isAdmin = me?.role === "ADMIN";
+  const isBroker = me?.role === "BROKER";
+  const canView = isSuperAdmin || isAdmin || isBroker;
   const [q, setQ] = useState("");
-  const [scope, setScope] = useState<"" | "sub">("");
+  // Super-admin defaults to "all brokers" (the cross-pool roll-up); an admin /
+  // broker defaults to "sub-brokers only" since that's the whole point of this
+  // section for them.
+  const [scope, setScope] = useState<"" | "sub">(isSuperAdmin ? "" : "sub");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { data, isFetching } = useQuery({
-    queryKey: ["admin", "sub-brokers", { q, scope }],
-    queryFn: () =>
-      BrokerMgmtAPI.listAll({ q: q || undefined, sub_only: scope === "sub", page: 1, page_size: 200 }),
-    enabled: isSuperAdmin,
+    queryKey: ["admin", "sub-brokers", { q, scope, role: me?.role }],
+    queryFn: async () => {
+      // Super-admin: cross-pool roll-up (every broker across every admin pool).
+      if (isSuperAdmin) {
+        return BrokerMgmtAPI.listAll({
+          q: q || undefined,
+          sub_only: scope === "sub",
+          page: 1,
+          page_size: 200,
+        });
+      }
+      // Admin / broker: their OWN pool's brokers + sub-brokers. The list carries
+      // `assigned_broker_id` per broker; a sub-broker is one with that set, and
+      // its parent name is resolved from the same list (no extra request).
+      const res = await BrokerMgmtAPI.list({
+        q: q || undefined,
+        include_sub: true,
+        page: 1,
+        page_size: 200,
+      });
+      const all: any[] = res?.items ?? [];
+      const idToName = new Map<string, string>(
+        all.map((b) => [String(b.id), b.full_name || b.user_code]),
+      );
+      const enriched = all.map((b) => ({
+        ...b,
+        is_sub: !!b.assigned_broker_id,
+        parent_broker_name: b.assigned_broker_id
+          ? idToName.get(String(b.assigned_broker_id)) ?? null
+          : null,
+      }));
+      const filtered = scope === "sub" ? enriched.filter((b) => b.is_sub) : enriched;
+      return { items: filtered, meta: { total: filtered.length } };
+    },
+    enabled: canView,
   });
 
   const items: any[] = data?.items ?? [];
@@ -103,11 +140,11 @@ export default function SubBrokersPage() {
 
   const selected = useMemo(() => items.find((b) => b.id === selectedId) ?? null, [items, selectedId]);
 
-  if (!isSuperAdmin) {
+  if (!canView) {
     return (
       <div className="space-y-4">
         <PageHeader title="Sub-Brokers" />
-        <p className="text-sm text-muted-foreground">This section is available to the super-admin only.</p>
+        <p className="text-sm text-muted-foreground">You don't have access to this section.</p>
       </div>
     );
   }
@@ -116,7 +153,11 @@ export default function SubBrokersPage() {
     <div className="space-y-4">
       <PageHeader
         title="Sub-Brokers"
-        description="Every broker across all admin pools — select one to see its details."
+        description={
+          isSuperAdmin
+            ? "Every broker across all admin pools — select one to see its details."
+            : "Your brokers' sub-brokers — each shows the broker it sits under."
+        }
         actions={
           <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1.5 text-sm font-semibold text-primary">
             {total} total
@@ -177,6 +218,13 @@ export default function SubBrokersPage() {
                       )}
                     </div>
                     <div className="truncate font-mono text-xs text-muted-foreground">{b.user_code}</div>
+                    {/* Highlight which broker this sub-broker sits under. */}
+                    {b.is_sub && b.parent_broker_name && (
+                      <div className="mt-1 inline-flex max-w-full items-center gap-1 truncate rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                        <CornerDownRight className="size-3 shrink-0" />
+                        <span className="truncate">under {b.parent_broker_name}</span>
+                      </div>
+                    )}
                   </div>
                   <div className="shrink-0 text-right">
                     <div className="font-tabular text-sm font-bold tabular-nums">{b.user_count ?? 0}</div>
@@ -222,9 +270,19 @@ export default function SubBrokersPage() {
                   <Field label="Email" value={selected.email} />
                   <Field label="Mobile" value={selected.mobile} />
                   <Field label="Type" value={selected.is_sub ? "Sub-broker" : "Broker"} />
-                  <Field label="Admin pool" value={selected.assigned_admin_name || "Platform"} />
+                  {isSuperAdmin && (
+                    <Field label="Admin pool" value={selected.assigned_admin_name || "Platform"} />
+                  )}
                   {selected.is_sub && (
-                    <Field label="Parent broker" value={selected.parent_broker_name || "—"} />
+                    <Field
+                      label="Parent broker"
+                      value={
+                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-primary">
+                          <CornerDownRight className="size-3" />
+                          {selected.parent_broker_name || "—"}
+                        </span>
+                      }
+                    />
                   )}
                   <Field label="PnL share" value={`${selected.pnl_share_pct ?? "0"}%`} />
                   <Field label="Brokerage share" value={`${selected.brokerage_share_pct ?? "0"}%`} />
