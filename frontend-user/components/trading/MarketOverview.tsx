@@ -348,7 +348,7 @@ function MarketRow({
           symbol={item._short ?? item.symbol}
           isCrypto={/^CRYPTO/i.test(item.segment || "")}
           isForex={/^FOREX/i.test(item.segment || "")}
-          size={40}
+          size={34}
         />
 
         {/* Symbol + name */}

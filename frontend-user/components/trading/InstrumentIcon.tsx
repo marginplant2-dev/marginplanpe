@@ -136,6 +136,10 @@ export function InstrumentIcon({
     }
   }
 
+  // Spot metals (gold/silver/platinum/palladium) have no real logo — the proxy
+  // returns a generic placeholder glyph. Show a clean letter avatar instead.
+  if (/^(XAU|XAG|XPT|XPD|GOLD|SILVER|PLATIN|PALLAD)/.test(sym)) return letter(className);
+
   // Stock / index — real company logo over the letter avatar.
   const wantLogo = LOGO_SYMBOL_RE.test(sym) && !failedLogos.has(sym);
   if (!wantLogo) return letter(className);

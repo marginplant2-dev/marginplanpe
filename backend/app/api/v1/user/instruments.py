@@ -860,17 +860,17 @@ def _yahoo_symbol_for(token: str) -> str | None:
         if t.startswith(pref):
             t = t[len(pref):]
             break
+    # Spot metals FIRST — these are 6-alpha ending in "USD" so the forex
+    # branch below would otherwise grab them and return "XAUUSD=X", which Yahoo
+    # 404s ("delisted"). Yahoo only has the COMEX futures contract (GC=F etc.);
+    # `_align_candles_to_live` shifts that series onto the live tradeable scale.
+    _METAL_FUT = {"XAUUSD": "GC=F", "XAGUSD": "SI=F", "XPTUSD": "PL=F", "XPDUSD": "PA=F"}
+    if t in _METAL_FUT:
+        return _METAL_FUT[t]
     # Yahoo forex symbols are 6 alpha chars + "=X".
     if len(t) == 6 and t.isalpha():
         if t in _YAHOO_FX_PAIRS or t.endswith("USD") or t.startswith("USD") or t.endswith("INR"):
             return f"{t}=X"
-    # Spot metals: Yahoo has NO spot "XAUUSD=X" symbol (returns 404 "delisted")
-    # — it serves the COMEX futures contract instead (GC=F etc.). We chart off
-    # that and `_align_candles_to_live` shifts the series onto the live
-    # tradeable scale so it matches the BUY/SELL price.
-    _METAL_FUT = {"XAUUSD": "GC=F", "XAGUSD": "SI=F", "XPTUSD": "PL=F", "XPDUSD": "PA=F"}
-    if t in _METAL_FUT:
-        return _METAL_FUT[t]
     return None
 
 
