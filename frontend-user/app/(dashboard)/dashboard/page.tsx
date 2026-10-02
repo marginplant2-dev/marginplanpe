@@ -25,7 +25,6 @@ import { DashboardAPI, OrderAPI, PositionAPI, WalletAPI } from "@/lib/api";
 import { cn, formatINR, formatPrice, pnlColor } from "@/lib/utils";
 import { AddFundsWizard } from "@/components/wallet/AddFundsWizard";
 import { MarketOverview } from "@/components/trading/MarketOverview";
-import { TopMovers } from "@/components/trading/TopMovers";
 import { MobileNews } from "@/components/trading/MobileNews";
 import { NumberTicker } from "@/components/dashboard/NumberTicker";
 import { AccountHealth } from "@/components/dashboard/AccountHealth";
@@ -215,10 +214,9 @@ export default function DashboardPage() {
           Phones get a live, color-coded market snapshot in place of the
           three small stat tiles — same data plumbing as the terminal's
           instruments panel, ticking via the marketdata WS. */}
+      {/* Mobile market panel — now carries Top Gainers / Top Losers / Most
+          Active as in-panel tabs, so the separate TopMovers section is gone. */}
       <MarketOverview className="sm:hidden" />
-
-      {/* Mobile: live top gainers & losers from a NIFTY large-cap basket. */}
-      <TopMovers className="sm:hidden" />
 
       {/* ── Stat tiles row — desktop only (sm+). Hidden on mobile where
           the MarketOverview above takes their place. ────────────────── */}

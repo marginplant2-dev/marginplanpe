@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -55,6 +55,41 @@ function fmtPrice(n: number): string {
   });
 }
 
+// Tiny intraday trend line per row (today's 5-min closes), colored up/down.
+function MiniSpark({ token, up }: { token: string; up: boolean }) {
+  const { data } = useQuery<any[]>({
+    queryKey: ["mkt-spark", token],
+    queryFn: () => InstrumentAPI.history(token, "5minute", 1),
+    staleTime: 5 * 60_000,
+  });
+  const closes = useMemo(
+    () => (data ?? []).map((c: any) => Number(c?.close ?? 0)).filter((n) => n > 0),
+    [data],
+  );
+  if (closes.length < 2) return <div className="h-7 w-16 shrink-0" />;
+  const min = Math.min(...closes);
+  const max = Math.max(...closes);
+  const range = max - min || 1;
+  const W = 64;
+  const H = 28;
+  const pts = closes
+    .map((c, i) => `${((i / (closes.length - 1)) * W).toFixed(1)},${(H - ((c - min) / range) * H).toFixed(1)}`)
+    .join(" ");
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="h-7 w-16 shrink-0" preserveAspectRatio="none">
+      <polyline
+        points={pts}
+        fill="none"
+        stroke={up ? "#10b981" : "#ef4444"}
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
+}
+
 // Curated dashboard watchlist — Indian indices + one large-cap + crypto +
 // gold. `q` is the search query, `match` the acceptable symbol(s) so we can
 // pick the cash/spot row over any F&O contract that shares the name.
@@ -73,7 +108,12 @@ const WATCHLIST: {
   { q: "NIFTY 50", short: "NIFTY", name: "Nifty 50", match: ["NIFTY 50", "NIFTY"] },
   { q: "NIFTY BANK", short: "BANKNIFTY", name: "Bank Nifty", match: ["NIFTY BANK", "BANKNIFTY"] },
   { q: "SENSEX", short: "SENSEX", name: "BSE Sensex", match: ["SENSEX"], token: "265", exchange: "BSE", segment: "INDICES" },
+  { q: "RELIANCE", short: "RELIANCE", name: "Reliance Industries", match: ["RELIANCE"] },
   { q: "HDFCBANK", short: "HDFCBANK", name: "HDFC Bank", match: ["HDFCBANK"] },
+  { q: "TCS", short: "TCS", name: "Tata Consultancy", match: ["TCS"] },
+  { q: "INFY", short: "INFY", name: "Infosys", match: ["INFY"] },
+  { q: "ICICIBANK", short: "ICICIBANK", name: "ICICI Bank", match: ["ICICIBANK"] },
+  { q: "SBIN", short: "SBIN", name: "State Bank of India", match: ["SBIN"] },
   { q: "BTCUSD", short: "BTCUSD", name: "Bitcoin", match: ["BTCUSD", "BTCUSDT"] },
   { q: "XAUUSD", short: "GOLD", name: "Gold (XAU/USD)", match: ["XAUUSD", "GOLD"] },
 ];
@@ -158,6 +198,36 @@ export function MarketOverview({ className }: { className?: string }) {
 
   const loading = isLoading;
 
+  const [tab, setTab] = useState<"gainers" | "losers" | "active">("gainers");
+
+  // Merge quotes → sortable rows (with the last-close fallback), then order by
+  // the active tab and show the top set.
+  const rows = useMemo(() => {
+    const withQ = items.map((it) => {
+      const q = quoteByToken.get(String(it.token));
+      const live = Number(q?.ltp ?? 0);
+      const last = Number(q?.last_ltp ?? 0);
+      const prev = Number(q?.prev_close ?? 0);
+      const ltp = live > 0 ? live : last;
+      let pct = Number(q?.change_pct ?? 0);
+      if (live <= 0 && last > 0 && prev > 0) pct = ((last - prev) / prev) * 100;
+      return { ...it, _pct: pct, _vol: Number(q?.volume ?? 0), _ltp: ltp };
+    });
+    const sorted =
+      tab === "gainers"
+        ? [...withQ].sort((a, b) => b._pct - a._pct)
+        : tab === "losers"
+          ? [...withQ].sort((a, b) => a._pct - b._pct)
+          : [...withQ].sort((a, b) => b._vol - a._vol);
+    return sorted.slice(0, 8);
+  }, [items, quoteByToken, tab]);
+
+  const TABS: { key: typeof tab; label: string }[] = [
+    { key: "gainers", label: "Top Gainers" },
+    { key: "losers", label: "Top Losers" },
+    { key: "active", label: "Most Active" },
+  ];
+
   return (
     <section
       className={cn(
@@ -166,17 +236,36 @@ export function MarketOverview({ className }: { className?: string }) {
       )}
     >
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+      <div className="flex items-center justify-between px-4 pb-2 pt-3">
         <div className="flex items-center gap-2">
           <span className="relative flex size-2">
             <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500/60" />
             <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
           </span>
-          <h3 className="text-sm font-bold tracking-tight">Market overview</h3>
+          <h3 className="text-sm font-bold tracking-tight">Market Overview</h3>
         </div>
         <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
           Live
         </span>
+      </div>
+
+      {/* Tabs — Top Gainers / Top Losers / Most Active */}
+      <div className="flex gap-1.5 border-b border-border px-3 pb-2.5">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setTab(t.key)}
+            className={cn(
+              "rounded-full px-3 py-1 text-[12px] font-semibold transition-colors",
+              tab === t.key
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:bg-muted/50",
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
       {/* Rows */}
@@ -202,7 +291,7 @@ export function MarketOverview({ className }: { className?: string }) {
         </div>
       ) : (
         <ul className="divide-y divide-border">
-          {items.map((item, i) => (
+          {rows.map((item, i) => (
             <MarketRow
               key={item.token}
               item={item}
@@ -270,6 +359,9 @@ function MarketRow({
             {item._name ?? item.name}
           </div>
         </div>
+
+        {/* Mini intraday trend */}
+        {hasQuote && <MiniSpark token={String(item.token)} up={up} />}
 
         {/* Price + change pill */}
         <div className="shrink-0 text-right">
