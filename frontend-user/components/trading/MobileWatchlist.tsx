@@ -25,8 +25,8 @@ interface Props {
   ) => void;
 }
 
-// Segment tabs for the "Add scripts" screen (Zerodha-style). `admin` is the
-// backend segment-settings row used to hide a segment the pool disabled.
+// Segment tabs for the "Add scripts" screen. `admin` is the backend
+// segment-settings row used to hide a segment the pool disabled.
 type AddSeg = { key: string; label: string; segments: string; admin: string };
 const ADD_SEGMENTS: AddSeg[] = [
   { key: "nse_fut", label: "Futures", admin: "NSE_FUT", segments: "NSE_FUTURE,NSE_INDEX_FUTURE" },
@@ -309,11 +309,13 @@ function AddScriptsSheet({
   }, [segments, segKey]);
   const seg = segments.find((s) => s.key === segKey) ?? segments[0];
 
+  const hasSearch = debounced.trim().length > 0;
+  // Instruments appear only AFTER the user searches (on-demand) — the segment
+  // tab just scopes that search. Nothing is browse-loaded on open.
   const { data: hits, isFetching } = useQuery<any[]>({
     queryKey: ["add-scripts", seg?.segments, debounced],
-    queryFn: () =>
-      InstrumentAPI.search(debounced || undefined, undefined, seg?.segments, 50),
-    enabled: !!seg,
+    queryFn: () => InstrumentAPI.search(debounced, undefined, seg?.segments, 50),
+    enabled: !!seg && hasSearch,
     staleTime: 60_000,
     placeholderData: (prev) => prev,
   });
@@ -409,7 +411,11 @@ function AddScriptsSheet({
 
       {/* Results — name-only picker with +/✓ */}
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin" style={{ WebkitOverflowScrolling: "touch" }}>
-        {(hits ?? []).length === 0 ? (
+        {!hasSearch ? (
+          <div className="grid h-40 place-items-center px-6 text-center text-xs text-muted-foreground">
+            Search a script in {seg?.label} to add it.
+          </div>
+        ) : (hits ?? []).length === 0 ? (
           <div className="grid h-24 place-items-center text-xs text-muted-foreground">
             {isFetching ? "Loading…" : "No scripts found"}
           </div>
