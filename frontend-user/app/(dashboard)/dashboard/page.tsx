@@ -121,7 +121,7 @@ export default function DashboardPage() {
       {/* Full-bleed: negative margins cancel the layout's p-4 / md:p-6 gutter
           so the card touches both screen edges (no side gap). */}
       <section
-        className="relative -mx-4 overflow-hidden rounded-2xl px-[18px] pb-3 pt-[18px] text-white shadow-xl md:-mx-6 lg:hidden"
+        className="relative -mx-4 !mt-2 overflow-hidden rounded-2xl px-[18px] pb-3 pt-[18px] text-white shadow-xl md:-mx-6 lg:hidden"
         style={{
           background: "linear-gradient(135deg,#2563EB,#1D4ED8,#1E40AF)",
           boxShadow: "0 10px 28px rgba(29,78,216,0.35)",
