@@ -14,6 +14,7 @@ import {
   Landmark,
   LineChart,
   Lock,
+  Receipt,
   Table2,
   TrendingUp,
   Wallet,
@@ -189,11 +190,12 @@ export default function DashboardPage() {
       </section>
 
       {/* ── Quick actions — mobile/tablet only ─────────────────── */}
-      <section className="grid grid-cols-4 gap-2 sm:gap-3 lg:hidden">
-        <QuickAction onClick={() => setDepositOpen(true)} icon={ArrowDownToLine} label="Deposit" />
-        <QuickAction href="/option-chain" icon={Table2} label="Options" />
-        <QuickAction href="/positions" icon={Briefcase} label="Position" />
-        <QuickAction href="/marketwatch" icon={LineChart} label="Market" />
+      <section className="grid grid-cols-5 gap-2 sm:gap-3 lg:hidden">
+        <QuickAction onClick={() => setDepositOpen(true)} icon={ArrowDownToLine} label="Deposit" iconBg="#DBEAFE" iconColor="#2563EB" />
+        <QuickAction href="/orders" icon={Receipt} label="Orders" iconBg="#EDE9FE" iconColor="#8B5CF6" />
+        <QuickAction href="/positions" icon={Briefcase} label="Positions" iconBg="#D1FAE5" iconColor="#10B981" />
+        <QuickAction href="/option-chain" icon={Table2} label="Options" iconBg="#FFEDD5" iconColor="#F97316" />
+        <QuickAction href="/marketwatch" icon={LineChart} label="Watchlist" iconBg="#FCE7F3" iconColor="#EC4899" />
       </section>
 
       {/* Add-funds 4-step wizard — same flow as the Wallet page. */}
@@ -484,20 +486,27 @@ function QuickAction({
   onClick,
   icon: Icon,
   label,
+  iconBg,
+  iconColor,
 }: {
   href?: string;
   onClick?: () => void;
   icon: any;
   label: string;
+  iconBg: string;
+  iconColor: string;
 }) {
   const cls = cn(
-    "flex flex-col items-center justify-center gap-1.5 rounded-xl border border-border bg-card p-3 text-[11px] font-medium transition-all",
-    "hover:border-primary/40 hover:bg-primary/5 active:scale-95",
+    "flex flex-col items-center justify-center gap-1.5 rounded-xl border border-border bg-card p-2.5 text-[11px] font-semibold transition-all",
+    "hover:shadow-md active:scale-95",
   );
   const inner = (
     <>
-      <div className="grid size-10 place-items-center rounded-full bg-primary/10 text-primary">
-        <Icon className="size-5" strokeWidth={2.25} />
+      <div
+        className="grid size-11 place-items-center rounded-xl"
+        style={{ background: iconBg }}
+      >
+        <Icon className="size-5" strokeWidth={2.25} style={{ color: iconColor }} />
       </div>
       <span>{label}</span>
     </>
