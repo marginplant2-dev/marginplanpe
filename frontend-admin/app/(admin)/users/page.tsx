@@ -29,7 +29,11 @@ import { useAdminAuthStore } from "@/stores/authStore";
  * unique tokens — so the per-tick cost scales with unique tokens, not
  * row count.
  */
-const LIVE_STATS_REFETCH_MS = 1500;
+// 3s (was 1.5s): the live balance/P&L/equity enrichment for every visible
+// user recomputes server-side each tick. Balances don't move fast enough on a
+// user-list screen to justify 1.5s; 3s halves that recurring server load with
+// no felt loss.
+const LIVE_STATS_REFETCH_MS = 3000;
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);

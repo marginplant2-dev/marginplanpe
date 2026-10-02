@@ -37,7 +37,10 @@ export default function AdminReportsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["admin", "platform-reports"],
     queryFn: () => PlatformReportsAPI.get(),
-    refetchInterval: 30_000,
+    // 60s (was 30s): a platform-wide aggregation report, not a live feed —
+    // halve the idle re-run cost. Prewarmed by AdminPrefetcher so the first
+    // visit paints from cache instead of this heavy query blocking.
+    refetchInterval: 60_000,
   });
 
   if (isLoading || !data) {
