@@ -167,12 +167,14 @@ export default function DashboardPage() {
               {hideBalance ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
             </button>
           </div>
-          <button
-            onClick={() => setDepositOpen(true)}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-semibold"
+          {/* Wallet — highlighted amber pill so it stands out against the blue
+              card (admin-requested replacement for the old "Add funds" chip). */}
+          <Link
+            href="/wallet"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-amber-400 px-3.5 py-1.5 text-[11px] font-bold text-[#1E3A8A] shadow-md ring-1 ring-amber-300/60 active:scale-95"
           >
-            <ArrowDownToLine className="size-3.5" /> Add funds
-          </button>
+            <Wallet className="size-3.5" /> Wallet
+          </Link>
         </div>
 
         {/* Value */}
