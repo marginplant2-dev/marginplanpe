@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowDownLeft, ArrowUpRight, ChevronDown, Scale, Wallet } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { ArrowDownLeft, ArrowUpRight, ChevronDown, Minus, Plus, Scale, Wallet } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -65,7 +66,49 @@ function txLabel(tt: string, amt: number): string {
 }
 
 export function LedgerSheet({ open, onClose, user }: Props) {
+  const qc = useQueryClient();
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  // Inline Add Fund / Deduct Fund — the user is already known, so no search.
+  const [fundMode, setFundMode] = useState<"add" | "deduct" | null>(null);
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState("");
+  const [posting, setPosting] = useState(false);
+
+  function startFund(mode: "add" | "deduct") {
+    setFundMode((cur) => (cur === mode ? null : mode));
+    setAmount("");
+    setReason("");
+  }
+
+  async function submitFund() {
+    if (!user) return;
+    const amt = Number(amount);
+    if (!(amt > 0)) return toast.error("Enter a valid amount");
+    if (!reason.trim()) return toast.error("A reason is required (audit trail)");
+    setPosting(true);
+    try {
+      await LedgerAdminAPI.manualEntry({
+        user_id: user.id,
+        amount: fundMode === "add" ? amt : -amt,
+        transaction_type: "ADJUSTMENT",
+        narration: reason.trim(),
+      });
+      toast.success(`${fundMode === "add" ? "Added" : "Deducted"} ${formatINR(amt)}`);
+      setFundMode(null);
+      setAmount("");
+      setReason("");
+      // Refresh this sheet (balance + txns) and every list that shows the money.
+      qc.invalidateQueries({ queryKey: ["admin", "ledger", "user", user.id] });
+      qc.invalidateQueries({ queryKey: ["admin", "user", user.id] });
+      qc.invalidateQueries({ queryKey: ["admin", "ledger"] });
+      qc.invalidateQueries({ queryKey: ["admin", "users"] });
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail ?? e?.message ?? "Failed to post entry");
+    } finally {
+      setPosting(false);
+    }
+  }
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin", "ledger", "user", user?.id],
@@ -147,6 +190,76 @@ export function LedgerSheet({ open, onClose, user }: Props) {
             icon={<Scale className="size-3.5" />}
           />
         </div>
+
+        {/* Add / Deduct fund — credits/debits this user's wallet instantly */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => startFund("add")}
+            className={`inline-flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-bold transition-colors ${
+              fundMode === "add"
+                ? "bg-emerald-600 text-white"
+                : "border border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400"
+            }`}
+          >
+            <Plus className="size-4" /> Add fund
+          </button>
+          <button
+            type="button"
+            onClick={() => startFund("deduct")}
+            className={`inline-flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-bold transition-colors ${
+              fundMode === "deduct"
+                ? "bg-red-600 text-white"
+                : "border border-red-500/40 text-red-600 hover:bg-red-500/10 dark:text-red-400"
+            }`}
+          >
+            <Minus className="size-4" /> Deduct fund
+          </button>
+        </div>
+
+        {fundMode && (
+          <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-3">
+            <div className="text-sm font-semibold">
+              {fundMode === "add" ? "Add fund to" : "Deduct fund from"}{" "}
+              <span className="text-primary">{user?.user_code || user?.full_name}</span>
+            </div>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="Amount (₹)"
+              autoFocus
+              className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+            />
+            <input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Reason (required — audit trail)"
+              className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+            />
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setFundMode(null)}
+                className="flex-1 rounded-lg border border-border py-2 text-sm font-medium hover:bg-muted/40"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitFund}
+                disabled={posting}
+                className={`flex-1 rounded-lg py-2 text-sm font-bold text-white disabled:opacity-50 ${
+                  fundMode === "add" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
+                }`}
+              >
+                {posting ? "Posting…" : fundMode === "add" ? "Add fund" : "Deduct fund"}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Transactions */}
         <div>
