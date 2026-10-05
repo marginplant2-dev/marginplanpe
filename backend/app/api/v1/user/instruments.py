@@ -402,9 +402,26 @@ async def search(
 
     if (seg_list or it_list) and _seg_needs_zerodha:
         try:
-            # Ensure cache is warm before scanning.
-            if not _zerodha._instruments_cache:
-                for ex in ("NSE", "NFO", "MCX", "BFO", "BSE"):
+            # Ensure the exchanges THIS query needs are warm before scanning.
+            # The boot warm only loads NSE/NFO/MCX, so a BSE/BFO query
+            # (SENSEX / BANKEX options + futures) used to scan an empty BFO
+            # cache and return "No scripts found" — the cache was non-empty
+            # (NSE/NFO/MCX present) so the old `if not cache` guard never
+            # re-fetched BFO. Warm any MISSING needed exchange on demand;
+            # fetch_instruments is Redis-shared so it stays warm after.
+            needed_ex: set[str] = set()
+            for s in seg_list:
+                su = s.upper()
+                if su.startswith("NSE_"):
+                    needed_ex |= {"NSE", "NFO"}
+                elif su.startswith("BSE_"):
+                    needed_ex |= {"BSE", "BFO"}
+                elif su.startswith("MCX_"):
+                    needed_ex |= {"MCX"}
+            if not needed_ex:
+                needed_ex = {"NSE", "NFO", "MCX", "BFO", "BSE"}
+            for ex in needed_ex:
+                if not _zerodha._instruments_cache.get(ex):
                     try:
                         await _zerodha.fetch_instruments(ex)
                     except Exception:
