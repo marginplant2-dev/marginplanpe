@@ -33,12 +33,11 @@ interface Props {
 // feed browses without searching, exactly like before.
 type AddSeg = { key: string; label: string; segments: string; admin: string; managed?: boolean };
 const ADD_SEGMENTS: AddSeg[] = [
-  // Futures / Options include the BSE (BFO) legs too so SENSEX / BANKEX
-  // contracts surface — those live on exchange BFO, matched by the UI segment
-  // values BSE_FUTURE / BSE_OPTION_*. The backend still hides them when the
-  // pool has BSE_FUT / BSE_OPT disabled.
-  { key: "nse_fut", label: "Futures", admin: "NSE_FUT", segments: "NSE_FUTURE,NSE_INDEX_FUTURE,BSE_FUTURE,BSE_INDEX_FUTURE", managed: true },
-  { key: "nse_opt", label: "Options", admin: "NSE_OPT", segments: "NSE_INDEX_OPTION_BUY,NSE_INDEX_OPTION_SELL,NSE_STOCK_OPTION_BUY,NSE_STOCK_OPTION_SELL,BSE_OPTION_BUY,BSE_OPTION_SELL", managed: true },
+  { key: "nse_fut", label: "Futures", admin: "NSE_FUT", segments: "NSE_FUTURE,NSE_INDEX_FUTURE", managed: true },
+  { key: "nse_opt", label: "Options", admin: "NSE_OPT", segments: "NSE_INDEX_OPTION_BUY,NSE_INDEX_OPTION_SELL,NSE_STOCK_OPTION_BUY,NSE_STOCK_OPTION_SELL", managed: true },
+  // Dedicated BSE (BFO) options tab — SENSEX / BANKEX options. Matched by the
+  // UI segment values BSE_OPTION_*; backend hides it when BSE_OPT is disabled.
+  { key: "bse_opt", label: "BSE Option", admin: "BSE_OPT", segments: "BSE_OPTION_BUY,BSE_OPTION_SELL", managed: true },
   { key: "nse_eq", label: "NSE EQ", admin: "NSE_EQ", segments: "NSE_EQUITY", managed: true },
   { key: "bse_eq", label: "BSE EQ", admin: "BSE_EQ", segments: "BSE_EQUITY", managed: true },
   { key: "mcx_fut", label: "MCX", admin: "MCX_FUT", segments: "MCX_FUTURE", managed: true },
