@@ -1343,7 +1343,13 @@ async def validate(
             # commodity keep the lenient 600 s session gate (operator: "sirf
             # option ke liye, NRML me kuch mat karna"). Options are identified by
             # their segment name (…_OPTION_… for NSE/BSE index+stock and MCX).
-            _OPTION_STALE_SEC = 25
+            # Operator (2026-10-06): tightened 25s → 5s — block an option order
+            # if its LTP hasn't ticked in the last 5s. Env-tunable via
+            # OPTION_STALE_SEC so it can be relaxed without a redeploy if quiet /
+            # illiquid strikes start false-blocking.
+            import os as _os
+
+            _OPTION_STALE_SEC = max(1, int(_os.getenv("OPTION_STALE_SEC", "5")))
             _is_option = "OPTION" in (segment_type or "").upper()
             _stale_limit = _OPTION_STALE_SEC if _is_option else _SESSION_STALE_SEC
 
